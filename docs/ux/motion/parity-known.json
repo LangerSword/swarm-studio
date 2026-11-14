@@ -631,8 +631,8 @@
   },
   {
     "key": "app only in /: page @in 250ms x1 ease-out",
-    "label": "drift",
-    "why": "The current App room fades each build step into its list (.app-steps .st, @in 250 ms); the /next/ wall has no step list: its Shipped window shows the last step, drawn at once."
+    "label": "intended (PR #477)",
+    "why": "The App room moved as spec 44's build wall, four windows (#477): a new design, not the current room's code wall, so its entrance and Hermia's work on its loading window differ on purpose."
   },
   {
     "key": "app only in /: page @radio-dash endless 800ms linear",
@@ -641,18 +641,18 @@
   },
   {
     "key": "app only in /next/: page @pet-dot endless 1000ms ease-in-out",
-    "label": "drift",
-    "why": "While the app builds and has no address yet, the /next/ wall's Live window says it is busy (aria-busy) and Hermia works on it (web/pet.js PET_BUSY); the current App room shows the same build with a step list and no placeholder she works on."
+    "label": "intended (PR #477)",
+    "why": "The App room moved as spec 44's build wall, four windows (#477): a new design, not the current room's code wall, so its entrance and Hermia's work on its loading window differ on purpose."
   },
   {
     "key": "app only in /next/: page @pet-tap endless 700ms ease-in-out",
-    "label": "drift",
-    "why": "While the app builds and has no address yet, the /next/ wall's Live window says it is busy (aria-busy) and Hermia works on it (web/pet.js PET_BUSY); the current App room shows the same build with a step list and no placeholder she works on."
+    "label": "intended (PR #477)",
+    "why": "The App room moved as spec 44's build wall, four windows (#477): a new design, not the current room's code wall, so its entrance and Hermia's work on its loading window differ on purpose."
   },
   {
     "key": "app only in /next/: page ~opacity 200ms x1 ease",
-    "label": "drift",
-    "why": "While the app builds and has no address yet, the /next/ wall's Live window says it is busy (aria-busy) and Hermia works on it (web/pet.js PET_BUSY); the current App room shows the same build with a step list and no placeholder she works on."
+    "label": "intended (PR #477)",
+    "why": "The App room moved as spec 44's build wall, four windows (#477): a new design, not the current room's code wall, so its entrance and Hermia's work on its loading window differ on purpose."
   },
   {
     "key": "app reduced cursor Ada: only in /",
