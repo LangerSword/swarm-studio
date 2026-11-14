@@ -115,6 +115,11 @@
     "why": "The current Game room fades its panel in (@in, 250 ms) when a version opens from the Overview; at /next/ the Game room is still the stand-in, so nothing fades."
   },
   {
+    "key": "game reduced cursor Hermia: apart",
+    "label": "drift",
+    "why": "With reduced motion asked for, Hermia in the current Studio works on another page skeleton (665,176) than the next UI's (365,179); in normal motion the two now match."
+  },
+  {
     "key": "make only in /next/: page ~filter 150ms x1 cubic-bezier(0.4, 0, 0.2, 1)",
     "label": "drift",
     "why": "The kit's Button brightens on hover in 150 ms (ui/src/primitives/Button.tsx); the current Make box's button changes at once. Reduced motion turns it off."
@@ -218,6 +223,11 @@
     "key": "overview reduced cursor Bo: only in /",
     "label": "drift",
     "why": "The current Overview shows the crew's cursors over the artboards they are writing while a build runs; the /next/ Overview does not draw them yet."
+  },
+  {
+    "key": "overview reduced cursor Hermia: apart",
+    "label": "drift",
+    "why": "With reduced motion asked for, Hermia in the current Studio works on another page skeleton (665,176) than the next UI's (365,179); in normal motion the two now match."
   },
   {
     "key": "play cursor Ada: only in /",

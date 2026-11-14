@@ -37,7 +37,7 @@ const GRID = 'grid grid-cols-[repeat(auto-fill,minmax(232px,1fr))] content-start
 // Studio (web/home.js), so Hermia works on the first card, not on the whole grid
 const Waiting = () => (
   <div role="status" aria-label="Loading projects" className={GRID}>
-    {[0, 1, 2, 3].map(i => <div key={i} className="wait-in" aria-busy="true"><div className="aspect-[16/10] rounded-[12px] bg-surface-2" /><b className="mt-2.5 block h-2.5 w-[42%] rounded-full bg-surface-2" /></div>)}
+    {[0, 1, 2, 3].map(i => <div key={i} className="card wait-in" aria-busy="true"><div className="aspect-[16/10] rounded-[12px] bg-surface-2" /><b className="mt-2.5 block h-2.5 w-[42%] rounded-full bg-surface-2" /></div>)}
   </div>
 )
 
