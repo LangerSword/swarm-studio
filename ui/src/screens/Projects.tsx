@@ -33,10 +33,11 @@ const NONE: Record<string, [string, string, boolean]> = {
 const CHAT_ICON: Record<string, string> = { site: 'site', app: 'code', game: 'game', film: 'film' }
 const GRID = 'grid grid-cols-[repeat(auto-fill,minmax(232px,1fr))] content-start gap-x-[22px] gap-y-[26px] max-md:grid-cols-2 max-md:gap-x-3 max-md:gap-y-[18px]'
 
-// the list on its way: the cards' shape, nothing to click
+// the list on its way: the cards' shape, nothing to click. Each card says it is on its way, as in the current
+// Studio (web/home.js), so Hermia works on the first card, not on the whole grid
 const Waiting = () => (
-  <div aria-busy="true" aria-label="Loading projects" className={GRID}>
-    {[0, 1, 2, 3].map(i => <div key={i} className="wait-in"><div className="aspect-[16/10] rounded-[12px] bg-surface-2" /><b className="mt-2.5 block h-2.5 w-[42%] rounded-full bg-surface-2" /></div>)}
+  <div role="status" aria-label="Loading projects" className={GRID}>
+    {[0, 1, 2, 3].map(i => <div key={i} className="wait-in" aria-busy="true"><div className="aspect-[16/10] rounded-[12px] bg-surface-2" /><b className="mt-2.5 block h-2.5 w-[42%] rounded-full bg-surface-2" /></div>)}
   </div>
 )
 
@@ -361,7 +362,8 @@ export function Projects() {
           <Logo />
         </div>
         <MakeBox inputRef={input} />
-        <div className="relative mb-4 flex items-center gap-1.5">
+        {/* the title row waits for the list, as the current Studio's .hm-bar does: empty but for its margin */}
+        <div className={`relative mb-4 flex items-center gap-1.5 ${loaded ? '' : 'invisible h-0'}`}>
           {stack && <IconButton icon="chl" label="Back" onPress={() => setStack(null)} />}
           <h2 className="m-0 mr-auto min-w-0 truncate font-display text-[26px] leading-none font-extrabold uppercase max-md:text-[22px]">{title}</h2>
           {(searching || q) && (

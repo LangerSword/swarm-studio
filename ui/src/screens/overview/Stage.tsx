@@ -162,7 +162,9 @@ export const Stage = forwardRef<StageHandle, {
     </section>
   )
   return (
-    <div ref={stage} className="ov-stage" aria-label="Overview" aria-busy={waiting || undefined}
+    // only the waiting pages say they are on their way (WaitingPages), as in the current Studio: Hermia works on the
+    // first of them, not on the whole stage
+    <div ref={stage} className="ov-stage" aria-label="Overview"
       onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={e => { touches.current.delete(e.pointerId); pinch.current = null; drag.current = null }}>
       <div ref={world} className="ov-world"
         onClick={e => { const k = key(e); if (k && e.detail < 2) onSelect(k) }}
