@@ -116,6 +116,22 @@ export function StudioFirst() {
     // it follows the idea the talk starts with (its turns are stamped as the chat draws them, just after this)
     return text ? [{ id: `start:${d.project.id}`, at: Date.now() + 1000, who: 'hermia', text }] : []
   }, [d?.project.id, !!d?.studio.idea]) // the start line, once per project
+  // no Hermes: the walk opens all the same (it builds nothing), and Hermia's line says why Build will wait and what
+  // to do. It stays until Hermes is there, looked at again every 5 s meanwhile (#541)
+  const [hermesOff, setHermesOff] = useState<ChatLine | null>(null)
+  useEffect(() => {
+    if (!pid) return
+    let on = true, timer = 0
+    const look = () => fetch(`${window.SWARM?.base || ''}/api/hermes?ready=1`, { headers: { 'x-swarm-token': window.SWARM?.token ?? '' } })
+      .then(r => (r.ok ? r.json() : null)).then((j: { needed?: boolean, health?: { ok?: boolean, message?: string, action?: string } } | null) => {
+        if (!on) return
+        const off = !!(j?.needed && j.health && !j.health.ok)
+        setHermesOff(cur => (!off ? null : cur ?? { id: `hermes:${pid}`, at: Date.now() + 2000, who: 'hermia', text: `${j!.health!.message} ${String(j!.health!.action || '').replace(/`/g, '')}` }))
+        if (off) timer = window.setTimeout(look, 5000)
+      }).catch(() => {})
+    look()
+    return () => { on = false; clearTimeout(timer) }
+  }, [pid])
   // ---------- Hermia walks the steps (#541, decision 0015): one line when a step is done or skipped, saying what it
   // meant and which step is next; a mood picked gets its own. The same words as the current Studio's (web/walkline.js)
   const order = walkOf(steps)
@@ -134,7 +150,7 @@ export function StudioFirst() {
     if (pack && pack !== was.pack) say(moodLine(moods?.packs?.find(p => p.slug === pack)?.name || 'That mood', nextStep(order, now, 'brand'), STEP_NAME))
   })
   useEffect(() => { setWalked([]) }, [pid])
-  const said = useMemo(() => [...lines, ...walked], [lines, walked])
+  const said = useMemo(() => [...lines, ...walked, ...(hermesOff ? [hermesOff] : [])], [lines, walked, hermesOff])
   const heard = useCallback((text: string) => {
     if (!pid || d?.studio.idea) return
     fetch(`${window.SWARM?.base || ''}/api/studio/${encodeURIComponent(pid)}/idea`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-swarm-token': window.SWARM?.token ?? '' }, body: JSON.stringify({ idea: text }) })
