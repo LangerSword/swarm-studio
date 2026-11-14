@@ -85,6 +85,9 @@ export function CrewCursors({ model, cam, stage, target }: {
         if (!t) continue
         // a new section: the marquee over it, then back to following the words
         let g = gestures.current.get(a.id)
+        // only a section taken while the cursor is on screen: a build opened half way (its agents already in their
+        // sections) draws no marquee, as the current deck draws none
+        if (a.layer && !g) gestures.current.set(a.id, g = { layer: a.layer, t0: -Infinity, p0: t, p1: t, ghost: null })
         if (a.layer && g?.layer !== a.layer) {
           if (g?.ghost) g.ghost.remove()
           g = { layer: a.layer, t0: performance.now(), p0: { x: t.x - 24, y: t.y - 20 }, p1: { x: t.x - 24 + MARQUEE.w, y: t.y - 20 + MARQUEE.h }, ghost: null }
