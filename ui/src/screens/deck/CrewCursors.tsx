@@ -7,7 +7,7 @@
 // Taking a new section, a cursor drags a marquee over where it will write, as the current deck's gesture does
 // (web/canvas/deck.js startGesture 'marquee', web/canvas.css .ghost): 900 ms, the first 15% walking to its corner,
 // the arrow pressed while it drags, and the dashed box fading out over 350 ms when it lets go.
-import { useEffect, useRef, type RefObject } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { crew } from './crew'
 import type { DeckAgent, DeckLayer, DeckModel } from './model'
 import './deck.css'
@@ -122,12 +122,31 @@ export function CrewCursors({ model, cam, stage, target }: {
     return () => cancelAnimationFrame(raf)
   }, [stage])
 
+  // An agent that stops writing: its cursor fades out where it was (the current deck's .cursor opacity .6s) and goes.
+  // Decided while drawing, so the same element stays and fades; a timer draws again once the fade is over.
+  const working = model.agents.filter(a => a.layer && target(a)).map(a => a.id)
+  const was = useRef<string[]>([])
+  const leaving = useRef(new Map<string, number>())
+  const nowMs = Date.now()
+  for (const id of was.current) if (!working.includes(id) && !leaving.current.has(id)) leaving.current.set(id, nowMs + 600)
+  for (const id of working) leaving.current.delete(id)
+  for (const [id, until] of leaving.current) if (until <= nowMs) leaving.current.delete(id)
+  was.current = working
+  const [, redraw] = useState(0)
+  const next = Math.min(...leaving.current.values())
+  useEffect(() => {
+    if (!Number.isFinite(next)) return
+    const t = setTimeout(() => redraw(n => n + 1), Math.max(0, next - Date.now()) + 20)
+    return () => clearTimeout(t)
+  }, [next])
+  const shown = model.agents.filter(a => working.includes(a.id) || leaving.current.has(a.id))
+
   return (
     <div ref={layer} aria-hidden className="deck-crew pointer-events-none absolute inset-0">
-      {model.agents.filter(a => a.layer && target(a)).map(a => {
+      {shown.map(a => {
         const c = crew().color(a.name)
         return (
-          <div key={a.id} data-agent={a.name} className="cursor" ref={el => { if (el) els.current.set(a.id, el); else els.current.delete(a.id) }}>
+          <div key={a.id} data-agent={a.name} className={`cursor ${working.includes(a.id) ? '' : 'leaving'}`} ref={el => { if (el) els.current.set(a.id, el); else els.current.delete(a.id) }}>
             <svg className="nib" viewBox="0 0 10 10" width="14" height="14"><path d="M.6.6L9.2 4 5 5 4 9.2z" fill={c} stroke="#0b0b0c" strokeWidth="1" strokeLinejoin="round" /></svg>
             <div className="tag" style={{ background: c, color: crew().ink(c) }}><span>{a.name}</span><em className="doing" /></div>
             <div className="bubble" style={{ color: c }}><span>{a.said?.text}</span></div>
