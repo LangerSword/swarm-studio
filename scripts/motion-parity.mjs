@@ -244,7 +244,8 @@ function diff(name, [c1, c2, n1, n2]) {
   const far = {}
   const steps = Math.min(...[c1, c2, n1, n2].map(r => r.steps.length))
   for (let i = 0; i < steps; i++) {
-    const at = r => Object.fromEntries(r.steps[i].cursors.map(c => [c.id, c]))
+    // what a person sees: a cursor outside the 1280 x 800 view (a docked one below the fold, say) is not on screen
+    const at = r => Object.fromEntries(r.steps[i].cursors.filter(c => c.x > -24 && c.y > -24 && c.x < 1280 && c.y < 800).map(c => [c.id, c]))
     const [A1, A2, B1, B2] = [c1, c2, n1, n2].map(at)
     const ids = either(both(Object.keys(A1), Object.keys(A2)), both(Object.keys(B1), Object.keys(B2)))
     for (const who of ids) {
