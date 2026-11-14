@@ -15,7 +15,7 @@ import { paintReplay, viewing, files, loadFiles, fileMatch, fileInfo, saveMeta, 
 import { progressLine } from '../replaytalk.js'
 import { pub, liveUrl, publishNow } from './publish.js'
 import { shownRun, video, VIDEO_STYLES, makeVideo, showRun, runNow } from './film.js'
-import { appv, appAsk, setView, buildApp, openGame, openCastOnly, sliceGo, view, stageSay, mediaBlock, mapSay, mapShow } from './rooms.js'
+import { appv, appAsk, setView, buildApp, openGame, openCastOnly, sliceGo, view, stageSay, mediaBlock, mapSay, mapShow, intakeSay } from './rooms.js'
 import { tour, stopTour, closePlayer, watchVisitor, setMotion, openPlayer } from './player.js'
 import { talk, talkSay, readTalk, talkStart, talkAsk, openAsk } from './talk.js'
 import { links, refLines } from './base.js'
@@ -418,6 +418,8 @@ async function sendDock() {
   // the Map, asked for in any mode ("show the map", "what's going on?", "show the enemy AI as a state chart"): shown
   // at once, before a mode or the room could take the words as a change for the builder
   if (!nextRoute && !talk.on && mapSay(els.brief.value.trim())) { els.brief.value = ''; return }
+  // a typed answer about a brought-in project: run it or not, its install scripts or not (web/intake.js)
+  if (!nextRoute?.fresh && intakeSay(els.brief.value)) { nextRoute?.done?.(null); nextRoute = null; els.brief.value = ''; return }
   if (!nextRoute && await modeSend(modeHelp)) return
   const brief = els.brief.value.trim()
   if (!brief) return
