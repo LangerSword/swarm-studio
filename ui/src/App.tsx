@@ -33,7 +33,9 @@ export function App() {
       <TrailProvider>
         <ToastProvider>
           <div className="flex min-h-dvh flex-col bg-bg text-text">
-            <TopBar />
+            {/* Projects fills the window, as the current Studio's does (web/home.css .home): its sidebar has the logo, and
+                its account menu holds Setup and Settings, so it has no top bar */}
+            {view.room !== 'home' && <TopBar />}
             <main className="flex min-h-0 flex-1 flex-col"><Screen /></main>
           </div>
         </ToastProvider>

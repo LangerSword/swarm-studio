@@ -46,8 +46,8 @@
   },
   {
     "key": "brand cursor Hermia: apart",
-    "label": "drift",
-    "why": "Hermia settles beside the card the person last touched (web/pet.js cardEl); the /next/ screens lay their cards out in the frame and the trail differently, so her spot is apart from /'s. She is there, on the same card."
+    "label": "intended (PR #458)",
+    "why": "The chat docks along the bottom (decision 0015), so the Studio's board starts about 300 px further left than in the current Studio, where the chat takes the left column; Hermia rests beside the same card, which is that much further left."
   },
   {
     "key": "brand only in /: page @pet-tap endless 700ms ease-in-out",
@@ -61,8 +61,8 @@
   },
   {
     "key": "brand reduced cursor Hermia: apart",
-    "label": "drift",
-    "why": "Hermia settles beside the card the person last touched (web/pet.js cardEl); the /next/ screens lay their cards out in the frame and the trail differently, so her spot is apart from /'s. She is there, on the same card."
+    "label": "intended (PR #458)",
+    "why": "The chat docks along the bottom (decision 0015), so the Studio's board starts about 300 px further left than in the current Studio, where the chat takes the left column; Hermia rests beside the same card, which is that much further left."
   },
   {
     "key": "deck cursor Ada: only in /",
@@ -110,11 +110,6 @@
     "why": "The current deck keeps each crew cursor on screen (docked when idle); /next/ draws one only while it writes a section."
   },
   {
-    "key": "game cursor Hermia: apart",
-    "label": "drift",
-    "why": "Hermia settles beside the card the person last touched (web/pet.js cardEl); the /next/ screens lay their cards out in the frame and the trail differently, so her spot is apart from /'s. She is there, on the same card."
-  },
-  {
     "key": "game only in /: page @in 250ms x1 ease-out",
     "label": "drift",
     "why": "The current Game room fades its panel in (@in, 250 ms) when a version opens from the Overview; at /next/ the Game room is still the stand-in, so nothing fades."
@@ -122,22 +117,12 @@
   {
     "key": "game reduced cursor Hermia: apart",
     "label": "drift",
-    "why": "Hermia settles beside the card the person last touched (web/pet.js cardEl); the /next/ screens lay their cards out in the frame and the trail differently, so her spot is apart from /'s. She is there, on the same card."
-  },
-  {
-    "key": "make cursor Hermia: apart",
-    "label": "drift",
-    "why": "Hermia settles beside the card the person last touched (web/pet.js cardEl); the /next/ screens lay their cards out in the frame and the trail differently, so her spot is apart from /'s. She is there, on the same card."
+    "why": "With reduced motion asked for, Hermia in the current Studio works on another page skeleton (665,176) than the next UI's (365,179); in normal motion the two now match."
   },
   {
     "key": "make only in /next/: page ~filter 150ms x1 cubic-bezier(0.4, 0, 0.2, 1)",
     "label": "drift",
     "why": "The kit's Button brightens on hover in 150 ms (ui/src/primitives/Button.tsx); the current Make box's button changes at once. Reduced motion turns it off."
-  },
-  {
-    "key": "make reduced cursor Hermia: apart",
-    "label": "drift",
-    "why": "Hermia settles beside the card the person last touched (web/pet.js cardEl); the /next/ screens lay their cards out in the frame and the trail differently, so her spot is apart from /'s. She is there, on the same card."
   },
   {
     "key": "mid-build cursor Ada: only in /",
@@ -230,11 +215,6 @@
     "why": "The current Overview shows the crew's cursors over the artboards they are writing while a build runs; the /next/ Overview does not draw them yet."
   },
   {
-    "key": "overview cursor Hermia: apart",
-    "label": "drift",
-    "why": "Hermia settles beside the card the person last touched (web/pet.js cardEl); the /next/ screens lay their cards out in the frame and the trail differently, so her spot is apart from /'s. She is there, on the same card."
-  },
-  {
     "key": "overview reduced cursor Ada: only in /",
     "label": "drift",
     "why": "The current Overview shows the crew's cursors over the artboards they are writing while a build runs; the /next/ Overview does not draw them yet."
@@ -247,7 +227,7 @@
   {
     "key": "overview reduced cursor Hermia: apart",
     "label": "drift",
-    "why": "Hermia settles beside the card the person last touched (web/pet.js cardEl); the /next/ screens lay their cards out in the frame and the trail differently, so her spot is apart from /'s. She is there, on the same card."
+    "why": "With reduced motion asked for, Hermia in the current Studio works on another page skeleton (665,176) than the next UI's (365,179); in normal motion the two now match."
   },
   {
     "key": "play cursor Ada: only in /",
@@ -308,16 +288,6 @@
     "key": "play reduced cursor Bo: only in /",
     "label": "drift",
     "why": "The current deck keeps each crew cursor on screen (docked when idle); /next/ draws one only while it writes a section."
-  },
-  {
-    "key": "projects cursor Hermia: apart",
-    "label": "drift",
-    "why": "Hermia settles beside the card the person last touched (web/pet.js cardEl); the /next/ screens lay their cards out in the frame and the trail differently, so her spot is apart from /'s. She is there, on the same card."
-  },
-  {
-    "key": "projects reduced cursor Hermia: apart",
-    "label": "drift",
-    "why": "Hermia settles beside the card the person last touched (web/pet.js cardEl); the /next/ screens lay their cards out in the frame and the trail differently, so her spot is apart from /'s. She is there, on the same card."
   },
   {
     "key": "publish cursor Ada: only in /",
@@ -556,13 +526,13 @@
   },
   {
     "key": "studio cursor Hermia: apart",
-    "label": "drift",
-    "why": "The Studio scaffold moved in #423; this differs from / and #423 does not leave it for later."
+    "label": "intended (PR #458)",
+    "why": "The chat docks along the bottom (decision 0015), so the Studio's board starts about 300 px further left than in the current Studio, where the chat takes the left column; Hermia rests beside the same card, which is that much further left."
   },
   {
     "key": "studio reduced cursor Hermia: apart",
-    "label": "drift",
-    "why": "The Studio scaffold moved in #423; this differs from / and #423 does not leave it for later."
+    "label": "intended (PR #458)",
+    "why": "The chat docks along the bottom (decision 0015), so the Studio's board starts about 300 px further left than in the current Studio, where the chat takes the left column; Hermia rests beside the same card, which is that much further left."
   },
   {
     "key": "visitor cursor Ada: only in /",
