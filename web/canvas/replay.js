@@ -214,7 +214,9 @@ export async function openRun(id) {
     if (!S.tEnd && events.length) S.tEnd = events.at(-1).t
     if (S.t0) els.timer.textContent = `${((S.tEnd - S.t0) / 1000).toFixed(1)}s`
     if (S.progress) { S.progress.classList.remove('working'); S.progress.querySelector('.txt').textContent = 'This run stopped before it finished.' }
-    if (S.kind === 'game') setView('app')
+    // a game opens on its App room; an App room the address named (a reload, Back, a link) was entered before its
+    // build was here, so it reads the app now
+    if (S.kind === 'game' || view === 'app') setView('app')
     else if (!events.some(e => e.type === 'layer:done' && e.html)) botMsg('This file was saved before Swarm Studio kept finished sections, so only its plan is shown.')
   }
   setAuto(true)
