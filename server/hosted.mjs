@@ -13,6 +13,7 @@
 // It listens on 0.0.0.0:$PORT (8080) inside its container; the Feed's web container proxies
 // https://swarm.design-bakery.com/studio/app/** to it.
 
+import '../engine/socketsafe.mjs'
 import { createServer } from 'node:http'
 import { createHash, randomBytes } from 'node:crypto'
 import { appendFileSync, createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -441,6 +442,10 @@ const server = createServer(async (req, res) => {
 
   // A finished build's pages, exported when it is posted. Model-written HTML from anyone, so it
   // runs sandboxed in an opaque origin: it can't read the Feed's or the studio's cookies or APIs.
+  // allow-scripts: the export is a React page. allow-popups: its links to the game's Feed page and other sites open
+  // a new tab (target="_blank"); the tab keeps this sandbox (no allow-popups-to-escape-sandbox). No allow-forms: the
+  // export's own script stops every form (engine/export.mjs, submit → preventDefault), so it gave nothing
+  // (docs/engines/dyad.md, "The app's frame").
   const site = path.match(/^\/site\/([\w-]{1,64})(\/[\w./-]*)?$/)
   if (site) {
     if (!site[2]) return res.writeHead(301, { location: `${BASE}/site/${site[1]}/` }).end()
@@ -450,7 +455,7 @@ const server = createServer(async (req, res) => {
     if (!name || rel.split('/').includes('..')) return res.writeHead(404).end('not found')
     const file = join(base, name, 'html', rel)
     if (!existsSync(file) || !statSync(file).isFile()) return res.writeHead(404).end('not found')
-    res.writeHead(200, { 'content-type': TYPES[extname(file)] || 'application/octet-stream', 'cache-control': 'no-cache', 'content-security-policy': 'sandbox allow-scripts allow-forms allow-popups' })
+    res.writeHead(200, { 'content-type': TYPES[extname(file)] || 'application/octet-stream', 'cache-control': 'no-cache', 'content-security-policy': 'sandbox allow-scripts allow-popups' })
     return createReadStream(file).pipe(res)
   }
 

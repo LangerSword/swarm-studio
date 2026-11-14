@@ -56,6 +56,10 @@ export function engineArgs({ promptFile, workspace, model, gateway, turns = 4, d
     '--turns', String(talk ? 1 : turns), '--user-data-dir', dataDir, '--json',
     ...(mode === 'local-agent' ? [] : ['--mode', mode]), ...(viewRender && !talk ? ['--view-render'] : [])]
 }
+// Said at the end of every prompt that builds or plans. dyad's own prompt still tells the model to clarify with
+// planning_questionnaire and to set a database up with add_integration (dyad/src/prompts/local_agent_prompt.ts),
+// and the runner no longer offers the tools that wait for a person (docs/engines/dyad.md, Limits).
+export const ALONE = '(Nobody is here to answer questions during this work. The tools that ask a person, `planning_questionnaire`, `add_integration`, `suggest_plugin` and `exit_plan`, are not available: do not call them. Decide for yourself from the request and go on until it is done.)'
 // a path that is never a file: the engine reads no .env (see runEngine)
 export const NO_ENV_FILE = join(dyadDir, '.no-env', 'none.env')
 
@@ -162,6 +166,7 @@ export function setupEngine(onStage = () => {}) {
 export function stepOf(line) {
   let m
   if ((m = /\[aba-headless\] (build|repair)[^(]*\(turn (\d+)\)/.exec(line))) return { kind: 'turn', text: m[1] === 'build' ? `turn ${m[2]}: building` : `turn ${m[2]}: fixing what failed`, turn: Number(m[2]) }
+  if (/\[aba-headless\] [a-z_]+ needs a person; going on without one/.test(line)) return { kind: 'think', text: 'nobody to ask: deciding alone' }
   if (/\(app_runtime_service\) › Starting app/.test(line)) return { kind: 'render', text: 'starting the app to look at it' }
   if (/\(app_runtime_service\) › Error running app/.test(line)) return { kind: 'render', text: 'the app did not start', ok: false }
   if ((m = /Projected next request for chat \d+: (\d+) tokens/.exec(line))) return { kind: 'think', text: 'next step', tokens: Number(m[1]) }
@@ -175,7 +180,13 @@ export function stepOf(line) {
 // is { ok, answer, changed } and nothing is seeded, watched, gated or committed.
 // appKeys: false for a project brought in from outside (docs/specs/45-intake.md): its build script runs under the
 // engine, and code the Studio did not write is never handed the person's database or payment keys
-export async function runEngine({ workspace, prompt, provider, model, turns = 4, viewRender = true, mode = 'local-agent', onStep = () => {}, onLog = () => {}, signal, appKeys = true }) {
+// scripts: false for a brought-in project whose install scripts the person has not allowed: the engine's own
+// install (when node_modules is missing, dyad/src/aba/headless_cli.ts) and its add_dependency run with
+// ignore-scripts and ignore-pnpmfile set in the environment: npm and pnpm before 11 read npm_config_*, pnpm 11 and
+// later pnpm_config_* (checked with pnpm 12.14 and npm 11: a postinstall and a .pnpmfile.cjs did not run). A script
+// named on purpose (`npm run build`, the engine's gate) still runs.
+export const NO_SCRIPTS_ENV = { npm_config_ignore_scripts: 'true', npm_config_ignore_pnpmfile: 'true', pnpm_config_ignore_scripts: 'true', pnpm_config_ignore_pnpmfile: 'true' }
+export async function runEngine({ workspace, prompt, provider, model, turns = 4, viewRender = true, mode = 'local-agent', onStep = () => {}, onLog = () => {}, signal, appKeys = true, scripts = true }) {
   const talk = mode === 'ask' || mode === 'plan'
   if (talk && !['package.json', '.git'].every(f => existsSync(join(workspace, f)))) throw new Error('no app here yet')
   // a stop pressed while the engine was still being set up (or between stages)
@@ -187,7 +198,7 @@ export async function runEngine({ workspace, prompt, provider, model, turns = 4,
   // dyad's saved chat keeps the model it began with, so each model gets its own data dir
   const promptFile = join(meta, `prompt-${Date.now()}.md`), logFile = join(meta, 'engine.log')
   try { appendFileSync(logFile, `\n===== ${new Date().toISOString()} ${model}\n`) } catch {}
-  writeFileSync(promptFile, prompt)
+  writeFileSync(promptFile, mode === 'ask' ? prompt : `${prompt}\n\n${ALONE}`)
   const args = [bundle, ...engineArgs({ promptFile, workspace, model, gateway: provider.baseUrl, turns, dataDir: join(meta, `data-${model.replace(/[^\w.-]+/g, '_')}`), viewRender, mode })]
   // a new workspace has no git yet; the engine's iterate mode wants one commit
   if (!talk && !existsSync(join(workspace, '.git'))) {
@@ -203,7 +214,7 @@ export async function runEngine({ workspace, prompt, provider, model, turns = 4,
     // the app's keys are there because the engine starts the app to look at it. ABA_ENV_FILE names a file
     // that does not exist, so the engine loads no .env: left alone it walks up from its bundle and, in an
     // installed plugin, the first .env it meets is Hermes's own ($HERMES_HOME/.env, every provider key).
-    env: { ...gitEnv(), ...(appKeys ? appEnv() : {}), ABA_API_KEY: provider.apiKey || '', ABA_ENV_FILE: NO_ENV_FILE, ELECTRON_RUN_AS_NODE: '1' },
+    env: { ...gitEnv(), ...(appKeys ? appEnv() : {}), ...(scripts ? {} : NO_SCRIPTS_ENV), ABA_API_KEY: provider.apiKey || '', ABA_ENV_FILE: NO_ENV_FILE, ELECTRON_RUN_AS_NODE: '1' },
     stdio: ['ignore', 'pipe', 'pipe']
   })
   running++
@@ -241,10 +252,22 @@ export async function runEngine({ workspace, prompt, provider, model, turns = 4,
   watcher?.close()
   if (buf.startsWith('{"ok"')) try { last = JSON.parse(buf) } catch {}
   if (!last) {
-    const tail = (() => { try { return readFileSync(logFile, 'utf8').split('\n===== ').pop().split('\n').filter(l => /^aba-headless: |Last error|Error: (?!bad port)/.test(l) && !/makeNetworkError|catalog/.test(l)).slice(-2).join(' · ').replace(/^aba-headless: /, '').slice(0, 400) } catch { return '' } })()
-    throw new Error(signal?.aborted ? 'stopped' : `the app engine exited (${code}) without a result${tail ? `: ${tail}` : ''}`)
+    try { appendFileSync(logFile, `[swarm] the engine exited (${code}) without a result\n`) } catch {}
+    throw new Error(signal?.aborted ? 'stopped' : noResult(logTail(logFile)))
   }
   return last
+}
+// The engine ended and printed no result. The exit code is in the engine's log, not in the chat: the person
+// reads what happened, with the engine's own last error when it gave one.
+export const noResult = (tail = '') => `The app engine stopped before it finished${tail ? `: ${tail}` : ''}`
+// The last error lines of this run in the engine's log. Left out: lines every run prints (the dead ports the
+// runner points dyad's own services at, docs/engines/dyad.md; an app with no AI_RULES.md), which explain nothing.
+export function logTail(logFile) {
+  try {
+    return readFileSync(logFile, 'utf8').split('\n===== ').pop().split('\n')
+      .filter(l => /^aba-headless: |Last error|Error: (?!bad port)/.test(l) && !/makeNetworkError|catalog|refused a request to "127\.0\.0\.1:9"|AI_RULES\.md/.test(l))
+      .slice(-2).join(' · ').replace(/^aba-headless: /, '').slice(0, 400)
+  } catch { return '' }
 }
 
 // The app's own files, for the code view: source only, small enough to show.

@@ -8,6 +8,9 @@ loads them. **Edit the area's file, not `web/canvas.js`.** The table says which 
 | `core.js` | The shared ground every area uses: `$`, `els` (the page's elements), the address (`Q`, `WALL`), `api`, `store` (per-viewer storage), the icons (`ico`, `setLabel`, `TOOLS`), the crew look (`Crew`, `ARROW`, `HERMIA`), the build state `S` (`setS`), `replayId` (`setReplayId`) and the camera `cam`. Typed (`// @ts-check`). |
 | `wander.js` | Pure helpers the build wall and the App room call: a working cursor's sweep over its tile, and the room's answers when there is nothing built to change. Imports nothing from the other areas. |
 | `stage.js` | The App room's stage: which of Crew, Art and Live a build offers, what shows by itself, what a pin does and when it lets go, the typed phrases, and the switch in the App bar. Pure rules (`tests/stage.test.mjs`); imports nothing from the other areas. |
+| `autoplay.js` | The Game room's Autoplay: the switch beside Crew · Art · Live, the AI player's screen over the game, the typed phrases ("play it for me", "stop playing"). Pure rules and a part that draws with what the room hands it (`tests/autoplayroom.test.mjs`); imports nothing from the other areas. |
+| `mapask.js` | The Map window's pure rules (spec 44): the typed requests that open it or ask for a diagram, the wall's window that gives up its place, the diagram's colours from the tokens, its text alternative (`tests/mapask.test.mjs`). Imports nothing. |
+| `mapwin.js` | The Map window itself: the build as Mermaid diagrams (the pinned copy in `web/vendor/mermaid/`, fetched when a Map first shows, `securityLevel: 'strict'`), its tabs, its skeleton, the asked diagram. Imports only `mapask.js`; `rooms.js` owns its data, its place and the chat's way to it, `dock.js` puts it on the wall. |
 | `base.js` | The build on the canvas: `fresh`, `setTitle`, `navBrand` (the `navbrand:` lines that `tests/launch.test.mjs` compares with `engine/naming.mjs`), the frame sandbox, and media dragged into the chat. |
 | `carry.js` | A picture being painted: its card beside the page, held by its painter's cursor, then carried to its slot. Imports only `core.js`. |
 | `events.js` | Engine events drawn on the canvas (`on`). |
@@ -16,13 +19,14 @@ loads them. **Edit the area's file, not `web/canvas.js`.** The table says which 
 | `loop.js` | The frame loop and the keyboard and pointer input, the brief form and slash commands. |
 | `talk.js` | Talks before a build: talk first, the game talk, Chats. |
 | `../chatmode.js` | The chat's modes (spec 46): the switch, the typed switch, and where Ask, Plan and Fix send a message. Not in this folder: it imports only the icons, so node tests it; `loop.js` hands it what it needs. |
+| `../github.js` | A project's source on GitHub (spec 45): the ☰ › GitHub sheet, the typed moves and their words. Not in this folder: it imports only the icons, so node tests it; `loop.js` hands it what it needs and `hook.js` gives it to the Studio (`window.swarm.github`). |
 | `player.js` | Play mode and visitor tours. |
 | `design.js` | The Design panel, editing next to the agents, undo and redo, export. |
 | `publish.js` | Publishing a live link. |
 | `marks.js` | Comments, generated images, visual review, Scribble. |
 | `film.js` | The promo video and the film's outside services. |
 | `settings.js` | Lite mode, the models menu, side tabs and floating panels. |
-| `replay.js` | Saved runs (files), traces and replay. |
+| `replay.js` | Saved runs (files), traces and replay: a recording, marked Replay for its whole length (`rec`, `paintMark`; its words and the chat's routes are `web/replaytalk.js`). |
 | `rooms.js` | The views (Canvas, Video, App), the big game, the app advisor, game mode, cast, the project's art, the bench. |
 | `start.js` | Starting a build, resizable panels, crews, the Publish button, pictures in the Design panel. |
 | `auto.js` | Auto mode and the Auto show, the code wall, crew radio, the art wall. |

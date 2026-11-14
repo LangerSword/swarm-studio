@@ -6,7 +6,6 @@
 // every stop names its cause.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
 import { createServer } from 'node:http'
 import { mkdtempSync, writeFileSync, utimesSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -17,6 +16,7 @@ import { hermesBridge } from '../engine/bridge.mjs'
 import { hermesLlm } from '../engine/hermesllm.mjs'
 import { streamChat } from '../engine/llm.mjs'
 import { reasonFromAbort, reasonFromFailure } from '../engine/stopreason.mjs'
+import { startStudio } from '../scripts/studio-child.mjs'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 
@@ -133,29 +133,19 @@ test('every stop names its cause; the provider\'s own words are kept', () => {
 
 // ---------- the real server, on its own port and data folder, with no model key
 
-async function freePort() {
-  const s = createServer()
-  await new Promise(r => s.listen(0, '127.0.0.1', r))
-  const p = s.address().port
-  await new Promise(r => s.close(r))
-  return p
-}
-
 async function startServer(extra = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'hh-srv-'))
-  const port = await freePort()
   const env = { ...process.env, SWARM_TOKEN: 't', SWARM_DATA_DIR: join(dir, 'data'), SWARM_RUNS_DIR: join(dir, 'data', 'runs'), SWARM_OUTPUT_DIR: join(dir, 'out'), HERMES_HOME: join(dir, 'hermes'), SWARM_HERMES_RUNNING: '0', ...extra }
   for (const k of Object.keys(env)) if (/_API_KEY$/.test(k) || /^SWARM_(PLANNER|WORKER|REVIEWER)_/.test(k)) delete env[k]
-  const child = spawn(process.execPath, [join(root, 'server', 'server.mjs'), '--port', String(port)], { env, stdio: ['ignore', 'ignore', 'pipe'] })
-  let log = ''
-  child.stderr.on('data', b => { log += b })
-  const base = `http://127.0.0.1:${port}`
-  for (let i = 0; i < 80; i++) { if (await fetch(base + '/').then(() => true, () => false)) break; await new Promise(r => setTimeout(r, 100)) }
+  // on a port of its own, which it says once it listens (scripts/studio-child.mjs)
+  const { child, base, log } = await startStudio({ env })
   const call = (path, init = {}) => fetch(base + path, { ...init, headers: { 'x-swarm-token': 't', 'content-type': 'application/json', ...(init.headers || {}) } })
   const stop = () => { child.kill(); try { rmSync(dir, { recursive: true, force: true }) } catch {} }
-  return { base, call, stop, dir, log: () => log }
+  return { base, call, stop, dir, log, child }
 }
 
+// for a wait that never ended: is the server still running, and what did it last print
+const serverSays = s => `the server ${s.child.exitCode === null && s.child.signalCode === null ? 'is running' : `exited (${s.child.signalCode || `code ${s.child.exitCode}`})`}${s.log().trim() ? `, and last printed: ${s.log().trim().slice(-600)}` : ''}`
 const runEvents = (s, id) => { try { return readFileSync(join(s.dir, 'data', 'runs', id, 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l)) } catch { return [] } }
 
 test('a server with no Hermes refuses a build in under a second, with the reason, and nothing starts', async () => {
@@ -186,12 +176,27 @@ test('a server with no Hermes refuses a build in under a second, with the reason
 // back), not for a count of polls: on a slow runner the polls ran out before the stop came. The time limit is
 // only for a hang.
 test('a Hermes that disappears mid-build stops the build with the reason; when one attaches again the canvas is told', { timeout: 60000 }, async () => {
+  // each wait names itself when it is the one that never ends, so a timeout says where (it had timed out whole,
+  // at 60 s, three times on the Mac runner with nothing to say which wait hung)
+  // … and whether the server is still there, with the last it printed: a server that had died said nothing more
+  // to the canvas, and the wait read as a build that never started (engine/socketsafe.mjs)
+  const within = (p, what, ms = 20000) => { let t; return Promise.race([p, new Promise((_, no) => { t = setTimeout(() => no(new Error(`still waiting for ${what} after ${ms / 1000} s; heard: ${events.map(e => e.type).join(' ') || 'nothing'}; ${serverSays(s)}`)), ms) })]).finally(() => clearTimeout(t)) }
   const s = await startServer({ SWARM_HERMES_GRACE_MS: '300' })
   // a fake bridge that takes the model calls and never answers, then goes away
   const held = []
   let called
   const firstCall = new Promise(r => { called = r })
-  const bridge = createServer((req, res) => { held.push(res); req.resume(); called() })
+  // It answers what it offers for pictures (none) as a Hermes does, and holds the model calls; "the first call" is
+  // the build's first model call (a POST), not the check before a build (GET /v1/models) or the pictures question
+  // (GET /media). Closed on one of those, the build had not started, and on the Mac runner it sometimes did not
+  // start for the rest of the test (heard: "hermes:back reset" and nothing after): the server process had died
+  // of the reset connection (engine/socketsafe.mjs; the two tests after this one are that case)
+  const bridge = createServer((req, res) => {
+    req.resume()
+    if (!req.url.includes('/v1/')) return res.writeHead(200, { 'content-type': 'application/json' }).end('{"image":false,"video":false}')
+    held.push(res)
+    if (req.method === 'POST') called()
+  })
   await new Promise(r => bridge.listen(0, '127.0.0.1', r))
   // the canvas's stream, as it arrives; hear(…) resolves with the first event that matches
   const events = [], waiting = new Set()
@@ -212,14 +217,17 @@ test('a Hermes that disappears mid-build stops the build with the reason; when o
     const res = await s.call('/api/run', { method: 'POST', body: JSON.stringify({ brief: 'A one-page site for a plant shop', sure: true }) })
     assert.equal(res.status, 200)
     const { run } = await res.json()
-    await firstCall
+    await within(firstCall, 'the first model call')
     assert.ok(held.length, 'the build called the model through the bridge')
     // Hermes closes: the call in flight breaks and the bridge refuses the next ones. Its connections go first:
     // close() alone waits for the server's idle keep-alive connections to time out, seconds later
+    // It stops listening first: the build tries a broken call again, and a connection that arrived after the
+    // sockets were destroyed and before close() stayed open and unanswered, so close() never called back
+    const closed = new Promise(r => bridge.close(r))
     for (const r of held) r.socket?.destroy()
     bridge.closeAllConnections?.()
-    await new Promise(r => bridge.close(r))
-    const stopped = await hear(e => e.type === 'run:stopped' && e.run === run)
+    await within(closed, 'the bridge closing')
+    const stopped = await within(hear(e => e.type === 'run:stopped' && e.run === run), 'run:stopped')
     assert.ok(!events.some(e => e.type === 'run:done' && e.run === run), 'a build that planned nothing did not "finish"')
     assert.equal(stopped.reason.code, 'hermes')
     assert.match(stopped.reason.message, /Hermes closed during the build/)
@@ -230,9 +238,89 @@ test('a Hermes that disappears mid-build stops the build with the reason; when o
     const again = createServer((req, res) => res.writeHead(200).end('{}'))
     await new Promise(r => again.listen(0, '127.0.0.1', r))
     await s.call('/api/hermes/attach', { method: 'POST', body: JSON.stringify({ url: `http://127.0.0.1:${again.address().port}`, token: 'bridge-token-0123456789', pid: 4243, code: 1e10 }) })
-    await hear(e => e.type === 'hermes:back' && e.attached)
+    await within(hear(e => e.type === 'hermes:back' && e.attached), 'hermes:back')
     again.close()
   } finally { ctl.abort(); await sse; bridge.close(); s.stop() }
+})
+
+// The deliberate case (the Mac failures above, #502): Hermes goes while the build's pictures question (GET /media)
+// is out, before the build has started. Two things were wrong.
+// 1. A connection reset in the instant it was made ended the server process on a Mac (Node 24's fetch,
+//    engine/socketsafe.mjs): the canvas heard "reset" and nothing more because nobody was left to say it. That
+//    instant is between the system connecting and the server writing its request, and only a busy server
+//    stretches it (2 of 24 runs with eight at once, none of 12 alone), so no test here can pick it: the call
+//    that threw is held by itself in tests/socketsafe.test.mjs. This test closes the fake Hermes at the three
+//    moments it can pick, and asks that the server lives and each build stops with the reason.
+// 2. A Hermes that takes the question and never answers held the build's start for 25 s. Now 3 s (the next test).
+test('Hermes gone while a build asks what it offers for pictures: the server lives, and the build stops with the reason', { timeout: 120000 }, async () => {
+  const s = await startServer({ SWARM_HERMES_GRACE_MS: '300' })
+  const events = [], ctl = new AbortController()
+  const stream = await fetch(`${s.base}/events?k=t`, { signal: ctl.signal })
+  const sse = (async () => {
+    let buf = ''
+    for await (const chunk of stream.body) {
+      buf += Buffer.from(chunk).toString()
+      for (let i; (i = buf.indexOf('\n\n')) >= 0; buf = buf.slice(i + 2)) { const line = buf.slice(0, i); if (line.startsWith('data: ')) try { events.push(JSON.parse(line.slice(6))) } catch {} }
+    }
+  })().catch(() => {})
+  const heard = async (match, what) => {
+    for (const end = Date.now() + 20000; Date.now() < end;) { const e = events.find(match); if (e) return e; await new Promise(r => setTimeout(r, 20)) }
+    throw new Error(`still waiting for ${what} after 20 s; heard: ${events.map(e => e.type).join(' ') || 'nothing'}; ${serverSays(s)}`)
+  }
+  try {
+    // as the question's connection arrives (nothing read yet), once it is read, and a little after; twice each
+    for (const when of ['connection', 'request', 'later', 'connection', 'request', 'later']) {
+      let asked = false
+      const socks = new Set()
+      let gone = false
+      const go = () => { if (gone) return; gone = true; bridge.close(); for (const x of socks) x.destroy() }
+      const bridge = createServer((req, res) => {
+        req.resume()
+        if (req.url.includes('/v1/models')) return res.writeHead(200, { 'content-type': 'application/json' }).end('{}')
+        if (!req.url.includes('/media')) return
+        // (on the connection: closed already, unless the question came down the check's own connection)
+        if (when === 'later') setTimeout(go, 30); else go()
+      })
+      // the check before a build comes first, on a connection of its own; the pictures question is the next one
+      bridge.on('connection', sock => { socks.add(sock); sock.on('close', () => socks.delete(sock)); if (asked && when === 'connection') go(); asked = true })
+      await new Promise(r => bridge.listen(0, '127.0.0.1', r))
+      await s.call('/api/hermes/attach', { method: 'POST', body: JSON.stringify({ url: `http://127.0.0.1:${bridge.address().port}`, token: 'bridge-token-0123456789', pid: 4242, code: 1e10 }) })
+      const res = await s.call('/api/run', { method: 'POST', body: JSON.stringify({ brief: 'A one-page site for a plant shop', sure: true }) })
+      assert.equal(res.status, 200, when)
+      const { run } = await res.json()
+      const stopped = await heard(e => e.type === 'run:stopped' && e.run === run, `run:stopped (Hermes closed on the ${when})`)
+      assert.equal(stopped.reason.code, 'hermes', when)
+      assert.equal(s.child.exitCode, null, 'the server is still running')
+      bridge.close()
+    }
+  } finally { ctl.abort(); await sse; s.stop() }
+})
+
+test('a Hermes that takes the pictures question and never answers does not hold the build\'s start', { timeout: 60000 }, async () => {
+  const s = await startServer({ SWARM_HERMES_GRACE_MS: '300' })
+  // it answers the check before a build, keeps the pictures question, and keeps the model calls
+  const socks = new Set()
+  let asked
+  const mediaAsked = new Promise(r => { asked = r })
+  const bridge = createServer((req, res) => {
+    req.resume()
+    if (req.url.includes('/v1/models')) return res.writeHead(200, { 'content-type': 'application/json' }).end('{}')
+    if (req.url.includes('/media')) asked(Date.now())
+  })
+  bridge.on('connection', sock => { socks.add(sock); sock.on('close', () => socks.delete(sock)) })
+  await new Promise(r => bridge.listen(0, '127.0.0.1', r))
+  try {
+    await s.call('/api/hermes/attach', { method: 'POST', body: JSON.stringify({ url: `http://127.0.0.1:${bridge.address().port}`, token: 'bridge-token-0123456789', pid: 4242, code: 1e10 }) })
+    const res = await s.call('/api/run', { method: 'POST', body: JSON.stringify({ brief: 'A one-page site for a plant shop', sure: true }) })
+    assert.equal(res.status, 200)
+    const { run } = await res.json()
+    const at = await mediaAsked
+    let start
+    for (const end = Date.now() + 20000; Date.now() < end && !start;) { start = runEvents(s, run).find(e => e.type === 'run:start'); if (!start) await new Promise(r => setTimeout(r, 50)) }
+    // 3 s is the question's whole time (it was 10 s and 15 s more); the line is drawn between the two, far from both
+    assert.ok(start, `the build started; ${serverSays(s)}`)
+    assert.ok(start.t - at < 12000, `the build started ${start.t - at} ms after it asked`)
+  } finally { bridge.close(); for (const x of socks) x.destroy(); s.stop() }
 })
 
 test('the person\'s Stop and a newer build are named as such', async () => {

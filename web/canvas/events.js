@@ -1,9 +1,9 @@
 // @ts-check
 // web/canvas.js, split by area (web/canvas/README.md): engine events drawn on the canvas.
-import { cosmosHooks, S, els, replayId } from './core.js'
+import { cosmosHooks, S, els } from './core.js'
 import { fresh, setTitle, navBrand, links } from './base.js'
 import { feed, botMsg, renderTheme, chatAgent, logSay, summarize, STOP_PILL, stoppedMsg, STOPPED } from './panels.js'
-import { viewing, loadFiles, traceLive } from './replay.js'
+import { viewing, loadFiles, traceLive, rec } from './replay.js'
 import { addAgent, live, applyTheme, addFrame, addLayer, setTool, detectTool, gestureFor, spark, say, startGesture, banter } from './deck.js'
 import { renderAppLink, idleCard, appEvent } from './rooms.js'
 import { loadThemeFonts, design, showDtab, restyle, remember, CLIENT, applyEdit, showExport } from './design.js'
@@ -28,7 +28,7 @@ export function on(e) {
       S.paint = e.paint !== false // older builds don't say: their pictures were painted
       // a game has no canvas build: its spec and the App view are the whole file
       if (e.kind === 'game') { S.kind = 'game'; if (e.from) S.link = { run: e.from, label: `↔ ${e.fromName || 'the site'}` }; setTitle(`🎮 ${e.title || e.brief.slice(0, 60)}`); feed(null, `🎮 ${e.brief}`, 'you'); break }
-      if (!viewing) els.agentsSel.value = String(e.agents.length)
+      if (!viewing) { els.agentsSel.value = String(e.agents.length); els.agentsSel.dispatchEvent(new Event('change')) }
       for (const a of e.agents) addAgent(a)
       // a project brought in (docs/specs/45-intake.md) goes by its name; its brief only says where it is from
       setTitle(e.intake && e.title ? e.title : e.brief.slice(0, 60))
@@ -301,14 +301,16 @@ export function on(e) {
       traceLive(e)
       break
     case 'auto':
-      // a replay moves between views as the live run did
-      autoEvent(e, replayId ? true : undefined)
+      // a replay moves between views as the live run did (its own events only: the same run opened as a file,
+      // on an address that names a replay, stays where it is and shows no summary)
+      autoEvent(e, rec.event ? true : undefined)
       break
     case 'game:spec':
       S.spec = e.spec
       botMsg(`🎮 ${e.spec.title}: ${e.spec.pitch || ''} (${e.spec.engine})`)
       break
-    case 'app:start': case 'app:step': case 'app:ready': case 'app:done': case 'app:failed': case 'app:deployed': case 'app:parked':
+    // (app:paused was missing here: a slice's "your turn" and its card only showed after a reload)
+    case 'app:start': case 'app:step': case 'app:ready': case 'app:done': case 'app:failed': case 'app:paused': case 'app:deployed': case 'app:parked': case 'autoplay':
       appEvent(e)
       break
   }

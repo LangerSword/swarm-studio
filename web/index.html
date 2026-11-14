@@ -59,6 +59,7 @@
         <button class="toggle" id="review-btn" disabled><i data-i="search-check"></i>Review</button>
         <button class="toggle" id="video-btn" disabled><i data-i="clapperboard"></i>Video</button>
         <button class="toggle" id="export-btn" disabled><i data-i="download"></i>Export</button>
+        <button class="toggle" id="github-btn"><i data-i="git-branch"></i>GitHub</button>
         <button class="toggle" id="replay-btn" disabled><i data-i="rotate-ccw"></i>Replay</button>
         <button class="toggle" id="models-btn"><i data-i="sliders-horizontal"></i>Models</button>
         <button class="toggle" data-panel="design"><i data-i="palette"></i>Design</button>
@@ -84,12 +85,13 @@
       <form id="brief-form" class="composer">
         <textarea id="brief" rows="3" autocomplete="off" placeholder="Describe a product"></textarea>
         <div class="row">
-          <select id="agents" class="chip" aria-label="Agents">
+          <button type="button" id="chat-mode" class="chip mode" value="build" aria-haspopup="menu" aria-expanded="false" aria-label="Mode: Build"><span class="t">Build</span></button>
+          <button type="button" id="agents-btn" class="chip quiet agents" aria-haspopup="menu" aria-expanded="false"><i data-i="users"></i><span class="t">8</span><span class="w"> agents</span></button>
+          <select id="agents" hidden aria-label="Agents">
             <option value="4">4 agents</option><option value="5">5 agents</option><option value="6">6 agents</option><option value="8" selected>8 agents</option><option value="12">12 agents</option><option value="16">16 agents</option><option value="20">20 agents</option><option value="24">24 agents</option>
           </select>
-          <select id="build-model" class="chip model" aria-label="Build model"><option value="">Hermes default</option></select>
-          <span class="send-set"><select id="chat-mode" class="chip mode" aria-label="Mode"><option value="ask">Ask</option><option value="plan">Plan</option><option value="build" selected>Build</option><option value="fix">Fix</option></select>
-          <button type="submit">Build</button></span>
+          <button type="button" id="build-model" class="chip quiet model" aria-haspopup="menu" aria-expanded="false" aria-label="Model: Hermes’s model"><span class="t">Hermes’s model</span></button>
+          <button type="submit" class="send" aria-label="Send: Build"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
         </div>
       </form>
     </section>
@@ -119,6 +121,7 @@
       <div class="undo-redo"><button type="button" class="tool" id="undo-btn" aria-label="Undo" disabled><i data-i="undo-2"></i></button><button type="button" class="tool" id="redo-btn" aria-label="Redo" disabled><i data-i="redo-2"></i></button></div>
     </div>
     <div class="status" id="status">Ready</div>
+    <span class="replay-live" id="replay-live" role="status"></span>
     <button type="button" class="camera-hint auto" id="camera-hint" aria-label="Follow the crew" aria-pressed="true"><i data-i="users"></i>Follow</button>
     <button type="button" class="ib deck-layers-btn" aria-label="Layers" aria-expanded="false"><i data-i="layers"></i></button>
 
@@ -140,7 +143,8 @@
       <span class="app-stage" id="app-stage"></span>
       <button class="toggle" id="app-link" hidden></button>
       <div class="spacer"></div>
-      <div class="seg" id="app-stageview" role="group" aria-label="Stage" hidden><button data-stage="crew" aria-pressed="false" hidden>Crew</button><button data-stage="art" aria-pressed="false" hidden>Art</button><button data-stage="live" aria-pressed="false" hidden>Live</button></div>
+      <div class="seg" id="app-stageview" role="group" aria-label="Stage" hidden><button data-stage="crew" aria-pressed="false" hidden>Crew</button><button data-stage="art" aria-pressed="false" hidden>Art</button><button data-stage="live" aria-pressed="false" hidden>Live</button><button data-stage="map" aria-pressed="false" hidden>Map</button></div>
+      <button class="toggle" id="app-auto" aria-pressed="false" hidden><i data-i="play"></i>Autoplay</button>
       <div class="seg" id="app-mode"><button data-mode="preview" class="on">Preview</button><button data-mode="code">Code</button></div>
       <div class="seg" id="app-device"><button data-w="390">Phone</button><button data-w="820">Tablet</button><button data-w="0" class="on">Desktop</button></div>
       <button class="toggle" id="app-reload" aria-label="Reload the app"><i data-i="rotate-cw"></i></button>
@@ -153,7 +157,7 @@
         <section class="app-hermia" id="app-hermia" hidden></section>
       </div>
       <div class="app-main">
-        <div class="app-stagearea" id="app-preview"><div class="app-shell" id="app-shell"><iframe id="app-frame" aria-label="The app" sandbox="allow-scripts allow-forms"></iframe><div class="app-loading" id="app-loading" hidden role="status" aria-busy="true"><div class="spin"></div><span></span></div></div><div class="app-empty" id="app-empty"></div></div>
+        <div class="app-stagearea" id="app-preview"><div class="app-shell" id="app-shell"><iframe id="app-frame" aria-label="The app" sandbox="allow-scripts"></iframe><div class="app-loading" id="app-loading" hidden role="status" aria-busy="true"><div class="spin"></div><span></span></div><div class="app-auto" id="app-auto-view" hidden><img alt="The AI player's screen" hidden><div class="app-skel" role="status" aria-busy="true" aria-label="Starting the AI player"><i class="bar"></i><i class="hero"></i><span><i></i><i></i><i></i></span><em class="as-bot" aria-hidden="true"></em></div><span class="app-auto-say" role="status" hidden></span></div></div><div class="app-empty" id="app-empty"></div></div>
         <div class="app-code" id="app-code" hidden><div class="app-tree" id="app-tree"></div><pre class="app-file" id="app-file"></pre></div>
       </div>
     </div>

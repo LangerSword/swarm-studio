@@ -2,6 +2,9 @@
 # The checks CI runs on every pull request, and you can run before pushing:
 # every file parses, every engine module loads (so a wrong import fails here,
 # not mid-build), the Python plugin compiles, and the server starts and answers.
+# CI also runs, from tools/dev (AGENTS.md): the type check, the dependency rules and the orphan checks
+# (npm run --prefix tools/dev orphans, orphans:ui: no file nothing reaches, no export nothing uses).
+# CHECK_PORT and CHECK_HOSTED_PORT move the two servers it starts off 4391 and 4392 (two checks at once).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # Git Bash on Windows rewrites env values that look like Unix paths (HOSTED_BASE=/studio/app became
@@ -39,7 +42,7 @@ python3 -m unittest discover -s tests -q
 
 echo "· server starts"
 tmp=$(mktemp -d)
-port=4391
+port=${CHECK_PORT:-4391}
 SWARM_RUNS_DIR=$tmp/runs SWARM_DATA_DIR=$tmp/data SWARM_OUTPUT_DIR=$tmp/out SWARM_TOKEN=ci node server/server.mjs --port $port > $tmp/server.log 2>&1 &
 pid=$!
 trap 'kill $pid 2>/dev/null || true; rm -rf "$tmp"' EXIT
@@ -95,11 +98,17 @@ code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/img/000000
 get '/api/library?q=boots'; has '"results"'
 curl -sf http://127.0.0.1:$port/wall > "$tmp/reply"; has '<title>Swarm Wall'; grep -q '__SWARM_TOKEN__' "$tmp/reply" && { echo 'the wall has no token'; exit 1; }
 get /api/auto; has '"state"'
+# Autoplay (server/autoplay.mjs): nothing plays at rest, and a game that is not running is not started
+get /api/runs/none/autoplay; has '"on":false'
+[ "$(curl -s -o /dev/null -w '%{http_code}' -H 'x-swarm-token: ci' -d '{"start":true}' http://127.0.0.1:$port/api/runs/none/autoplay)" = 400 ] || { echo 'autoplay started with no game running'; exit 1; }
 # without the token the API refuses
 [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$port/api/runs)" != 200 ] || { echo 'the API answered without a token'; exit 1; }
 
+# a project's source on GitHub (docs/specs/45-intake.md): the door answers, and a project that is not there is said so
+[ "$(curl -s -o /dev/null -w '%{http_code}' -H 'x-swarm-token: ci' http://127.0.0.1:$port/api/projects/nope/github)" = 404 ] || { echo 'the GitHub door answered for a project that is not there'; exit 1; }
+[ "$(curl -s -o /dev/null -w '%{http_code}' -H 'x-swarm-token: ci' -H 'content-type: application/json' -d '{"action":"push"}' http://127.0.0.1:$port/api/projects/nope/github)" = 404 ] || { echo 'a push was taken for a project that is not there'; exit 1; }
 echo "· hosted studio starts"
-hport=4392
+hport=${CHECK_HOSTED_PORT:-4392}
 SWARM_DATA_DIR=$tmp/hosted PORT=$hport HOSTED_BASE=/studio/app node server/hosted.mjs > $tmp/hosted.log 2>&1 &
 hpid=$!
 trap 'kill $pid $hpid 2>/dev/null || true; rm -rf "$tmp"' EXIT
@@ -110,6 +119,12 @@ curl -sf http://127.0.0.1:$hport/studio/app/api/intake > "$tmp/reply"; has '"sho
 # bring a project in (docs/specs/45-intake.md) reads a folder and fetches a repository: never on the hosted studio
 [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"folder":"/tmp","kind":"game"}' http://127.0.0.1:$hport/api/intake)" = 403 ] || { echo 'the hosted studio took an intake'; exit 1; }
 [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"repo":"a/b","kind":"game"}' http://127.0.0.1:$hport/studio/app/api/intake)" = 403 ] || { echo 'the hosted studio took an intake'; exit 1; }
+# and it has no GitHub door: no state, no push, no pull (the person's gh login is never the host's)
+[ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$hport/api/projects/p1/github)" = 403 ] || { echo 'the hosted studio answered the GitHub door'; exit 1; }
+for act in push pull bring; do
+  code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"action":"'$act'","repo":"a/b"}' http://127.0.0.1:$hport/studio/app/api/projects/p1/github)
+  [ "$code" = 403 ] || { echo "the hosted studio took a GitHub $act"; exit 1; }
+done
 # a build needs a guest (and a model key): refused, never started
 curl -s -X POST -H 'content-type: application/json' -d '{"brief":"a bakery site with an order form"}' http://127.0.0.1:$hport/api/run > "$tmp/reply"; has '"error"'
 echo "all checks passed"

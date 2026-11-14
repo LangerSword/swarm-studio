@@ -6,6 +6,9 @@
 // The canvas is split by area into web/canvas/ (web/canvas/README.md says which file holds what).
 // This file only loads them, in the order the inlined page runs them (server/page.mjs).
 
+import './canvas/autoplay.js'
+import './canvas/mapask.js'
+import './canvas/mapwin.js'
 import './canvas/base.js'
 import './canvas/carry.js'
 import './canvas/events.js'
