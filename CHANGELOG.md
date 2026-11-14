@@ -41,6 +41,9 @@ are marked *(in 0.3.1)*.
 - **A reference's look can be the brand**, and a colour, font or brand ask changes only the look: every page stays
   as it is (#487, #488).
 - **Bring a game or app in**: a GitHub repository or a folder becomes a project the Studio opens (spec 45, #496).
+- **A project's source on GitHub**: Push, Pull and link, from its menu and the chat, under the person's own `gh`
+  sign-in. A push never forces and is refused when a commit holds a key file; the model's push goes through
+  Hermes's approval prompt (#510).
 - **Open Design's design systems**: all 152, with their tokens, rules and components, used by the builders (#470).
   Its skills and templates are chosen the way Open Design chooses them (#476).
 - **Story, slices 2 to 4**: the Story lane on the Overview, with edit, and the Launch kit written from the story
@@ -75,6 +78,14 @@ are marked *(in 0.3.1)*.
 - **The App room**: one switch for the stage, Crew · Art · Live, and Play it live starts a stopped game (#500). A
   built app that is still starting says so and keeps trying (#492).
 - **The Game view**: cursors move while they work, a reply is said once, and a game's room is named Game (#495).
+- **Autoplay**: an AI player in the Game room, beside Crew · Art · Live. Its moves are scripted, or chosen by Jev
+  (OpenRouter) only when `JEV_KEY` is set (#139).
+- **The Map window** on the build wall, for games and apps, drawn with Mermaid 12.2.0 (bundled); the chat shows it
+  when asked (spec 44, #512).
+- **Pages photograph themselves** with snapDOM 3.7.0 (bundled), and a worker makes each size (image-first boards,
+  step 4, #457).
+- **The chat box's row**: one line, menus that explain themselves, real model names (#507).
+- **A replay** reads as a recording and starts nothing (#511).
 - **Boards**, each behind a flag and off by default: the tier manager with its camera store behind `?board=tiers`
   (spec 43 step 5, #440), and the PixiJS layer for the Design deck, with videos and the live overlay, behind
   `?board=pixi` (spec 43 step 6, #471).
@@ -85,6 +96,36 @@ are marked *(in 0.3.1)*.
 - **The slop linter** on every streamed section: Open Design's rules ported, the builder's fix pass, the reviewer
   (#465).
 - **The crew animates through Hermes too**: a section that arrives whole is played out in small pieces (#482).
+- **A failed play test** hands the crew the first error with its stack, and a game that never drew is shown as "did
+  not start" (#508). A finished build stops reloading its pages (#509).
+- **Headless builds**: Dyad's tools that wait for a person are off, and a turn that ends on one goes on (#505).
+- **Engine gaps**: Godot passes, HyperFrames telemetry is off, `FISH_API_KEY` is declared, a skipped play test never
+  passes, and the bridge has a `/web` route (#382).
+
+### Catalog review fixes
+
+What the Hermes catalog review would flag in 0.4.0 (NousResearch/hermes-agent PR 154007), fixed before the repin.
+
+- **No model-provider key reaches the Studio** (#513). Setup's Models step has no key box: a key provider shows
+  `hermes auth add <provider> --type api-key` to run in your own terminal, where Hermes asks for the key with its
+  own hidden prompt, and **Check again**. The server refuses any sign-in request that carries a key. Browser
+  sign-in stays `hermes auth add <provider> --type oauth`; Hermes keeps the token.
+- **`hermes config set`** is used only for the two Swarm model slots (`auxiliary.swarm_studio_planner` and
+  `auxiliary.swarm_studio_builder`), and a test holds it there. The private `hermes_cli.auth` import is gone; the
+  read-only `hermes_cli.inventory` model list is the one import outside the public plugin API left (#513).
+- **A server that replaces itself** starts with the launcher's minimal environment, named variable by variable,
+  never the whole environment (#513).
+- **The profile secret scope workaround** (`in_profile`, for hermes-agent#132887 until #132898 ships) is pinned by
+  tests: it binds only on a multiplexed gateway with no scope bound, in a copied context (#513).
+- **The site walk's Chrome reaches the network only through a local proxy** for that walk, which resolves every
+  host itself and connects only to public unicast addresses, so a page can't reach your machine, your network or a
+  cloud metadata address, DNS rebinding included. ipaddr.js 2.5.0 is bundled for the range check (#516).
+- **A project brought in from GitHub or a folder runs nothing until you say "install and run it"** for it, and a
+  Pull asks again. Its install runs with package install scripts and `.pnpmfile.cjs` off until you say "run its
+  install scripts" for that project (#516).
+- **App frame sandboxes trimmed**: an app served from the Studio's own origin never gets same-origin access,
+  design-system previews run scripts only, an exported site's frame drops `allow-forms`, and `allow-modals` is gone
+  from every app frame (#516).
 
 ### Running on your computer
 
@@ -97,6 +138,9 @@ are marked *(in 0.3.1)*.
   - every stop kills the whole process tree. execa 9.6.1 and tree-kill 1.2.2 are bundled; nothing is installed.
 - **The server replaces itself** when its code changed on disk, so an update never leaves a half-old page (#486).
   Busy counts films, publishes and app and game builds, so a restart never stops one (#494).
+- **Hermes quitting never ends the server**: on a Mac, Node 24's fetch could crash the server when Hermes reset a
+  connection mid-call. A bridge whose connection dies is dropped, and the pictures question waits 3 s at most, so it
+  never holds a build's start (#517).
 - **The image service**: one store by content hash, a size ladder at `/img/<hash>?w=`, a 4096 px cap and ThumbHash
   placeholders (#437). @napi-rs/image 1.16.0 and thumbhash 0.1.1 are installed on first use, never at plugin
   install; `SWARM_IMAGE_SERVICE=0` turns it off.
@@ -138,6 +182,12 @@ The Studio is moving to React one screen at a time ([decision 0013](docs/decisio
 - A board gauge: how heavy a 250-page board is (#453).
 - A pull request is compared with the main it is merged with (#497). Main's Mac job passes again, and a new push
   stops the run before it (#499).
+- Orphan code: files nothing reaches and exports nothing uses (#504). Lint reads a section once, and its timing
+  test asks how the work grows, not the clock (#514).
+- A throwaway Studio in tests binds its own port (#515). The board-loading scenario holds the board's own request
+  (#506). The motion check's end picture is taken at rest (#509). The Hermes-gone test closes Hermes on a real model
+  call (#502).
+- The release's next UI build carries Mermaid, so its check passes (#503).
 - The next UI's build is made by CI and committed only on a release (decision 0018, #459).
 - A type check for `web/` with no compile step, and dependency rules (#373). `web/canvas.js` is split by area
   (#375, #376, #377).
@@ -150,6 +200,7 @@ The Studio is moving to React one screen at a time ([decision 0013](docs/decisio
 - Decisions 0010 to 0019 and specs 35 and 41 to 44: Open Design's tools, HyperFrames as the default film engine,
   image-first boards, how Swarm is tested, and more (#371, #374, #378, #379, #380, #433, #443, #460). Decisions
   0020 and 0022 and specs 45 and 46 came with their features (#479, #480, #496, #501).
+- Spec 47, a build loop made for games: a proposal, not yet approved (#265).
 - UX artefacts: the object map and glossary (#388), the statechart (#411), breadboards and per-screen specs (#424).
 - AGENTS.md: use mature dependencies (#367).
 - Catalog pictures: a 1200×600 banner and six screens, made by one script (#415).
