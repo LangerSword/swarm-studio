@@ -560,11 +560,6 @@
     "why": "The Studio scaffold moved in #423; this differs from / and #423 does not leave it for later."
   },
   {
-    "key": "studio only in /next/: page ~transform 300ms x1 cubic-bezier(0.2, 0.7, 0.2, 1)",
-    "label": "drift",
-    "why": "The /next/ Studio eases its board into view (transform, 300 ms); the current Studio now frames its whole board at once when it opens, with no step zoomed in."
-  },
-  {
     "key": "studio reduced cursor Hermia: apart",
     "label": "drift",
     "why": "The Studio scaffold moved in #423; this differs from / and #423 does not leave it for later."
