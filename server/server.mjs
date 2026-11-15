@@ -42,6 +42,7 @@ import { traced, readTrace } from '../engine/trace.mjs'
 import { canvasPage as sharedCanvasPage, webVersion as pageVersion, playBoot } from './page.mjs'
 import { nextPage, nextVendor } from './next.mjs'
 import { makeProjects, stateOf, gameProgress } from './projects.mjs'
+import { buildState } from '../engine/buildstate.mjs'
 import { CHAT_ID } from '../engine/chats.mjs'
 import { askTurn, askedOf, askOptions, ASK_TEXT } from '../engine/askfirst.mjs'
 import { wordsRead } from '../engine/talkplan.mjs'
@@ -818,6 +819,8 @@ function runCard(id) {
       gameAt: events.some(e => e.type === 'game:spec') ? gameProgress(events.filter(e => e.type === 'app:step').map(e => e.step)) : null,
       deployed: events.findLast(e => e.type === 'app:deployed' && e.url)?.url || null,
     } }
+    // a website build's one state (engine/buildstate.mjs), at rest and while this server runs it
+    card.site = { rest: buildState(events, { live: false }), live: buildState(events, { live: true }) }
     cards.set(id, card)
   }
   const meta = runMeta(id)
@@ -838,6 +841,7 @@ function runCard(id) {
     live: current?.id === id && !current.done,
     progress: current?.id === id && !current.done ? Math.min(1, (current.events.filter(e => e.type === 'layer:done').length) / Math.max(1, current.events.filter(e => e.type === 'layer:plan').length || 12)) : null,
     work: workOf(id),
+    buildState: current?.id === id && !current.done ? card.site.live : card.site.rest,
     // the cover: its hero picture, else a snapshot of its first page (saved by the canvas), else a film frame
     cover: card.info.cover || snapsOf().cover(id) || snapOf(id) || (existsSync(join(runsDir, id, 'video', 'p1.webp')) ? `/video/${id}/live/p1.webp` : null),
   }

@@ -92,13 +92,15 @@ export function makeHome({ sw, C, root }) {
     }
     // a version that failed, or a Draft that never got a section (an empty tile), is not shown once
     // a newer one works: the project is its working versions
-    const dead = v => /failed|^Draft$/i.test(String(v?.state?.status || ''))
+    // a website says so itself (state.empty: no section stands, whatever its word; server/projects.mjs stateOf)
+    const dead = v => v?.state?.site ? !!v.state.empty : /failed|^Draft$/i.test(String(v?.state?.status || ''))
     for (const p of H.data.projects) {
       if (!Array.isArray(p.versions) || p.versions.length < 2) continue
       const kept = p.versions.filter((v, i) => !(dead(v) && p.versions.slice(0, i).some(n => !dead(n))))
       if (kept.length && kept.length < p.versions.length) { p.versions = kept; p.count = kept.length }
-      // a newest version that failed does not name the card when an older one works
-      const ok = dead(p) && p.versions.find(v => !dead(v))
+      // a newest version that failed does not name the card when an older one works. A website's card never
+      // borrows: its newest build's own state names it (docs/ux/states/build.md, hole B2)
+      const ok = dead(p) && !p.state?.site && p.versions.find(v => !dead(v))
       if (ok?.state) p.state = ok.state
     }
     H.loaded = true

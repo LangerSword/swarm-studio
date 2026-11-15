@@ -3,7 +3,8 @@
 // tests/next-projects.test.mjs runs these in Node.
 
 export interface Theme { colors: string[], fonts?: { heading?: string, display?: string } }
-export interface ProjectState { kind: string, status: string, host?: string | null }
+// site, empty: a website's own build state and whether no section stands (server/projects.mjs stateOf)
+export interface ProjectState { kind: string, status: string, host?: string | null, site?: string, empty?: boolean }
 export interface Version {
   id: string, title?: string, t?: number, updated?: number, cover?: string | null, theme?: Theme | null,
   kinds?: string[], state?: ProjectState | null, live?: boolean, work?: { what?: string, pct?: number } | null
@@ -55,14 +56,16 @@ export function withPlans(projects: Project[], plans: Plan[]): Project[] {
 
 // A version that failed, or a Draft that never got a section, is not shown once a newer one works: the project
 // is its working versions. A newest version that failed does not name the card when an older one works.
-const dead = (v?: { state?: ProjectState | null }) => /failed|^Draft$/i.test(String(v?.state?.status || ''))
+// A website says itself whether it is empty, and its card never borrows: its newest build's own state names it
+// (docs/ux/states/build.md, hole B2).
+const dead = (v?: { state?: ProjectState | null }) => v?.state?.site ? !!v.state.empty : /failed|^Draft$/i.test(String(v?.state?.status || ''))
 export function working(projects: Project[]): Project[] {
   return projects.map(p => {
     if (!Array.isArray(p.versions) || p.versions.length < 2) return p
     const out = { ...p }
     const kept = p.versions.filter((v, i) => !(dead(v) && p.versions!.slice(0, i).some(n => !dead(n))))
     if (kept.length && kept.length < p.versions.length) { out.versions = kept; out.count = kept.length }
-    const ok = dead(p) ? out.versions!.find(v => !dead(v)) : undefined
+    const ok = dead(p) && !p.state?.site ? out.versions!.find(v => !dead(v)) : undefined
     if (ok?.state) out.state = ok.state
     return out
   })

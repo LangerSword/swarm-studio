@@ -26,13 +26,13 @@ Each state is defined by the run's events and by whether the server still holds 
 | W3 | Planning (working: Hermia, on the pages) | `run:start` (`engine/run.mjs:121`), no `layer:plan` yet, and the run is `current` and not done. The server calls it stage `planning` (`server/server.mjs:739`). |
 | W4 | Building (working: N agents, d of t sections) | At least one `layer:plan` (`engine/run.mjs:147`), the run is `current` and not done. `agent:assign` says who is on what (`engine/run.mjs:383`). `plan:done` says the plan is whole (`engine/run.mjs:363`). |
 | W5 | Waiting for Hermes | A `hermes:waiting` event while W3 or W4 (`web/canvas/start.js:55`). Model calls wait until Hermes is back. |
-| W6 | Next version starting | `run:start` with `extend: true` (and `resume: true` after Resume). The last version's pages and sections are sent again first, as `layer:plan` and `layer:done` with `kept` (`engine/run.mjs:123`). Nothing new is planned yet. |
-| W7 | Done, every section built (done, with proof) | `run:done` with `failed: 0` and `done` equal to `planned` (`engine/run.mjs:503`). |
+| W6 | Next version starting | `run:start` with `extend: true` (and `resume: true` after Resume). The last version's pages and sections are sent again first, as `layer:plan` and `layer:done` (`engine/run.mjs:123`). Only the `layer:done` carries `kept`; a carried `layer:plan` has no mark (`engine/extend.mjs:29`). Nothing new is planned yet. |
+| W7 | Done, every section built (done, with proof) | `run:done` with `failed: 0` and `done` equal to `planned` (`engine/run.mjs:503`). In a next version these counts are the new work only, a changed section adds to `done` and not to `planned` (`engine/run.mjs:469`), and `failed` still counts a section that failed and was built later. So the state is counted from the sections, one per page and id, not from these numbers (`engine/buildstate.mjs:65`). |
 | W8 | Done with failed sections (partly done) | `run:done` with `failed > 0`. Each failure is a `layer:failed` with the provider's message (`engine/run.mjs:433`, `engine/run.mjs:434`). This includes "0 built, all failed": the run still ends with `run:done`, because the server turns `run:done` into `run:stopped` only when nothing was planned (`server/server.mjs:559`). |
 | W9 | Next version added nothing | `run:done` with `extend: true` and nothing added or changed, after an `error` with `where: 'planner'` (`engine/run.mjs:286`, `engine/run.mjs:365`). It stays `run:done`: the rule at `server/server.mjs:559` skips a next version. |
 | W10 | Stopped by you | `run:stopped` with `reason.code: 'person'` (`server/server.mjs:690`, `engine/stopreason.mjs:22`). Sections caught half way are left unbuilt, not failed (`engine/run.mjs:431`). |
 | W11 | Stopped for a cause, some sections built (failed: why, and Resume) | `run:stopped` with `reason.code` `model`, `timeout` or `hermes`, and at least one `layer:plan` (`engine/stopreason.mjs:46`, `engine/stopreason.mjs:47`, `engine/stopreason.mjs:57`). |
-| W12 | Stopped for a cause, nothing planned (failed: why, and Try again) | The planner failed before any page: `run:done` with `planned: 0` and a planner `error` is rewritten to `run:stopped` with a reason (`server/server.mjs:559`, `server/server.mjs:561`), or the run threw (`server/server.mjs:624`, `server/server.mjs:626`). |
+| W12 | Stopped for a cause, nothing planned (failed: why, and Try again) | The planner failed before any page: `run:done` with `planned: 0` and a planner `error` is rewritten to `run:stopped` with a reason (`server/server.mjs:559`, `server/server.mjs:561`), or the run threw (`server/server.mjs:624`, `server/server.mjs:626`). Builds saved before that rule end with `run:done` and `planned: 0` and no reason, and older stops carry no `reason` at all: both are on the owner's disk (2026-11-15). |
 | W13 | Replaced by a newer build | A second website build starts: the first is aborted with `'replaced'` (`server/server.mjs:529`). Its `run:stopped` is then dropped, because the server only records events of the run that is `current` (`server/server.mjs:554`). So the file ends with no end event (inferred). The reason code `replaced` (`engine/stopreason.mjs:21`) can not reach the file: `current` is set in one place only (`server/server.mjs:544`), and the one test that names the code checks the function, not a build's file (`tests/hermeshealth.test.mjs:121`). |
 | W14 | Unsure: no end event | `run:start` with no `run:done` and no `run:stopped`, and the run is not `current`. Reached by W13, and by the server stopping mid-build. Films get an end written on restart (`server/server.mjs:4832`); website builds get none. |
 | W15 | After the layout: painting or reviewing | `run:done`, then the picture queue or a review is busy (`server/server.mjs:741`, `server/server.mjs:742`). See [picture.md](picture.md). |
@@ -71,7 +71,9 @@ of `app:start`, `app:done`, `app:failed`, `app:paused` in the file.
 One rule sits above every Projects card cell on this page: a project with any publish ever saved reads
 "Live · HOST" in every build state, building and failed included, because that test comes first
 (`server/projects.mjs:81`, `server/projects.mjs:85`; PU2 in [publish.md](publish.md)). The cells below are
-for a project that was never published.
+for a project that was never published. Since the build state (`engine/buildstate.mjs`) a website's card word
+is made from that one state (`server/projects.mjs:63`, `server/projects.mjs:105`); the other columns still
+work the state out themselves.
 
 | State | Projects card | Top bar: work chip and Stop | Overview: artboards | Overview: live line |
 |---|---|---|---|---|
@@ -82,13 +84,13 @@ for a project that was never published.
 | W5 | "Website · Building" (inferred) | as W4 (inferred) | as W4 (inferred) | nothing |
 | W6 | "Website · Building" | "Site · building pages" with a full bar: the kept sections count as done (`server/server.mjs:739`; shot `f-change-building` shows the chip full) | The last version's pages, whole | nothing |
 | W7 | "Website · Designed" (`server/projects.mjs:98`) | nothing | Each page's picture | nothing |
-| W8 | "Website · Designed" when one section or more was built. "Website · Draft" when none was (`server/server.mjs:794`, `server/projects.mjs:99`). With an older version in the project the card takes that version's words instead: "Website · Designed" (`web/home.js:95`, `web/home.js:102`; shot `f-fail-projects`). The failed count is on the card's data and never read (`server/server.mjs:795`) | nothing | A failed section is drawn as an unbuilt block, the same as one still to come. Over a page picture the block pulses (`server/board.mjs:40`, `server/board.mjs:43`, `web/project.js:235`, `web/project.css:86`; shot `f-fail-overview`) | nothing |
-| W9 | The new version reads "Draft", so the card keeps the older version's "Website · Designed" (`web/home.js:102`) | nothing | The last version's pages (inferred) | nothing |
-| W10 | "Website · Designed" with one section or more, else "Website · Draft". "Stopped" exists only for games (`server/projects.mjs:95`) | Stop reads "Stopping", then "Stopped" for 2.5 seconds, then the chip goes (`web/work.js:77`, `web/work.js:81`) | Unbuilt sections as plain or pulsing blocks, as W8 | nothing |
+| W8 | "Website · Partly built" when one section or more stands. "Website · Failed" when none does. With an older version in the project the card keeps its newest build's own word (`server/projects.mjs:63`, `server/projects.mjs:105`, `web/home.js:103`). Before the build state: "Website · Designed", or the older version's words (shot `f-fail-projects`) | nothing | A failed section is drawn as an unbuilt block, the same as one still to come. Over a page picture the block pulses (`server/board.mjs:40`, `server/board.mjs:43`, `web/project.js:235`, `web/project.css:86`; shot `f-fail-overview`) | nothing |
+| W9 | "Website · Designed", its own: every section of the last version is there (`server/projects.mjs:63`). Before the build state the new version read "Draft" and the card took the older version's words | nothing | The last version's pages (inferred) | nothing |
+| W10 | "Website · Stopped" (`server/projects.mjs:63`) | Stop reads "Stopping", then "Stopped" for 2.5 seconds, then the chip goes (`web/work.js:77`, `web/work.js:81`) | Unbuilt sections as plain or pulsing blocks, as W8 | nothing |
 | W11 | as W10 | nothing | as W10 | nothing |
-| W12 | "Website · Draft", or the older version's words (`server/projects.mjs:99`, `web/home.js:102`) | nothing | nothing: no pages (shot `m-ov-empty`) | nothing |
-| W13 | as W10 or W12 (inferred) | The chip now shows the newer build only (inferred) | as W10 (inferred) | nothing |
-| W14 | as W10 or W12 | nothing | as W10 | nothing |
+| W12 | "Website · Stopped". With an older version that works, this empty one is not listed among the versions, and the card still reads "Stopped" (`server/projects.mjs:109`, `web/home.js:96`, `web/home.js:103`) | nothing | nothing: no pages (shot `m-ov-empty`) | nothing |
+| W13 | "Website · Stopped" (inferred: no shot) | The chip now shows the newer build only (inferred) | as W10 (inferred) | nothing |
+| W14 | "Website · Stopped" | nothing | as W10 | nothing |
 | W15 | "Website · Building" with a sliding bar (`server/projects.mjs:92`, `web/home.js:187`) | "Site · painting pictures" or "Site · reviewing" (`server/server.mjs:741`, `server/server.mjs:742`) | Pages whole; picture slots as in [picture.md](picture.md) | "NAME painting 2 of 8", "NAME reviewing page 1 of 3" (`web/project.js:1380`, `web/project.js:1385`) |
 
 ### Website build: the Design deck, as it happens
@@ -184,11 +186,11 @@ Kinds: (a) a state no screen shows where a person needs to know; (b) two screens
 no plain reason or no way forward; (d) a sentence not made from the state. Worst first.
 
 1. **B1** (b, d) W8, deck chat against deck strip, layers and Log. The chat says "All 3 pages are built" or "Open a page, or play the prototype" while the strip says "Stopped 5/9" and four rows are red. The sentence is fixed text chosen by `e.resume` or `e.extend`, with the failed count only in brackets (`web/canvas/panels.js:350`, `web/canvas/panels.js:363`). Hit: any build where the model fails some sections (shots `f-fail-live`, `f-fail-deck`).
-2. **B2** (a, b) W8, W10, W11, W12, W14, Projects card. A website build that failed or stopped reads "Website · Designed" or "Website · Draft". `stateOf` has no failed, stopped or partly built word for a website: the only test is `card.layers > 0` (`server/projects.mjs:98`). The failed count is carried and unread (`server/server.mjs:795`). When the newest version is dead the card also borrows an older version's words (`web/home.js:95`, `web/home.js:102`). Hit: go back to Projects after any failed build (shot `f-fail-projects`).
+2. **B2** (a, b) W8, W10, W11, W12, W14, Projects card. **Closed** by the build state: the card reads "Partly built", "Failed" or "Stopped" from `buildState` and never borrows an older version's words (`engine/buildstate.mjs:65`, `server/projects.mjs:105`, `web/home.js:103`, `ui/src/screens/projects/model.ts:68`; `tests/buildstate.test.mjs`). As it was: A website build that failed or stopped reads "Website · Designed" or "Website · Draft". `stateOf` has no failed, stopped or partly built word for a website: the only test is `card.layers > 0` (`server/projects.mjs:98`). The failed count is carried and unread (`server/server.mjs:795`). When the newest version is dead the card also borrows an older version's words (`web/home.js:95`, `web/home.js:102`). Hit: go back to Projects after any failed build (shot `f-fail-projects`).
 3. **B3** (c) W8, the deck opened again. No Resume, no Try again, no reason. Resume is offered only for a `run:stopped` (`web/canvas/replay.js:225`, `web/canvas/panels.js:248`), and a build whose sections all failed ends with `run:done` (`server/server.mjs:559`). Hit: open a failed build from Projects (shot `f-fail-deck`).
 4. **B4** (c) W12, Try again. The button sends the brief with no "sure" and no chat, so the server's ask-before-build rule answers 409 `ask`, and the chat prints "Couldn't start it again: ask" (`web/canvas/panels.js:281`, `web/canvas/panels.js:284`, `server/server.mjs:3344`, `server/server.mjs:3346`). Hit: press Try again after a build that failed at the start, outside a Studio project (shot `f-fail-try-again`).
 5. **B5** (a, b) W8, W10, W11, the Overview. Failed and unbuilt sections are drawn as the same blocks as sections still coming, and over a page picture they pulse as if loading, for good. The board keeps one flag per section, `done`, set only by `layer:done` (`server/board.mjs:40`, `server/board.mjs:43`, `web/project.js:235`, `web/project.css:86`). No word, no reason, no Resume on the Overview. Hit: open the Overview of a failed build (shot `f-fail-overview`).
-6. **B6** (a) W13, W14, every screen. A build replaced by a newer one, or cut off by the server stopping, has no end event and no screen says so. The replaced build's own `run:stopped` is dropped (`server/server.mjs:529`, `server/server.mjs:554`); nothing writes an end for a website build on restart (films get one, `server/server.mjs:4832`). The card reads "Designed" or "Draft", the deck shows a leftover progress line, and there is no Resume. Hit: start a second project's build while the first is building. Inferred from the code: no shot shows it, and no test starts a second build over a running one.
+6. **B6** (a) W13, W14, every screen. Part closed: the Projects card now reads "Website · Stopped" for a build with no end (`server/projects.mjs:63`); the deck, the Overview and Resume are as below. A build replaced by a newer one, or cut off by the server stopping, has no end event and no screen says so. The replaced build's own `run:stopped` is dropped (`server/server.mjs:529`, `server/server.mjs:554`); nothing writes an end for a website build on restart (films get one, `server/server.mjs:4832`). The card reads "Designed" or "Draft", the deck shows a leftover progress line, and there is no Resume. Hit: start a second project's build while the first is building. Inferred from the code: no shot shows it, and no test starts a second build over a running one.
 7. **B7** (b, d) W6, deck strip, chat line and top bar. Before the next version has planned anything the chat says "0 agents building · 9/9 sections across 3 pages" and the strip says "3 pages built", while the top bar shows a build running with Stop. Both lines count the kept sections that were just sent again (`web/canvas/loop.js:155`, `web/canvas/panels.js:138`, `engine/run.mjs:123`); "Planning what to add…" lasts one frame (`web/canvas/events.js:37`). Hit: type a change on a built site (shot `f-change-building`).
 8. **B8** (b, d) W3, W4 opened by address. A build still planning reads "Ready", and the chat says "This file was saved before Swarm Studio kept finished sections, so only its plan is shown.", while the top bar shows it running. The page treats any build it did not hear start as a saved file, sets an end time, and picks the old-file sentence from "no finished section" (`web/canvas/replay.js:203`, `web/canvas/replay.js:217`, `web/canvas/replay.js:232`, `web/canvas/panels.js:138`). Hit: reload the deck, or open a running build's link (shot `m-deck-planning`).
 9. **B9** (c) W10, the deck opened again. A build you stopped shows no Stopped message and no Resume when opened later: the message is said only as it happens (`web/canvas/events.js:202`) and the reopen rule leaves out a stop by the person (`web/canvas/replay.js:225`). Hit: press Stop, go to Projects, open the build again (inferred; no shot).
@@ -208,23 +210,47 @@ no plain reason or no way forward; (d) a sentence not made from the state. Worst
 23. **B23** (d) W4, deck strip. Mid-build the strip can say "Stopped" or "N pages built" for a moment, because it counts sections and never reads whether the run has ended (`web/canvas/panels.js:138`; inferred).
 24. **B24** (a) W3, W4, Overview. While the layout is built the Overview has no words for who is working or how far; its live line speaks only of painting and reviewing (`web/project.js:1373`). The top bar chip is the only sign.
 25. **B25** (d) W15, deck chat. "Built P pages ... play the prototype." is said when the pictures start, so "done" comes before any picture (`web/canvas/events.js:189`, `server/server.mjs:581`). See [picture.md](picture.md).
-26. **B26** (a) Projects filter. The filter's list of statuses has no "Stopped", "Painting art" or "Building · stage", so those cards can not be filtered for (`web/home.js:21`).
+26. **B26** (a) Projects filter. The filter's list of statuses has no "Stopped", "Painting art" or "Building · stage", so those cards can not be filtered for (`web/home.js:21`). The website words "Partly built" and "Failed" are not in it either.
 
 React front end: not tabled. `ui/src` has its own deck model (`ui/src/screens/deck/model.ts`); whether it repeats
 B1, B7 and B8 is UNCHECKED.
 
 ## Where the state should live
 
-There is no single reader today. The server has three partial ones: `workOf` for "is it working, on what"
-(`server/server.mjs:736`), `stateOf` for the card's words (`server/projects.mjs:76`) and `runBoard` for the
-Overview (`server/board.mjs:17`). The deck has a fourth, in the browser: the strip's state from section counts
-(`web/canvas/panels.js:138`), the summary sentence from `e.resume` and `e.extend`
-(`web/canvas/panels.js:348`), and the reopen rules (`web/canvas/replay.js:225`). Fix mode has a fifth
-(`failuresOf`, `engine/doctor.mjs:38`). The one place should be a pure function over a run's events plus the
-live flag, in `engine/`, beside `engine/stopreason.mjs` (which already gives a stop its code, words and action):
-something like `buildState(events, { live })` returning `{ state, who, done, planned, failed: [{ page, layer,
-why }], reason: { code, message, action }, next: 'resume' | 'again' | 'setup' | null }`, with the app, game and
-film jobs as parts of it (`engine/appjob.mjs:300` already does this for the app). `stateOf` and `runBoard`
-should be made from it, `/api/runs/<id>/events` readers should get it alongside, and the deck's strip, summary
-sentence, Stopped message, Resume button and Fix facts should read it. Today none of the card, the Overview,
-the strip, the chat summary or Fix use a shared reader; only the stop reason is shared.
+It lives in `buildState(events, { live })` (`engine/buildstate.mjs:65`), a pure function over a website
+build's events plus the live flag, beside `engine/stopreason.mjs`. It writes no event and reads old files as
+they are. It answers `{ state, done, planned, kept, failed: [{ page, layer, why }], reason: { code, message,
+action } | null, next: 'resume' | null }`, or null for a run that is not a website build (an app, a game, a
+project brought in).
+
+| `state` | Rows | Made so by |
+|---|---|---|
+| `planning` | W3, W6 | live, no end, none of this build's own sections planned |
+| `building` | W4 | live, no end, sections of its own planned |
+| `done` | W7 | `run:done`, every section built |
+| `unchanged` | W9 | `run:done` of a next version with no section of its own |
+| `partly` | W8 | `run:done` with a section failed or unbuilt, or a page with no section, and one section or more standing |
+| `failed` | W8 "0 built" | `run:done` with no section standing |
+| `stopped` | W10 | `run:stopped` by the person, or with no reason (old files) |
+| `halted` | W11, W12 | `run:stopped` with the reason `model`, `timeout` or `hermes` |
+| `replaced` | W13 | `run:stopped` with the reason `replaced` (not written today) |
+| `unsure` | W13, W14 | no end event and not live |
+
+- Sections are counted one per page and id. A section built after it failed is built; a failure after
+  a section was built (a fix that failed) leaves it built, as Resume reads it; a section caught by Stop is
+  unbuilt, not failed. `kept` are the sections a next version was handed; `done` and `planned` are its own work.
+- `failed` is Fix mode's list (`failuresOf`, `engine/doctor.mjs:38`), less a failure of a section that stands. `reason` is the
+  stop's own (`run:stopped`), or for `partly` and `failed` the newest failed section's message read by
+  `reasonFromFailure` (`engine/stopreason.mjs:43`).
+- `next` names only what the server takes: `resume` when the build is not whole, something is left and
+  `/api/runs/<id>/resume` would accept it (a theme and a page, `engine/extend.mjs:37`). Try again is not
+  named: a bare brief is refused by ask-before-build (B4). Set up is not a server action. W5 (waiting for
+  Hermes), W15 (painting, reviewing) and W2 (no model key, no `run:start`) are not states of it yet.
+
+Who reads it today: the Projects card only (`server/server.mjs:823`, `server/projects.mjs:85`), in both
+Studios. Still to move onto it: `workOf` (`server/server.mjs:737`), `runBoard` (`server/board.mjs:17`), the
+deck's strip (`web/canvas/panels.js:138`), its summary sentence (`web/canvas/panels.js:348`), the reopen rules
+(`web/canvas/replay.js:225`) and Fix mode's facts. `/api/runs` carries it whole as `buildState`, and every card and version carries its name as
+`state.site`. The app, game and film jobs are not parts
+of it yet (`engine/appjob.mjs:300` is the app's). `scripts/build-state-diff.mjs` lists every card whose words
+changed, old against new, over a runs folder.
