@@ -1868,14 +1868,17 @@ function matchLook(pid, ref, run) {
 // before a build reads it (refs.brief); outside a project the stop carries them, and the ones kept join the project
 // the build starts. The canvas hears { type: 'research', state: 'looking' | 'done', … } so the person sees it happen.
 const researching = new Set()
+// the planner's model for research (picking the searches, what to take from each page), or null with none; the chat's
+// web_research tool uses it too (server/researchtool.mjs)
+const researchChat = () => models.planner.apiKey && modelFor('planner') ? async (messages, { signal: s } = {}) => (await streamChat(provider('planner'), {
+  trace: { kind: 'research' }, model: modelFor('planner'), maxTokens: 900, temperature: 0.2, signal: s,
+  extra: { reasoning_effort: 'none', reasoning: { enabled: false } }, messages
+})).text : null
 // the findings a build outside a project was sent again with (the ones the person kept): only what research makes
 const keptFindings = list => list.slice(0, 6).filter(f => f && /^https?:\/\//.test(String(f.url || ''))).map(f => ({ url: String(f.url).slice(0, 1000), title: String(f.title || '').slice(0, 120), took: String(f.took || '').slice(0, 400), query: String(f.query || '').slice(0, 200) })).filter(f => f.took)
 async function lookUp({ ask, kind = 'site', pid = null, signal = null }) {
   broadcast({ type: 'research', state: 'looking', ask, project: pid })
-  const chat = models.planner.apiKey && modelFor('planner') ? async (messages, { signal: s } = {}) => (await streamChat(provider('planner'), {
-    trace: { kind: 'research' }, model: modelFor('planner'), maxTokens: 900, temperature: 0.2, signal: s,
-    extra: { reasoning_effort: 'none', reasoning: { enabled: false } }, messages
-  })).text : null
+  const chat = researchChat()
   const got = await research({ ask, kind, chat, signal, web: (body, s) => hermes.call('/web', body, 40000, { grace: 5000 }).then(r => (s?.aborted ? { ok: false, error: 'stopped' } : r)) })
   const kept = []
   if (pid) for (const f of got.findings) try { kept.push(refs.addFinding(pid, f)) } catch {}
@@ -2275,7 +2278,10 @@ const helpers = helperKit(chatTools({
   assets, refs, plans, projects, runsDir,
   // the app builder's web tools (part c): the same reads the app engine's tools use, and a press that clones
   reads: webReads(webAccess),
-  change: (run, ask) => apps().then(a => a.start(run, { ask }))
+  change: (run, ask) => apps().then(a => a.start(run, { ask })),
+  // research from the chat (#606): Hermes's /web, and the planner's model to pick the searches (server/researchtool.mjs)
+  web: (body, signal) => hermes.call('/web', body, 40000, { grace: 5000 }).then(r => (signal?.aborted ? { ok: false, error: 'stopped' } : r)),
+  chat: () => researchChat()
 }))
 const helperRoute = helperRoutes({ kit: helpers, chats })
 // the library picture for a slot: the closest packs of the build's style first, then any pack
