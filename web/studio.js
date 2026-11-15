@@ -9,6 +9,7 @@ import { makeBrand } from './brand.js'
 import { makeScaffold } from './scaffold.js'
 import { makeNav, toAddress } from './nav.js'
 import { MODES, modeOf, studioMode, modesShown } from './modes.js'
+import { toNewStudio } from './uiswitch.js'
 const sw = window.swarm
 const W = window
 const body = document.body
@@ -212,7 +213,8 @@ C.up = () => {
 C.plan = (id, fresh = false) => { C.planFresh = fresh; C.go('plan', id) }
 // a part of a plan, from the chat's "where to start" (spec 27): the board on that plan, the part in view and selected
 C.planAt = async (id, { focus, select } = {}) => {
-  if (C.mode !== 'plan' || C.planView.id !== id || C.planView.drafting) C.go('plan', id)
+  // the same plan: read it again, the chat may just have changed it (a lock, a pick, a picture started)
+  if (C.mode !== 'plan' || C.planView.id !== id || C.planView.drafting) C.go('plan', id); else await C.planView.reload()
   await C.planView.ready
   if (select) C.planView.select(select)
   if (focus) C.planView.focus(focus)
@@ -287,14 +289,14 @@ function chrome() {
   const menu = $('#more-menu')
   if (menu) {
     menu.insertAdjacentHTML('beforeend', `<div class="cosmos-sep" role="separator"></div>
-      <button class="toggle cosmos-only" id="cosmos-sound" aria-pressed="false">${ico('sound')}<span>Crew sound</span></button>
+      <button class="toggle cosmos-only" id="cosmos-sound" aria-pressed="false">${ico('sound')}<span>Crew sound</span></button><button class="toggle cosmos-only" id="cosmos-next">${ico('chr')}<span>Use the new Studio</span></button>
 `)
     // the crew's voices and sounds (web/chatter.js): the same switch and words as the user menu's; ✓ while on
     const sound = $('#cosmos-sound')
     const paint = () => { const on = sw.sound?.() === 'on'; sound.classList.toggle('on', on); sound.setAttribute('aria-pressed', String(on)) }
     sound.onclick = () => { sw.sound?.(sw.sound() === 'on' ? 'muted' : 'on'); paint() }
     $('#more-btn')?.addEventListener('click', paint)
-    paint()
+    paint(); toNewStudio(document.getElementById('cosmos-next'), sw)
   }
   modeMenu()
   // in a room, the chat column comes back with one button

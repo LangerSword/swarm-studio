@@ -25,7 +25,15 @@ export interface ChatLine {
   layers?: string[]
   // Hermia is working on it (the dots)
   working?: boolean
+  // a game plan's next step (server/talk.mjs): its buttons sit in the turn; waiting: something is painting; sheet:
+  // the sketch sheet that waits on the person's picks, drawn in the turn to click
+  step?: boolean
+  waiting?: boolean
+  sheet?: SheetPick
 }
+
+// a sketch sheet in the chat: its picture, its grid and the cells picked so far (0-based)
+export interface SheetPick { id: string, src: string | null, grid: [number, number], picks: number[] }
 
 // A chip in the message box: a layer dragged in (it gets a wire to the layer), or a reference (a picture, clip or
 // sound dropped or pasted; no wire)
@@ -52,6 +60,8 @@ export interface ChatTalk {
   brief?: string
   what?: string
   sheet?: boolean
+  // the brief's first button's word, in place of Build (the Design deck's "Try again" after a failed first build, #541)
+  go?: string
   // a new project with nothing built yet: the canvas is empty (the screen clears it)
   blank?: boolean
 }

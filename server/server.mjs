@@ -27,7 +27,7 @@ import { reviewPage, fixSection, routeComment, reviewAgain, REVIEW_PASS, REVIEW_
 import { lintSection } from '../engine/lint/index.mjs'
 import { cleanMarks, openMarks, nextMarkId, readMarksMessages, parseReads, fixText, markLine } from '../engine/marks.mjs'
 import { handChanges, keepHand } from '../engine/handedit.mjs'
-import { exportRun, snapshot } from '../engine/export.mjs'
+import { exportRun, exportPages, snapshot } from '../engine/export.mjs'
 import { seoPass, currentSeo, cleanSeo, thumbOf } from '../engine/seo.mjs'
 import { seoAsk, lookAsk } from '../web/route.js'
 import { lookEdits, themeNow } from '../engine/lookask.mjs'
@@ -70,6 +70,7 @@ import { chatMediaRoutes } from './chatmedia.mjs'
 import { autoplayRoutes } from './autoplay.mjs'
 import { bringInRoutes } from './bringin.mjs'
 import { sourceRoutes } from './sourcehub.mjs'
+import { savedOwner } from '../engine/ghowner.mjs'
 import { joinHistory } from '../engine/sourcehub.mjs'
 import { pictureMessages, linksIn, readPage, pageRead, withRefs } from '../engine/chatmedia.mjs'
 import { refStore } from '../engine/refs.mjs'
@@ -1700,7 +1701,10 @@ planPaint.ready = async () => !!ckffCreds() || !!(await imageChoice())
 // The build (spec 21) spends Meshy credits only on a locked plan, inside the price it was locked at.
 // whether Godot 4 is on this machine (engine/port.mjs loads the game modules, so it is read once, late)
 let godotHere
-import('../engine/port.mjs').then(m => { godotHere = !!m.godotBin() }).catch(() => {})
+let godotBinOf = null
+import('../engine/port.mjs').then(m => { godotBinOf = m.godotBin; godotHere = !!m.godotBin() }).catch(() => {})
+// "Install Godot 4" in the planner chat looks again (the person may have just installed it); Swarm never downloads it
+const godotCheck = () => { if (godotBinOf) godotHere = !!godotBinOf(); return !!godotHere }
 const plans = planRoutes({
   dataDir, builtInTemplates: [join(root, 'games', 'ares', 'plan.json')], paint: planPaint, make: { character: planMakeCharacter, key: () => planMeshyKey() },
   // the planner reads the idea's genre family; Godot asked for is said in the plan, and so is a missing Godot
@@ -1710,7 +1714,7 @@ const plans = planRoutes({
 // The planner conversation (docs/specs/27-plan-conversation.md): decide together in the left chat, then lock.
 // A locked game chat makes its plan through the Plan board's routes above.
 const talks = talkRoutes({
-  dataDir, plans, env: () => ({ godot: godotHere }),
+  dataDir, plans, env: () => ({ godot: godotHere }), godotCheck,
   model: () => models.planner.apiKey && modelFor('planner') ? async messages => (await streamChat(provider('planner'), {
     trace: { kind: 'talk' }, model: modelFor('planner'), maxTokens: 700, temperature: 0.3, signal: AbortSignal.timeout(60000),
     extra: { reasoning_effort: 'none', reasoning: { enabled: false } }, messages
@@ -1944,19 +1948,28 @@ const storyRoute = storyRoutes({
     trace: { kind: 'story' }, model: modelFor('planner'), maxTokens: 1400, temperature: 0.5, signal: AbortSignal.timeout(60000),
     extra: { reasoning_effort: 'none', reasoning: { enabled: false } }, messages
   })).text : null,
-  // the page shots a beat's screen uses: a fresh export, every page at desktop and phone size
-  shots: async id => {
+  // the page shots a beat's screen uses: the pages asked for (a story's few), at desktop and phone size. Run after
+  // the story's answer (server/story.mjs later), never on a request (issue #565)
+  shots: async (id, want = null) => {
     const events = readEvents(id)
     if (!events) return []
-    // the newest export on disk when there is one (Post to Feed and ⬇ Export leave one); else a fresh one
+    const name = nameFor(id)?.name, pages = snapshot(events, [], { name }).pages
+    // the newest export on disk when there is one (Post to Feed and ⬇ Export leave one); else the pages alone, in the
+    // story's own folder: no search pass, no zip, and never the export Publish reads
     const changed = events.findLast(e => e.type === 'layer:done' || e.type === 'theme' || e.type === 'image')?.t || 0
     const last = events.findLast(e => e.type === 'export' && e.t >= changed && e.dir && Array.isArray(e.html) && existsSync(join(e.dir, 'html', e.html[0] || '')))
-    const out = last ? { dir: last.dir, html: last.html } : await exportRun({ events, runId: id, runDir: join(runsDir, id), sections: [], name: nameFor(id)?.name, fill: fillExport(id) })
+    const out = last ? { dir: last.dir, html: last.html } : await exportPages({ events, runId: id, runDir: join(runsDir, id), outDir: join(runsDir, id, 'story', 'site'), name, fill: fillExport(id) })
+    const files = out.html.filter((f, i) => !want || want.includes(pages[i]?.id))
     const { pageShots } = await import('../engine/pageshots.mjs')
-    const got = await pageShots({ htmlDir: join(out.dir, 'html'), files: out.html, dataDir })
-    const pages = snapshot(events, [], { name: nameFor(id)?.name }).pages
-    return out.html.map((file, i) => { const s = got.shots.find(x => x.file === file) || {}; return { page: pages[i]?.id, desktop: s.shot, phone: s.phoneShot } }).filter(s => s.page)
-  }
+    const got = await pageShots({ htmlDir: join(out.dir, 'html'), files, dataDir })
+    return out.html.map((file, i) => { const s = got.shots.find(x => x.file === file) || {}; return { page: pages[i]?.id, desktop: s.shot, phone: s.phoneShot } }).filter(s => s.page && (s.desktop || s.phone))
+  },
+  // a page's saved picture of how it looks now (spec 36's snapshots, taken by the browser that showed it)
+  savedShot: id => {
+    const now = snapsOf().list(id, readEvents(id) || [])
+    return page => { const u = now.pages[page]?.f || now.pages[page]?.s; return u ? snapsOf().file(id, u.split('/').pop()) : null }
+  },
+  notify: (id, type, data) => broadcast({ type, run: id, t: Date.now(), ...data })
 })
 // the Deck kit (docs/specs/35-open-design.md section 7): its slides written by the planner, through Hermes
 const decks = deckRoutes({
@@ -2723,7 +2736,8 @@ async function publish(id, input = {}) {
   const rebase = base => { try { out.rebase(base) } catch (err) { send('error', { where: 'seo', message: String(err.message || err) }) } }
   const go = target === 'vercel' ? publishVercel({ dir, name: hostName, creds, dataDir, rebase, onStage })
     : target === 'cloudflare' ? publishCloudflare({ dir, name: hostName, creds, dataDir, rebase, onStage })
-    // each version of a project is its own site: Bot Wiki at <login>.github.io/bot-wiki, its version 2
+    // each version of a project is its own site: Bot Wiki at <owner>.github.io/bot-wiki (the person's login, or the
+    // organization builds go to: engine/ghowner.mjs), its version 2
     // at …/bot-wiki-2, so publishing one never replaces another (owner, 2026-11-12)
     : publishGitHub({ dir, name: versionOf(id) > 1 ? `${out.name}-${versionOf(id)}` : out.name, title, key: id, dataDir, rebase, onStage })
   go.then(r => finish(r.url, { repo: r.repo, pending: !!r.pending }))
@@ -3183,6 +3197,8 @@ const server = createServer((req, res) => {
       if (goChat?.go && !next) await chats.update(chatId, c => { if (c.go) c.go.run = run.id }).catch(() => {})
       // "Tell the crew…" inside a project: the new run is that project's next version
       if (pid) projects.claim(run.id, pid)
+      // which references this build read (issue #543): the Overview shows them with its pages
+      if (pid) try { writeFileSync(join(runsDir, run.id, 'refs-used.json'), JSON.stringify(refs.used(pid))) } catch {}
       // the words go into a chat: the talk that led here, else a new one (or the project's newest)
       const chat = chatFor({ chat: chatId, text: typed, kind: 'site', project: pid })
       chatBuilt(chat, run.id, pid, typed)
@@ -3798,7 +3814,7 @@ const server = createServer((req, res) => {
   // Where a site can be published, and who is signed in there (never a token).
   if (url.pathname === '/api/publish' && req.method === 'GET') {
     Promise.all([githubLogin(), connections(dataDir)])
-      .then(([login, conn]) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ github: login, ...conn, providers: PROVIDERS })))
+      .then(([login, conn]) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ github: login, githubOwner: savedOwner(dataDir), ...conn, providers: PROVIDERS })))
     return
   }
 
