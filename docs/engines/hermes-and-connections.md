@@ -70,7 +70,7 @@ Hermes is the host: Swarm Studio is a Hermes plugin (`requires_hermes: ">=0.23"`
 - `ckffCreds` reads only `CKFF_API_KEY`, the name plugin.yaml declares and launcher.py passes (engine/ckff.mjs, tests/enginegaps.test.mjs). The `CKFF_IMAGE_KEY` alias it also read was never passed and is gone.
 - engine/paint-ckff.mjs is a developer command line (sprite sheets), not called by the server. It reads `CKFF_IMAGE_KEY` or an Octo vault item via `OCTO_AGENT_KEY`, and `CKFF_BASE` / `OCTO_URL`; none declared in plugin.yaml (engine/paint-ckff.mjs:1-33).
 - Tools outside the server paint through `POST /api/hermes/image` (server/server.mjs:3292-3305).
-- The bridge also has `POST /web`: `{search, limit}` runs Hermes's own `web_search` and `{urls}` its `web_extract` through `ctx.dispatch_tool`, at most 20 results or 5 http(s) addresses a call (bridge.py `web`, tests/test_bridge.py). Nothing in the server calls it yet: it is the ground for the app engine's search, fetch and clone routes, which are not built (docs/engines/dyad.md, Limits).
+- The bridge also has `POST /web`: `{search, limit}` runs Hermes's own `web_search` and `{urls}` its `web_extract` through `ctx.dispatch_tool`, at most 20 results or 5 http(s) addresses a call (bridge.py `web`, tests/test_bridge.py). The app engine's search, page reading and clone tools reach it through the studio's gateway (engine/enginetools.mjs, docs/engines/dyad.md, Limits).
 - Clips: Hermes `video_generate` only (server/server.mjs:209-213). FAL is Hermes's own `FAL_KEY` (docs/specs/33-hermes-bridge.md:70-71).
 
 ### Posting (Postiz and others)
