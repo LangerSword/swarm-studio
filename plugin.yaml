@@ -80,3 +80,6 @@ license: FSL-1.1-ALv2
 #                                  its children (tree-kill: taskkill /T on Windows, ps/pgrep elsewhere)
 #   engine/vendor/net/net.mjs      ipaddr.js 2.5.0 (MIT, no dependencies; pinned in scripts/vendor/net/package-lock.json):
 #                                  the range check on every address the site walk and link reads reach
+# The app engine's web and picture tools (dyad's web_search, web_fetch, web_crawl, generate_image) reach only the
+# studio's loopback gateway (engine/enginetools.mjs), which answers them through Hermes's web_search and
+# web_extract, the guarded site walk and Hermes's image_generate: no key of their own, nothing else on the network.
