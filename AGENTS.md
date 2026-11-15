@@ -34,6 +34,8 @@ The real constraints that come with a dependency:
 - **Size and licence.** Mind the install size and the licence.
 - **Nothing new downloaded at build time.** A build may not fetch a new runtime download.
 
+When main's Mac check is red: `checks-macos` runs on a pull request only when it touches what can behave differently on a Mac (the list in `.github/workflows/checks.yml`, job `changes`), and always on every push to `main` and `release/**`. A red `checks-macos` on `main` is a Mac-only break the pull request didn't run: find the merge that brought it (the run's commit), open a fix PR that touches one of the listed files (so its own Mac check runs), and don't merge other PRs that touch those files until `main` is green again.
+
 Checks before a PR: `bash scripts/check.sh`; for code in `web/`, also `npm ci --prefix tools/dev` once, then
 `npm run --prefix tools/dev typecheck` (files that start with `// @ts-check`; a new web file starts with it) and
 `npm run --prefix tools/dev deps` (no new cycles beyond `.dependency-cruiser-known-violations.json`; an area

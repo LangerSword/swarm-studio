@@ -14,7 +14,12 @@ jobs:
   # What a pull request touches decides which of the heavy jobs run (a skipped job counts as passed, so nothing waits
   # on it). A push to main or release/** runs everything, always. If this job itself fails, the jobs that wait on it
   # run too: a scope that cannot be worked out never drops a gate.
-  #   platform  launcher.py, bridge*.py, plugin.yaml, engine/, server/, scripts/, tests/, this workflow   -> checks-macos
+  #   platform  what can behave differently on a Mac: launcher.py, bridge*.py, plugin.yaml, scripts/, this workflow, and
+  #             the engine and server files that start processes, touch paths, temp folders or the platform, or install
+  #             things (the files that import engine/proc.mjs or read tmpdir, homedir or process.platform: the list in
+  #             the pattern below; the image service and vendored code)                                -> checks-macos
+  #             A test file alone does not run it: every push to main and release/** runs it, so a Mac-only break
+  #             shows on main's run right after the merge (AGENTS.md, "When main's Mac check is red").
   #   code      anything but docs (docs/, openspec/, *.md)                                              -> checks-windows
   #   web       web/, ui/, server/, the motion and gauge scripts and their notes, this workflow         -> motion-check, motion-parity, board-gauge
   changes:
@@ -40,7 +45,7 @@ jobs:
           git diff --name-only "$base" HEAD > "$RUNNER_TEMP/files.txt"
           echo 'changed:'; sed 's/^/  /' "$RUNNER_TEMP/files.txt"
           any() { if grep -Eq "$1" "$RUNNER_TEMP/files.txt"; then echo true; else echo false; fi; }
-          platform=$(any '^(launcher[.]py|bridge[^/]*[.]py|plugin[.]yaml|engine/|server/|scripts/|tests/|[.]github/workflows/checks[.]yml$)')
+          platform=$(any '^(launcher[.]py|bridge[^/]*[.]py|plugin[.]yaml|scripts/|[.]github/workflows/checks[.]yml$|engine/(proc|video|sound|images|npmci|seo|bringin|sourcehub|sourcefolder|appbuild|appjob|assetlib|autoplay|ckff|connect|deck|export|footage|godotfirst|heavy|hermes_connect|hermeshealth|keycolor|media|mediareader|musiccut|pageshots|playtest|port|poster|publish|radio|reference|sitelook|skins|storycards|importer)[.]mjs$|engine/(imagetools|vendor)/|server/(server|setup|bringin)[.]mjs$)')
           web=$(any '^(web/|ui/|server/|scripts/(board-gauge|gauge-reqlog|motion-check|motion-parity|walkthrough-fixtures)|docs/ux/motion/|[.]github/workflows/checks[.]yml$)')
           if grep -Eqv '^(docs/|openspec/|.*[.]md$)' "$RUNNER_TEMP/files.txt"; then code=true; else code=false; fi
           echo "platform=$platform code=$code web=$web"
