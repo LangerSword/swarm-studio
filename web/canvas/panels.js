@@ -254,6 +254,8 @@ export function leftMsg(b) {
   const why = b.reason && b.reason.code !== 'person' ? b.reason : null
   const item = botMsg(endWords(b))
   if (why?.action) item.querySelector('.txt').append(document.createElement('br'), actionLine(why.action))
+  // the strip says it in the same moment as the chat (the frame loop may be resting)
+  renderStatus(0, [...S.layers.values()].filter(l => l.status === 'done').length)
   // a replay only plays: nothing that acts on the build is offered in a line it adds
   if (rec.event || hosted || !b.next) return item
   const run = S.run
