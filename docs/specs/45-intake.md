@@ -210,9 +210,9 @@ small sheet that says what is true in a few plain lines, and has the moves:
 
 | The project | The sheet says | Moves |
 |---|---|---|
-| has an app or a game, never pushed | **Not on GitHub**, or **Brought in from owner/name/folder** | **Repository** (the project's name, to edit; `owner/name` links one that exists), **Private / Public**, **Push**; **Pull** when it was brought in from a repository |
-| is linked | **owner/name** (a link) and **Private** or **Public**; **Pushed 3 min ago** or **Pulled …**; then **Changes not pushed**, **New commits to pull** or **Up to date** | **Pull**, **Push** (Pull leads when GitHub has new commits) |
-| is linked, but this version has a history of its own | the same, and **This version needs a repository of its own** | **Repository**, **Private / Public**, **Push**, **Pull** |
+| has an app or a game, never pushed | **Not on GitHub**, or **Brought in from owner/name/folder** | **Where it goes**: **New repository** (**Name**, the project's, to edit; **Private / Public**) or **An existing repository** (**Repository**, `owner/name` or its address, typed or picked from the person's repositories on their account and in their organizations, newest first, narrowed as they type; a line says it is pushed there only when it is empty or already holds this project's history, and that nothing is overwritten); **Push**; **Pull** when it was brought in from a repository |
+| is linked | **owner/name** (a link), **Private** or **Public**, **Branch main**, and **Unlink** (the project forgets the repository; nothing on GitHub or on disk changes); **Pushed 3 min ago** or **Pulled …**; then **Changes not pushed**, **New commits to pull** or **Up to date** | **Pull**, **Push** (Pull leads when GitHub has new commits) |
+| is linked, but this version has a history of its own | the same, and **This version needs a repository of its own** | **Where it goes** as above, **Push**, **Pull** |
 | has no app or game yet | **No app or game here yet** | **Repository**, **Subfolder**, **Game / App**, **Bring in** (into this project, as its next version) |
 | anything on its way | a crew cursor (Pip) and the step: checking, making, pushing to, pulling from | the buttons wait |
 
