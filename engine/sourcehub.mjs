@@ -26,7 +26,7 @@ const exec = (cmd, args, { cwd, timeout = 120000 } = {}) => new Promise(ok => {
 /** gh, as the person: → { ok, out, err } */
 export const ghCli = (args, opts) => exec('gh', args, { timeout: 30000, ...opts })
 // git in the run's own folder: no hook of the project's runs, nothing is asked, the gh login answers for GitHub
-const git = (dir, args, hub = GITHUB, opts) => exec('git', ['-c', 'core.hooksPath=', '-c', 'credential.helper=', '-c', 'credential.helper=!gh auth git-credential', '-c', `protocol.file.allow=${hub.file ? 'always' : 'never'}`,
+export const git = (dir, args, hub = GITHUB, opts) => exec('git', ['-c', 'core.hooksPath=', '-c', 'credential.helper=', '-c', 'credential.helper=!gh auth git-credential', '-c', `protocol.file.allow=${hub.file ? 'always' : 'never'}`,
   '-c', 'user.name=Swarm Studio', '-c', 'user.email=swarm@localhost', ...args], { cwd: dir, ...opts })
 // git's own last words, without any name and password in an address
 const said = text => String(text || '').split('\n').map(l => l.trim()).filter(Boolean).slice(-2).join(' ').replace(/https:\/\/[^@\s/]+@/g, 'https://').slice(0, 240)
@@ -213,6 +213,21 @@ export function readTarget(given) {
 }
 
 // ---------- push
+/** What changed since the run's last commit goes into one more (the crew commits each change; a hand edit may not
+ * be), before its history goes anywhere: a key file among the changes stops it, the changes put back as they were. */
+export async function saveChanges(dir, hub = GITHUB, step = () => {}) {
+  exclude(dir)
+  if ((await localHead(dir, hub))?.dirty) {
+    step('saving the latest changes')
+    await git(dir, ['add', '-A'], hub)
+    // a key file among them (a name the patterns above missed, or one already tracked and changed) is never
+    // committed by the Studio: the changes are put back as they were, and the push stops with the names
+    const staged = (await git(dir, ['diff', '--cached', '--name-only', '--diff-filter=ACMR'], hub)).out.split('\n').filter(Boolean).filter(keyFile)
+    if (staged.length) { await git(dir, ['reset', '-q'], hub); throw fail(keysSay(staged), 422, { keys: staged }) }
+    await git(dir, ['commit', '-qm', 'Changes made in Swarm Studio'], hub)
+  }
+}
+
 /**
  * Push the run's history. `link` is the repository this project already goes to ({ repo, branch }), if any;
  * `want` is what the person asked for when there is none (or to change it): { repo: 'owner/name' } links one
@@ -230,17 +245,7 @@ export async function pushSource({ dir, link = null, want = {}, title = '', hub 
   const login = await ghLogin(gh)
   if (!login) throw fail(SIGN_IN, 424)
   if (!existsSync(join(dir, '.git'))) throw fail('Nothing to push yet: this project has no source', 409)
-  // what changed since the last commit goes into one more (the crew commits each change; a hand edit may not be)
-  exclude(dir)
-  if ((await localHead(dir, hub))?.dirty) {
-    step('saving the latest changes')
-    await git(dir, ['add', '-A'], hub)
-    // a key file among them (a name the patterns above missed, or one already tracked and changed) is never
-    // committed by the Studio: the changes are put back as they were, and the push stops with the names
-    const staged = (await git(dir, ['diff', '--cached', '--name-only', '--diff-filter=ACMR'], hub)).out.split('\n').filter(Boolean).filter(keyFile)
-    if (staged.length) { await git(dir, ['reset', '-q'], hub); throw fail(keysSay(staged), 422, { keys: staged }) }
-    await git(dir, ['commit', '-qm', 'Changes made in Swarm Studio'], hub)
-  }
+  await saveChanges(dir, hub, step)
   const local = await localHead(dir, hub)
   if (!local) throw fail('Nothing to push yet: this project has no history', 409)
 

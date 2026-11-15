@@ -15,14 +15,18 @@ import { cursor, CREW } from './icons.js'
  * @property {string} project @property {string} name @property {string} piece @property {string[]} pieces
  * @property {string | null} run @property {boolean} source @property {string | null} login @property {string} suggest
  * @property {string | null} [owner] the organization a new repository goes to (null: the person's account)
- * @property {{ repo: string, url: string, private: boolean, branch?: string | null, base?: string | null, pr?: string | null, pushed: number | null, pulled: number | null, fits: boolean } | null} link
+ * @property {{ repo: string | null, url: string | null, private: boolean | null, branch?: string | null, base?: string | null, pr?: string | null, folder?: string | null, mode?: string | null, sub?: string | null, where?: string | null, pushed: number | null, pulled: number | null, fits: boolean } | null} link
  * @property {{ repo: string, path: string, url: string, pulled: number | null } | null} origin
  * @property {boolean} ahead @property {boolean | null} behind @property {string | null} unreachable
- * @property {{ did: string, state: string, step: string, message: string, url?: string, repo?: string, pull?: boolean, run?: string, pr?: string | null, other?: GitHubOther } | null} job
+ * @property {{ did: string, state: string, step: string, message: string, url?: string, repo?: string, pull?: boolean, run?: string, pr?: string | null, other?: GitHubOther, changes?: GitHubChanges, folder?: string } | null} job
  */
 /**
  * @typedef {object} GitHubOther a repository that already holds other work: what it holds, and whether its files may come in
  * @property {string} repo @property {string} branch @property {number} files @property {number} bytes @property {string | null} bring
+ */
+/**
+ * @typedef {object} GitHubChanges a write into a folder that would replace files the project did not write
+ * @property {string} folder @property {number} add @property {number} update @property {number} remove @property {string[]} theirs @property {number} more
  */
 /**
  * @typedef {object} GitHubHost
@@ -133,9 +137,9 @@ export function githubLines(st, now = Date.now()) {
   const from = st.origin ? `Brought in from ${st.origin.repo}${st.origin.path ? `/${st.origin.path}` : ''}` : ''
   if (!st.link) out.push(from || 'Not on GitHub')
   else {
-    out.push(`${st.link.repo}, ${st.link.private ? 'private' : 'public'}`)
+    out.push(st.link.folder ? `${st.link.where}` : `${st.link.repo}, ${st.link.private ? 'private' : 'public'}`)
     const last = Math.max(st.link.pushed || 0, st.link.pulled || 0)
-    if (last) out.push(`${last === st.link.pushed ? 'Pushed' : 'Pulled'} ${githubAgo(last, now)}`)
+    if (last) out.push(`${last === st.link.pushed ? (st.link.folder ? 'Written' : 'Pushed') : 'Pulled'} ${githubAgo(last, now)}`)
     if (!st.link.fits) out.push('This version needs a repository of its own')
   }
   // a first push makes the repository in the organization builds go to (Settings › You › GitHub)
@@ -213,11 +217,14 @@ export function githubDoor(host) {
       if (!d.closed) draw()
     }
     // what was typed stays in the fields when the sheet is drawn again (a refusal leaves it there to mend)
-    const typed = { repo: '', path: '' }
+    const typed = { repo: '', path: '', folder: '', sub: '' }
+    /** @type {any} the last move, made again with a yes */
+    let lastMove = null
     const body = /** @type {HTMLElement} */ (d.body)
     /** @param {any} move */
     const go = async move => {
       if (busy || !st) return
+      if (move.action === 'push' && !move.confirm) lastMove = move
       busy = true; said = ''
       const before = st
       st = { ...st, job: { did: move.action, state: 'working', step: '', message: '' } }
@@ -245,22 +252,32 @@ export function githubDoor(host) {
           <p class="gh-help">Its ${files} come into this project, then this project is pushed on top of ${esc(o.branch)}. Where both have a file, this project's is kept; its history stays as it was. Nothing of it is run.</p></div>`}
       </div>`
     }
+    /** a folder write that would replace files the project did not write: which, and the yes @param {GitHubChanges} c @param {string} words */
+    const replaceWay = (c, words) => `<div class="gh-other" role="group" aria-label="Files that would be replaced">
+        <p class="gh-help">${esc(words)}</p>
+        <ul class="gh-lines">${c.theirs.map(p => `<li><code>${esc(p)}</code></li>`).join('')}${c.more ? `<li>and ${c.more} more</li>` : ''}</ul>
+        <div class="gh-way"><button type="button" class="ui-btn ui-btn-outline" data-replace>Replace them</button>
+          <p class="gh-help">Those files in ${esc(c.folder)} become this project's, with ${c.add} new and ${c.update} updated beside them. Nothing else there changes.</p></div>
+      </div>`
     function draw() {
       if (!st) return
       const s = st, job = s.job, at = s.link, mid = job?.state === 'working'
       const needsName = s.source && (!at || !at.fits)
       const toggle = (/** @type {string} */ name, /** @type {string[][]} */ opts, /** @type {string} */ on, /** @type {string} */ attr) => `<div class="ui-toggle-group ui-block" role="radiogroup" aria-label="${name}">${opts.map(([k, n]) => `<button type="button" class="ui-toggle" role="radio" aria-checked="${k === on}" data-${attr}="${k}">${n}</button>`).join('')}</div>`
-      const lines = githubLines(s).filter(l => !at || !l.startsWith(`${at.repo},`))
+      const lines = githubLines(s).filter(l => !at || (at.folder ? l !== at.where : !l.startsWith(`${at.repo},`)))
       body.innerHTML = `<form class="gh-form" autocomplete="off">
         ${s.pieces.length > 1 ? toggle('Piece', [['game', 'Game'], ['app', 'App']], s.piece, 'piece') : ''}
-        ${at ? `<p class="gh-repo"><a href="${esc(at.url)}" target="_blank" rel="noopener">${esc(at.repo)}</a><span>${at.private ? 'Private' : 'Public'}</span>${at.branch ? `<span>Branch ${esc(at.branch)}</span>` : ''}${at.pr ? `<a href="${esc(at.pr)}" target="_blank" rel="noopener">Open a pull request</a>` : ''}${mid ? '' : '<button type="button" class="ui-btn ui-btn-ghost ui-btn-sm gh-unlink" data-unlink>Unlink</button>'}</p>` : ''}
+        ${at?.folder ? `<p class="gh-repo"><span>${at.mode === 'checkout' ? 'Checkout' : 'Folder'}</span><code class="gh-path">${esc(at.mode === 'checkout' ? at.folder : at.where || '')}</code>${at.branch ? `<span>Branch ${esc(at.branch)}</span>` : ''}${mid ? '' : '<button type="button" class="ui-btn ui-btn-ghost ui-btn-sm gh-unlink" data-unlink>Unlink</button>'}</p>` : ''}
+        ${at && !at.folder ? `<p class="gh-repo"><a href="${esc(at.url)}" target="_blank" rel="noopener">${esc(at.repo)}</a><span>${at.private ? 'Private' : 'Public'}</span>${at.branch ? `<span>Branch ${esc(at.branch)}</span>` : ''}${at.pr ? `<a href="${esc(at.pr)}" target="_blank" rel="noopener">Open a pull request</a>` : ''}${mid ? '' : '<button type="button" class="ui-btn ui-btn-ghost ui-btn-sm gh-unlink" data-unlink>Unlink</button>'}</p>` : ''}
         <ul class="gh-lines">${lines.map(l => `<li>${esc(l)}</li>`).join('')}</ul>
         ${mid ? working(job) : ''}
         ${!mid && !s.source ? `<label class="ui-field"><span class="ui-label">Repository</span><input class="ui-input" name="repo" value="${esc(typed.repo)}" placeholder="owner/name" maxlength="200" required></label>
           <label class="ui-field"><span class="ui-label">Subfolder</span><input class="ui-input" name="path" value="${esc(typed.path)}" placeholder="games/ares" maxlength="300"></label>
           ${toggle('Kind', [['game', 'Game'], ['app', 'App']], kind, 'kind')}` : ''}
-        ${!mid && needsName ? `${toggle('Where it goes', [['new', 'New repository'], ['existing', 'An existing repository']], way, 'way')}
-          ${way === 'new' ? `<label class="ui-field"><span class="ui-label">Name</span><input class="ui-input" name="repo" value="${esc(typed.repo || s.suggest)}" placeholder="name" maxlength="100" required></label>
+        ${!mid && needsName ? `${toggle('Where it goes', [['new', 'New repository'], ['existing', 'An existing repository'], ['folder', 'A folder on this computer']], way, 'way')}
+          ${way === 'folder' ? `<label class="ui-field"><span class="ui-label">Folder</span><input class="ui-input" name="folder" value="${esc(typed.folder)}" placeholder="~/code/site" maxlength="1000" required></label>
+          <label class="ui-field"><span class="ui-label">Subfolder, for a folder that is not a git checkout</span><input class="ui-input" name="sub" value="${esc(typed.sub || s.suggest)}" placeholder="site" maxlength="200"></label>
+          <p class="gh-help">A git checkout gets this project on a branch of its own, swarm/${esc(s.suggest)}: its other branches and its files are not touched, and nothing is pushed anywhere. Any other folder gets the files in the subfolder; a file there this project did not write is never replaced without asking first. Only a folder inside your home folder.</p>` : way === 'new' ? `<label class="ui-field"><span class="ui-label">Name</span><input class="ui-input" name="repo" value="${esc(typed.repo || s.suggest)}" placeholder="name" maxlength="100" required></label>
           ${toggle('Who can see it', [['private', 'Private'], ['public', 'Public']], 'private', 'see')}` : `<label class="ui-field"><span class="ui-label">Repository</span><input class="ui-input" name="repo" value="${esc(typed.repo)}" placeholder="owner/name or its address" maxlength="200" required list="gh-repos"></label>
           <datalist id="gh-repos">${(repos || []).map(r => `<option value="${esc(r.repo)}">${r.private ? 'private' : 'public'}${r.empty ? ', empty' : ''}</option>`).join('')}</datalist>
           ${repos ? (repos.length ? `<div class="gh-pick" role="list" aria-label="Your repositories">${repos.slice(0, 300).map(r => `<button type="button" class="ui-btn ui-btn-outline ui-btn-sm" role="listitem" data-pick="${esc(r.repo)}">${esc(r.repo)}${r.empty ? ' · empty' : ''}</button>`).join('')}</div>` : '') : `<p class="gh-help" role="status" aria-busy="true">Looking at your repositories…</p>`}
@@ -268,14 +285,15 @@ export function githubDoor(host) {
           <p class="gh-help">This project is pushed there. That works when the repository is empty or already holds this project's history; a repository with other work is left as it is, and nothing is ever overwritten.</p>`}` : ''}
         ${job?.state === 'done' && job.message ? `<p class="gh-done" role="status">${esc(job.message)}${job.url ? ` <a href="${esc(job.url)}" target="_blank" rel="noopener">${esc(String(job.url).replace(/^https:\/\//, ''))}</a>` : ''}${job.pr ? ` <a href="${esc(job.pr)}" target="_blank" rel="noopener">Open a pull request</a>` : ''}</p>` : ''}
         ${!mid && job?.state === 'failed' && job.other ? otherWay(job.other) : ''}
-        ${said || (job?.state === 'failed' && !job.other) ? `<p class="bring-err" role="alert">${esc(said || job?.message || '')}</p>` : ''}
+        ${!mid && job?.state === 'failed' && job.changes ? replaceWay(job.changes, job.message) : ''}
+        ${said || (job?.state === 'failed' && !job.other && !job.changes) ? `<p class="bring-err" role="alert">${esc(said || job?.message || '')}</p>` : ''}
         <button type="submit" hidden></button>
       </form>`
       // the move a refusal offers leads: Pull after "has commits this project does not have"
       const pullFirst = !!(job?.pull || s.behind)
       const canPull = s.source && !!(at || s.origin)
       const btn = (/** @type {string} */ k, /** @type {string} */ n, /** @type {boolean} */ lead) => `<button type="button" class="ui-btn ${lead ? 'ui-btn-default' : 'ui-btn-outline'}" data-go="${k}"${mid ? ' disabled' : ''}>${n}</button>`
-      d.setFooter(!s.source ? btn('bring', 'Bring in', true) : `${canPull ? btn('pull', 'Pull', pullFirst) : ''}${btn('push', 'Push', !pullFirst || !canPull)}`)
+      d.setFooter(!s.source ? btn('bring', 'Bring in', true) : `${canPull ? btn('pull', 'Pull', pullFirst) : ''}${btn('push', at?.folder || (needsName && way === 'folder') ? 'Write' : 'Push', !pullFirst || !canPull)}`)
       const form = /** @type {HTMLFormElement} */ (body.querySelector('form'))
       const field = (/** @type {string} */ n) => /** @type {HTMLInputElement | null} */ (form.elements.namedItem(n))
       for (const b of /** @type {NodeListOf<HTMLElement>} */ (form.querySelectorAll('[role="radio"]'))) b.onclick = () => {
@@ -293,7 +311,15 @@ export function githubDoor(host) {
       for (const b of /** @type {NodeListOf<HTMLElement>} */ (form.querySelectorAll('[data-mode]'))) b.onclick = () => { if (other) go({ action: 'push', repo: other.repo, mode: b.dataset.mode }) }
       const unlink = /** @type {HTMLElement | null} */ (form.querySelector('[data-unlink]'))
       if (unlink) unlink.onclick = () => go({ action: 'unlink' })
+      const replace = /** @type {HTMLElement | null} */ (form.querySelector('[data-replace]'))
+      if (replace) replace.onclick = () => go({ ...(lastMove || { action: 'push' }), confirm: true })
       const move = (/** @type {string} */ k) => {
+        const where = field('folder')
+        if (k === 'push' && where) {
+          if (!where.value.trim()) return where.focus()
+          Object.assign(typed, { folder: where.value.trim(), sub: field('sub')?.value.trim() || '' })
+          return go({ action: 'push', folder: where.value.trim(), sub: field('sub')?.value.trim() || undefined })
+        }
         const repo = field('repo')
         if (k !== 'pull' && repo && !repo.value.trim()) return repo.focus()
         // a new repository is a name; one with an owner names a repository that exists
