@@ -14,7 +14,7 @@
 // the chat's box changes just it. Each change is a saved edit event, so it undoes, replays and
 // reaches anyone else on the same build (room for working together later).
 import { ic, cursor, CREW, PAINTERS, REVIEWER, painterOf } from './icons.js'
-import { routeMessage, toApp } from './route.js'
+import { routeMessage, toApp, seoAsk } from './route.js'
 import { swEdit } from './edit/patches.js'
 import { refDrop } from './refdrop.js'
 import { setVideoHtml } from './video.js'
@@ -1184,12 +1184,12 @@ export function makeProject({ sw, C, root }) {
   }
   // a picture painted again, steered by `prompt` when there is one -> { ok, error }
   const repaint = (x, prompt = '') => post(`/api/runs/${encodeURIComponent(P.run)}/image`, { page: x.art.page, layer: x.art.layer, gen: x.art.gen, prompt })
-    .then(() => { setTimeout(load, 1500); return { ok: true, error: '' } }, err => ({ ok: false, error: String(err.body?.error || err.message || '') }))
+    .then(() => { setTimeout(load, 1500); return { ok: true, error: '' } }, err => ({ ok: false, error: String(err.body?.error || '') }))
   // Replace (the inspector's button): a picture is painted again as it was described; an upload takes a new file.
   // New words for a picture are typed in the chat with the picture selected (say() below).
   function replace(x) {
     if (x.kind === 'upload') { P.replacing = x.name; fileIn.multiple = false; fileIn.click(); return }
-    if (x.kind === 'art') repaint(x).then(r => toast(r.ok ? `${ic('image', 15)}<span>Painting</span>` : `<span>${esc(r.error)}</span>`))
+    if (x.kind === 'art') repaint(x).then(r => toast(r.ok ? `${ic('image', 15)}<span>Painting</span>` : `<span>${esc(nothing(r.error))}</span>`))
   }
 
   // ---------- breadcrumb menu: rename, duplicate, versions
@@ -1361,12 +1361,16 @@ export function makeProject({ sw, C, root }) {
   // -> true: taken, the box empties · 'kept': answered, the words stay in the box · a route: the chat starts that build
   const nothing = why => `Nothing happened: ${String(why || 'the canvas server is not answering').replace(/\.$/, '')}.`
   function fixAsk(key, text, h) {
+    // the build's own events write the chat's lines (the words, then who took it); the SEO pass writes only
+    // its answer, so its words are shown here
+    const shown = seoAsk(text)
+    if (shown) h.you(text)
     Promise.resolve(sw.layers.fix(key, text)).then(r => {
-      // accepted: the build's own events write the chat's lines (the words, then who took it)
       if (r?.ok) return void setTimeout(load, 1500)
       // "which section?" has been answered in the chat already (comment:none)
       if (/which section/.test(r?.error || '')) return
-      h.you(text); h.bot(nothing(r?.error))
+      if (!shown) h.you(text)
+      h.bot(nothing(r?.error))
     })
   }
   async function say(text, h) {
@@ -1667,6 +1671,7 @@ export function makeProject({ sw, C, root }) {
   async function sendMarks(text, list, h) {
     if (P.markBusy || !sw.marks) return
     P.markBusy = true
+    h.you(text || markWords(list.length))
     root.querySelector('.mk-note')?.blur()
     try {
       const shots = {}, crops = {}
@@ -1697,11 +1702,12 @@ export function makeProject({ sw, C, root }) {
       P.marks = P.marks.filter(m => !list.includes(m))
       P.mkUndo = []
       drawMarks()
-      h.you(text || markWords(list.length)); h.bot(out.reply || 'On it.')
+      h.bot(out.reply || 'On it.')
     } catch (err) {
       const b = box()
       if (text && b && !b.value) b.value = text
-      h.you(text || markWords(list.length)); h.bot(nothing(err.message || 'the marks did not go'))
+      // the server's own reason; a request that never reached it has none of its own
+      h.bot(nothing(err instanceof TypeError ? '' : err.message))
     } finally { P.markBusy = false }
   }
   // what the run says about its marks and drafts (live, and replayed when it opens)
@@ -1826,7 +1832,8 @@ export function makeProject({ sw, C, root }) {
     // the chat's box, while the Overview is the room (web/canvas/loop.js): the unsent marks go with the words
     // (or with none), anything else through say()
     get marked() { return P.on && P.marks.some(m => m.run === P.run) },
-    sendMarks: (text, h) => sendMarks(text, P.marks.filter(m => m.run === P.run), h),
+    // -> false while the last marks are still going: nothing is taken, the words stay in the box
+    sendMarks(text, h) { if (P.markBusy || !sw.marks) return false; sendMarks(text, P.marks.filter(m => m.run === P.run), h); return true },
     say,
     get pid() { return P.pid },
     get run() { return P.run }

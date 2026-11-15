@@ -422,7 +422,7 @@ async function sendDock() {
   // a replay comes first (web/replaytalk.js): "stop", "is this building?", "replay"; anything else ends it, then goes on
   if (!nextRoute && await replaySay(els.brief.value)) return
   // marks drawn on the Overview's pages go with the words, or with none
-  if (!nextRoute && overview()?.marked && !/^\/[a-z?]/i.test(els.brief.value.trim())) { const t = els.brief.value.trim(); els.brief.value = ''; return void overview().sendMarks(t, ovLines) }
+  if (!nextRoute && overview()?.marked && !/^\/[a-z?]/i.test(els.brief.value.trim())) { if (overview().sendMarks(els.brief.value.trim(), ovLines)) els.brief.value = ''; return }
   // a typed GitHub move is never a brief, in any mode and from any dock
   if (!nextRoute?.fresh && github.say(els.brief.value)) { nextRoute?.done?.(null); nextRoute = null; els.brief.value = ''; return }
   // where builds go on GitHub ("publish to <organization>", "where do builds go"): taken only when the name is the
