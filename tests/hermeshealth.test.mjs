@@ -202,7 +202,7 @@ test('a Hermes that disappears mid-build stops the build with the reason; when o
   const events = [], waiting = new Set()
   const hear = match => new Promise(r => { const look = () => { const e = events.find(match); if (e) { waiting.delete(look); r(e) } }; waiting.add(look); look() })
   const ctl = new AbortController()
-  const stream = await fetch(`${s.base}/events?k=t`, { signal: ctl.signal })
+  const stream = await fetch(`${s.base}/events`, { headers: { 'x-swarm-token': 't' }, signal: ctl.signal })
   const sse = (async () => {
     let buf = ''
     for await (const chunk of stream.body) {
@@ -255,7 +255,7 @@ test('a Hermes that disappears mid-build stops the build with the reason; when o
 test('Hermes gone while a build asks what it offers for pictures: the server lives, and the build stops with the reason', { timeout: 120000 }, async () => {
   const s = await startServer({ SWARM_HERMES_GRACE_MS: '300' })
   const events = [], ctl = new AbortController()
-  const stream = await fetch(`${s.base}/events?k=t`, { signal: ctl.signal })
+  const stream = await fetch(`${s.base}/events`, { headers: { 'x-swarm-token': 't' }, signal: ctl.signal })
   const sse = (async () => {
     let buf = ''
     for await (const chunk of stream.body) {

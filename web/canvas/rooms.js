@@ -1,5 +1,6 @@
 // @ts-check
 // web/canvas.js, split by area (web/canvas/README.md): the views and rooms: Canvas, Video, App, the big game, the app advisor, game mode, cast, art, the bench.
+import { download } from '../headerstream.js'
 import { dataStore } from '../data.js'
 import { noAppYet, goOnAsk, neverDrew, sliceSay, sliceWords } from './wander.js'
 import { stageNow, stagePick, stageAsk, stageNone, stageSwitch, playFail, mapDoor } from './stage.js'
@@ -46,7 +47,7 @@ export const appEls = { view: $('#appview'), state: $('#app-state'), stage: $('#
 // The Game room's Autoplay switch and the AI player's screen over the game (web/canvas/autoplay.js)
 const aiPlayer = autoplayRoom({
   btn: /** @type {HTMLButtonElement | null} */ ($('#app-auto')), cover: $('#app-auto-view'), api, ico, cursor: cursor(painterOf('autoplay')),
-  stream: run => `${BASE}/api/runs/${encodeURIComponent(run)}/autoplay/stream?k=${encodeURIComponent(BOOT.token || '')}&t=${Date.now()}`,
+  stream: run => `${BASE}/api/runs/${encodeURIComponent(run)}/autoplay/stream?t=${Date.now()}`, token: BOOT.token || '',
   showLive: () => stageSet('live'), botMsg, youSaid: text => feed(null, text, 'you'),
 })
 const PLACEHOLDER = { canvas: 'Describe a product. The swarm designs and builds its site.', video: 'An idea for the video: “faster, end on the crowd”, “for Instagram”…', app: 'Change the app: “add a FAQ page with search”, “let people pick a seat”…' }
@@ -430,7 +431,10 @@ function renderApp() {
   const port = appv.result?.port
   appEls.port.hidden = !port?.files
   if (port?.files) {
-    appEls.port.href = `${location.origin}/api/runs/${encodeURIComponent(appv.run)}/port/${port.target}.zip?k=${encodeURIComponent(BOOT.token || '')}`
+    // saved with the token in its header (web/headerstream.js download), never ?k= in the link
+    const zip = `${location.origin}/api/runs/${encodeURIComponent(appv.run)}/port/${port.target}.zip`
+    appEls.port.href = zip
+    appEls.port.onclick = ev => { ev.preventDefault(); download(zip, { token: BOOT.token || '', name: `${port.target}.zip` }).catch(err => feed(null, `${port.label}: ${err.message}`, 'err')) }
     appEls.port.textContent = port.label
     appEls.port.setAttribute('aria-label', `Download the ${port.label} project`)
   }

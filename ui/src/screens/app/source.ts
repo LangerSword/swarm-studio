@@ -4,6 +4,7 @@
 // the same stream; the two can share one once the deck's open slices have landed.)
 import { createContext } from 'react'
 import type { AppMap, AppState, RunEvent, AppVersion } from './model'
+import { eventStream } from '@studio/headerstream'
 
 export interface AppSource {
   state(run: string): Promise<AppState>
@@ -54,8 +55,8 @@ export const serverAppSource: AppSource = {
   back: (run, rev) => post(`${base(run)}/app/back`, { rev }),
   change: (run, ask, sections) => post(`${base(run)}/app`, { ask, sections }),
   stream(on) {
-    const es = new EventSource(`/events?k=${encodeURIComponent(token())}`)
-    es.onmessage = m => { try { on(JSON.parse(m.data) as RunEvent) } catch { /* a keep-alive or a torn line */ } }
+    // the token in its header, never in the address (web/headerstream.js)
+    const es = eventStream('/events', { token: token(), onMessage: m => { try { on(JSON.parse(m.data) as RunEvent) } catch { /* a torn line */ } } })
     return () => es.close()
   }
 }

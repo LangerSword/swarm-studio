@@ -1,9 +1,9 @@
 // Export (web/canvas/design.js exportRunNow, showExport): the build as files on this computer, the HTML pages, a
 // React project and an app builder's spec, with the folder they went to and the .zip to download.
 import { useEffect, useState } from 'react'
-import { LinkButton } from '../../primitives/Button'
+import { Button } from '../../primitives/Button'
 import { Dialog } from '../../primitives/Dialog'
-import { exportRun, zipUrl } from './publish'
+import { exportRun, saveZip } from './publish'
 import { doneSections, type DeckModel } from './model'
 
 export function ExportDialog({ model, isOpen, onOpenChange }: { model: DeckModel, isOpen: boolean, onOpenChange: (open: boolean) => void }) {
@@ -21,6 +21,8 @@ export function ExportDialog({ model, isOpen, onOpenChange }: { model: DeckModel
   // the build as it is when the dialog opens; a later section is in the next export
   }, [isOpen, model.run])
   const out = state.out
+  // the zip, saved with the token in its header: a failed download says so under its button
+  const [saveError, setSaveError] = useState('')
   return (
     <Dialog title={out ? 'Exported, ready' : 'Export'} isOpen={isOpen} onOpenChange={onOpenChange}>
       {state.busy && <p role="status" aria-busy="true">Exporting the pages…</p>}
@@ -33,7 +35,8 @@ export function ExportDialog({ model, isOpen, onOpenChange }: { model: DeckModel
             <dt className="font-semibold">aba/</dt><dd className="text-muted">spec.md + blueprint.json for an app builder</dd>
           </dl>
           <p className="break-all text-muted">{out.dir}</p>
-          {out.zip && <div className="flex justify-end"><LinkButton role="primary" href={zipUrl(model.run!)} download>Download .zip</LinkButton></div>}
+          {out.zip && <div className="flex justify-end"><Button role="primary" onPress={() => { setSaveError(''); saveZip(model.run!).catch((err: unknown) => setSaveError(err instanceof Error ? err.message : String(err))) }}>Download .zip</Button></div>}
+          {saveError && <p role="alert" className="text-hot-text">{saveError}</p>}
         </div>
       )}
     </Dialog>

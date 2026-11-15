@@ -151,7 +151,9 @@ async function record(out, { root = ROOT } = {}) {
       const page = await ctx.newPage()
       let pending = 0
       // the event stream stays open for good: it is not something to wait for
-      const counts = r => r.resourceType() !== 'eventsource'
+      // (read with fetch since the token moved to its header, web/headerstream.js: told by its address, as is the
+      // autoplay picture stream)
+      const counts = r => r.resourceType() !== 'eventsource' && !/\/events$|\/autoplay\/stream$/.test(new URL(r.url()).pathname)
       page.on('request', r => { if (counts(r)) pending++ })
       page.on('requestfinished', r => { if (counts(r)) pending-- })
       page.on('requestfailed', r => { if (counts(r)) pending-- })

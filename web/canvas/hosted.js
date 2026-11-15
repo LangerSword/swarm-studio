@@ -50,7 +50,7 @@ export const hosted = BOOT.hosted && (() => {
   // visit with a generated name ("Comet Otter"), and the guest confirms or changes it here, once.
   const feedApi = (path, opts) => fetch(`/api/feed${path}`, { credentials: 'same-origin', ...opts }).then(r => r.json().then(j => ({ ok: r.ok, ...j }))).catch(() => ({ ok: false }))
   // the event stream opened before the guest existed: open it again as this guest
-  const reconnect = () => { connect(); return new Promise(r => { es.addEventListener('open', r, { once: true }); setTimeout(r, 2500) }) }
+  const reconnect = () => { connect(); return new Promise(r => { es.opened.then(() => r(undefined)); setTimeout(r, 2500) }) }
   // A build never waits for a name. With the Feed, the guest's generated name ("Comet Otter") is enough
   // to build, and the Feed makes the guest here if this is the first visit; the guest picks their own
   // name the first time they post, where it is the credit. Without a Feed (local testing) the name is asked.

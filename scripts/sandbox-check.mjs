@@ -117,10 +117,10 @@ try {
 
   console.log('/site/ and /video/…/live/')
   for (const [path, what] of [[`/site/${RUN}/`, 'a local site'], [`/video/${RUN}/live/index.html`, 'a video composition']]) {
-    const res = await fetch(`${BASE}${path}?k=${TOKEN}`)
+    const res = await fetch(`${BASE}${path}`)
     ok(res.headers.get('content-security-policy') === 'sandbox allow-scripts', `${what} is served with content-security-policy: sandbox allow-scripts (${res.headers.get('content-security-policy')})`)
     const p2 = await browser.newPage()
-    await p2.goto(`${BASE}${path}?k=${TOKEN}`)
+    await p2.goto(`${BASE}${path}`)
     await wait(400)
     ok((await p2.title()) === 'origin:null;storage:no', `a script in ${what} sees an opaque origin and no storage (${await p2.title()})`)
     await p2.close()

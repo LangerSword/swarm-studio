@@ -1,5 +1,6 @@
 // @ts-check
 // web/canvas.js, split by area (web/canvas/README.md): starting a build, resizable panels, crews, the Publish button, pictures in the Design panel.
+import { eventStream } from '../headerstream.js'
 import { BASE, BOOT, WALL, S, cosmosHooks, commandOps, els, store, Q, $, Crew, ARROW, TOOL, api } from './core.js'
 import { hermesResume, botMsg, resumeRun, renderToolbar, setText, feed, setHermesResume } from './panels.js'
 import { hosted } from './hosted.js'
@@ -39,44 +40,46 @@ export let es = null
 export function connect() {
   es?.close()
   fresh()
-  es = new EventSource(`${BASE}/events?k=${encodeURIComponent(BOOT.token || '')}`)
-  es.onmessage = m => {
-    try {
-      const e = JSON.parse(m.data)
-      // a wall tile only watches: the main canvas answers Hermes' commands
-      if (e.type === 'cmd') return WALL ? null : command(e)
-      // a sign-in belongs to no file
-      if (e.type === 'connector') return connectorEvent(e)
-      // model calls wait for Hermes (engine/hermesllm.mjs): the build goes on once it is open
-      if (e.type === 'hermes:waiting' || e.type === 'hermes:back') return hermesWait(e)
-      if (e.type === 'reset' || e.type === 'run:start') {
-        setLiveId(e.run)
-        // a talk before building keeps the canvas: a build started elsewhere waits in Projects
-        if (talk.on) return
-        // Only the build the person asked for, or the one already followed, takes the canvas. Any
-        // other (the server's current run replayed on a reconnect, a build from another window) is
-        // only news: Projects lists it, and the open build stays as it is.
-        // In the studio the navigation machine names the build (spec 34): a canvas holding nothing takes
-        // only that one, and the stream itself only tells the machine that a build has begun.
-        const nav = window.swarmCosmos?.nav
-        if (e.type === 'run:start') nav?.go({ type: 'streamed', run: e.run })
-        const followed = !viewing && (S.run === e.run || (!S.run && (!nav || e.run === nav.view.run)))
-        if (!followed && e.run !== claimed) {
-          if (!viewing && S.run) setViewing(S.run)
-          if (e.type === 'run:start') for (const fn of cosmosHooks) try { fn(e) } catch (err) { console.error(err) }
-          return
-        }
-        if (viewing) { setViewing(null); fresh(e.run) }
+  // the token in its header, never in the address (web/headerstream.js)
+  es = eventStream(`${BASE}/events`, { token: BOOT.token || '', onMessage: m => onEvent(m) })
+}
+/** @param {{ data: string }} m */
+function onEvent(m) {
+  try {
+    const e = JSON.parse(m.data)
+    // a wall tile only watches: the main canvas answers Hermes' commands
+    if (e.type === 'cmd') return WALL ? null : command(e)
+    // a sign-in belongs to no file
+    if (e.type === 'connector') return connectorEvent(e)
+    // model calls wait for Hermes (engine/hermesllm.mjs): the build goes on once it is open
+    if (e.type === 'hermes:waiting' || e.type === 'hermes:back') return hermesWait(e)
+    if (e.type === 'reset' || e.type === 'run:start') {
+      setLiveId(e.run)
+      // a talk before building keeps the canvas: a build started elsewhere waits in Projects
+      if (talk.on) return
+      // Only the build the person asked for, or the one already followed, takes the canvas. Any
+      // other (the server's current run replayed on a reconnect, a build from another window) is
+      // only news: Projects lists it, and the open build stays as it is.
+      // In the studio the navigation machine names the build (spec 34): a canvas holding nothing takes
+      // only that one, and the stream itself only tells the machine that a build has begun.
+      const nav = window.swarmCosmos?.nav
+      if (e.type === 'run:start') nav?.go({ type: 'streamed', run: e.run })
+      const followed = !viewing && (S.run === e.run || (!S.run && (!nav || e.run === nav.view.run)))
+      if (!followed && e.run !== claimed) {
+        if (!viewing && S.run) setViewing(S.run)
+        if (e.type === 'run:start') for (const fn of cosmosHooks) try { fn(e) } catch (err) { console.error(err) }
+        return
       }
-      // following the live build: an event of another build (a late picture of the build before,
-      // an edit made to a saved one in another window) is not this canvas's. A new build's start is:
-      // it takes the canvas over (an App's design step, a build started with hermes swarm)
-      if (!viewing && e.run && S.run && e.run !== S.run && e.type !== 'run:start' && e.type !== 'reset') return
-      // events for the open file (a review or edit while viewing it) apply too
-      if (!viewing || (e.run === viewing && e.type !== 'run:start')) on(e)
-    } catch (err) {
-      console.error(err)
+      if (viewing) { setViewing(null); fresh(e.run) }
     }
+    // following the live build: an event of another build (a late picture of the build before,
+    // an edit made to a saved one in another window) is not this canvas's. A new build's start is:
+    // it takes the canvas over (an App's design step, a build started with hermes swarm)
+    if (!viewing && e.run && S.run && e.run !== S.run && e.type !== 'run:start' && e.type !== 'reset') return
+    // events for the open file (a review or edit while viewing it) apply too
+    if (!viewing || (e.run === viewing && e.type !== 'run:start')) on(e)
+  } catch (err) {
+    console.error(err)
   }
 }
 

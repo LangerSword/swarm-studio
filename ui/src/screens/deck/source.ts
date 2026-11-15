@@ -5,6 +5,7 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { apply, empty, fold, type DeckEvent, type DeckModel } from './model'
 import { schedule, withTyping } from './replay'
 import { buildEvent } from '../../legacy'
+import { eventStream } from '@studio/headerstream'
 
 export interface DeckSource {
   events(run: string): Promise<DeckEvent[]>
@@ -25,8 +26,8 @@ export const serverSource: DeckSource = {
     return r.json() as Promise<DeckEvent[]>
   },
   stream(on) {
-    const es = new EventSource(`/events?k=${encodeURIComponent(token())}`)
-    es.onmessage = m => { try { on(JSON.parse(m.data) as DeckEvent) } catch { /* a keep-alive or a torn line */ } }
+    // the token in its header, never in the address (web/headerstream.js)
+    const es = eventStream('/events', { token: token(), onMessage: m => { try { on(JSON.parse(m.data) as DeckEvent) } catch { /* a torn line */ } } })
     return () => es.close()
   },
   async live(run) {
