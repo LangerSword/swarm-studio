@@ -68,6 +68,8 @@ async function side(env, sel) {
   await click(page, sel)
 }
 // on a phone the chat is a sheet over the lower half: fold it so the screen under it shows
+// the chat when it is folded away to its pill
+const chat = async env => { await tap(env.page, '.cosmos-chatbtn'); await env.wait(400) }
 const fold = async env => { if (env.phone) { await tap(env.page, '.side .tabs .cosmos-fold'); await env.wait(300) } }
 
 // a request kept waiting (the loading states), let go by `clean`
@@ -98,9 +100,9 @@ function png(w, h, [r, g, b]) {
   const head = Buffer.alloc(13); head.writeUInt32BE(w, 0); head.writeUInt32BE(h, 4); head[8] = 8; head[9] = 2
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', head), chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0))])
 }
-// a three second clip, when this computer has ffmpeg; false when it has not
+// a three second clip of one flat colour, when this computer has ffmpeg; false when it has not
 function clip(file, args = []) {
-  try { execFileSync('ffmpeg', ['-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=640x360:d=3:r=24', ...args, file], { stdio: 'ignore', timeout: 30000 }); return existsSync(file) } catch { return false }
+  try { execFileSync('ffmpeg', ['-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=0x26262b:s=640x360:d=3:r=24', ...args, file], { stdio: 'ignore', timeout: 30000 }); return existsSync(file) } catch { return false }
 }
 const { sourceSig = null } = await import('../engine/appjob.mjs').catch(() => ({}))
 
@@ -140,8 +142,8 @@ function seedRich({ runs, site, T0, rid }) {
   make('pub', 'Fern & Stone', 'Fern & Stone, a plant shop with a stone yard')
   mkdirSync(join(runs, R.pub, 'img'), { recursive: true })
   const shades = [[196, 122, 74], [88, 96, 84], [150, 138, 120], [60, 62, 68]]
-  shades.forEach((c, i) => writeFileSync(join(runs, R.pub, 'img', `pic-${i}.png`), png(480, 270, c)))
-  add(R.pub, shades.map((_, i) => ({ type: 'image', page: 'home', layer: ['hero', 'features', 'footer', 'hero'][i], src: `/img/${R.pub}/pic-${i}.png` })), at(14))
+  shades.forEach((c, i) => writeFileSync(join(runs, R.pub, 'img', `${i}.png`), png(480, 270, c)))
+  add(R.pub, shades.map((_, i) => ({ type: 'image', page: 'home', layer: ['hero', 'features', 'footer', 'hero'][i], src: `/img/${R.pub}/${i}.png` })), at(14))
   make('wasLive', 'Quiet Hours', 'Quiet Hours, a library of sleep sounds')
   add(R.wasLive, [{ type: 'publish:start', target: 'github' }, { type: 'publish:done', target: 'github', url: 'https://example.github.io/quiet-hours/', pages: 2, ms: 42000 }])
   make('pubFailed', 'Low Tide', 'Low Tide, a tide table for one small bay')
@@ -165,7 +167,8 @@ function seedRich({ runs, site, T0, rid }) {
     ...steps([['setup', 'the engine is ready'], ['write', 'src/pages/Board.tsx'], ['write', 'server/routes/api/swaps.post.ts'], ['test', 'the app builds', true], ['gate', 'sign-in works', true]]),
     { type: 'app:done', result: { turns: 6, files: 14, gatesPassed: 3 }, ms: 420000 },
     ...(shipFilm ? [{ type: 'video:start', prompt: 'A 20 second promo' }, { type: 'video:done', src: `/video/${R.ship}/promo.mp4`, file: join(runs, R.ship, 'video', 'promo.mp4'), seconds: 3, ms: 90000 }] : []),
-    { type: 'auto', state: 'done', t0: at(40), ms: 600000, prompt: 'Ward Swap, an app where nurses swap shifts', url: 'https://ward-swap.example.app', steps: [{ id: 'design', label: 'Design', state: 'done', ms: 60000 }, { id: 'app', label: 'App', state: 'done', ms: 420000 }, { id: 'deploy', label: 'Deploy', state: 'done', ms: 30000 }] }
+    { type: 'auto', state: 'working', t0: at(40), prompt: 'Ward Swap, an app where nurses swap shifts', steps: [{ id: 'design', label: 'Design', state: 'done', ms: 60000 }, { id: 'app', label: 'App', state: 'done', ms: 420000 }, { id: 'review', label: 'Review', state: 'working' }] },
+    { type: 'auto', state: 'done', t0: at(40), ms: 600000, prompt: 'Ward Swap, an app where nurses swap shifts', url: 'https://ward-swap.example.app', steps: [{ id: 'design', label: 'Design', state: 'done', ms: 60000 }, { id: 'app', label: 'App', state: 'done', ms: 420000 }, { id: 'review', label: 'Review', state: 'done', ms: 30000 }] }
   ])
   make('appWork', 'Tool Shed', 'Tool Shed, an app for lending tools on one street', { kind: 'app', pages: [['signin', 'Sign in'], ['shelf', 'The shelf']] })
   writeFileSync(join(runs, R.appWork, 'app-plan.json'), JSON.stringify(map))
@@ -314,20 +317,31 @@ async function appRoom(env, run, root = '#appview') {
   await fold(env)
   return s
 }
-async function kit(env) {
+// The launch kit opens from an Auto run's summary card, and the classic Studio hides the Auto panel
+// (web/studio.css), so the one way left to the card is a replay of a saved Auto run: it shows when the
+// replayed run ends. These steps follow one another on the same page; one run alone replays first.
+async function summary(env) {
   const s = await rich(env)
-  await deckOf(env, s, s.R.ship)
-  await click(env.page, '.ap-kit', 8000)
+  if (await shown(env.page, '.show-sum')) return s
+  await go(env, s, `/?replay=${s.R.ship}`, '#viewport')
+  await vis(env.page, '.show-sum', 20000)
+  return s
+}
+async function kit(env) {
+  if (await shown(env.page, '.launch-pop')) return rich(env)
+  const s = await summary(env)
+  await click(env.page, '.show-sum .ss-launch')
   await vis(env.page, '.launch-pop')
   return s
 }
 
+const gh = env => env.page.route(pathIs('/api/github/owner'), route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(GH) }))
 const SETUP = 'First open', PROJ = 'Projects', MAKE = 'Make', STU = 'Studio', PLANB = 'Plan board', OV = 'Overview', DECK = 'Design deck', PUB = 'Publish', ROOMS = 'Rooms'
 const GH = { login: 'ada-example', owner: 'alpha-tea-co', orgs: [{ login: 'alpha-tea-co', can: true, why: '' }, { login: 'night-shift-club', can: false, why: 'Members cannot create repositories there' }], error: null }
 
 const LIST = [
   // ---------- Setup: the rows after Account, and finished
-  { id: 'm-setup-rest', flow: SETUP, title: 'Setup opened again: every row closed', run: env => setupOn(env) },
+  { id: 'm-setup-rest', flow: SETUP, title: 'Setup opened again from the user menu (a model that fails opens its row)', run: env => setupOn(env) },
   { id: 'm-setup-pictures', flow: SETUP, title: 'Setup: the Pictures row', run: async env => { await setupOn(env, 'pictures'); await vis(env.page, '.su-body [data-pic]') }, settle: 1500 },
   { id: 'm-setup-parts', flow: SETUP, title: 'Setup: the Parts row', run: async env => { await setupOn(env, 'parts'); await vis(env.page, '.su-pgroups') }, settle: 2500 },
   { id: 'm-setup-parts-group', flow: SETUP, title: 'Setup › Parts: a group open (Every build)', run: async env => { await setupOn(env, 'parts', 'every'); await vis(env.page, '.su-parts .su-pp') }, settle: 2500 },
@@ -336,14 +350,11 @@ const LIST = [
   { id: 'm-setup-done', flow: SETUP, title: 'Setup finished: Start pressed', run: async env => { await setupOn(env); await click(env.page, '.su-start'); await env.page.locator('.ui-dialog.su').first().waitFor({ state: 'hidden', timeout: 5000 }) } },
 
   // ---------- Projects
-  { id: 'm-settings-you', flow: PROJ, title: 'Settings › You', run: async env => { await settings(env, 'you'); await vis(env.page, '.set-row[data-k="feed"]') }, settle: 2500 },
-  { id: 'm-settings-you-goes', flow: PROJ, title: 'Settings › You › Swarm Feed: where its data goes', run: async env => { await settings(env, 'you'); await click(env.page, '.set-row[data-k="feed"]'); await vis(env.page, '.set-goes:not([hidden])') }, settle: 1500 },
-  { id: 'm-settings-github', flow: PROJ, title: 'Settings › You › GitHub (as this Studio answers)', run: async env => { await settings(env, 'you'); await click(env.page, '.set-row[data-k="github"]', 12000); await vis(env.page, '.set-back[data-k="you"]') }, settle: 1500 },
-  { id: 'm-settings-github-orgs', flow: `${PROJ} (GitHub answer stubbed)`, title: 'Settings › You › GitHub: the account and its organizations', run: async env => {
-    await main(env)
-    await env.page.route(pathIs('/api/github/owner'), route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(GH) }))
-    await settings(env, 'you'); await click(env.page, '.set-row[data-k="github"]'); await vis(env.page, '.set-radios [data-owner]')
-  } },
+  // Settings › You asks GitHub who is signed in on this computer (the real `gh`), so these three answer it in the
+  // browser with a made-up account: no real login or organization is photographed
+  { id: 'm-settings-you', flow: `${PROJ} (GitHub answer stubbed)`, title: 'Settings › You', run: async env => { await gh(env); await settings(env, 'you'); await vis(env.page, '.set-row[data-k="feed"]'); await vis(env.page, '.set-row[data-k="github"]') }, settle: 1200 },
+  { id: 'm-settings-you-goes', flow: `${PROJ} (GitHub answer stubbed)`, title: 'Settings › You › Swarm Feed: where its data goes', run: async env => { await gh(env); await settings(env, 'you'); await click(env.page, '.set-row[data-k="feed"]'); await vis(env.page, '.set-goes:not([hidden])') }, settle: 1200 },
+  { id: 'm-settings-github', flow: `${PROJ} (GitHub answer stubbed)`, title: 'Settings › You › GitHub: the account and its organizations', run: async env => { await gh(env); await settings(env, 'you'); await click(env.page, '.set-row[data-k="github"]'); await vis(env.page, '.set-radios [data-owner]') } },
   { id: 'm-settings-lite', flow: PROJ, title: 'Settings › Lite mode', run: async env => { await settings(env, 'lite'); await vis(env.page, '.set-lite') }, settle: 1200 },
   { id: 'm-settings-background', flow: PROJ, title: 'Settings › Background', run: async env => { await settings(env, 'stops'); await vis(env.page, '.set-stop') }, settle: 1200 },
   { id: 'm-settings-data', flow: PROJ, title: 'Settings › Data', run: async env => { await settings(env, 'data'); await vis(env.page, '.set-data') } },
@@ -374,12 +385,12 @@ const LIST = [
   { id: 'm-pick-steps', flow: MAKE, uses: 'rich', title: 'Pick steps to skip', run: async env => { await makeMenu(env, 'A site for a ferry timetable on one small lake', 'site'); await click(env.page, '.hm-menu [data-k="now"]'); await click(env.page, '#feed .talk-opts [data-pick="go:pick"]', 12000); await vis(env.page, '#feed [data-pick="go:skip-brand"]', 12000) }, settle: 1200 },
   { id: 'm-step-by-step', flow: MAKE, uses: 'rich', title: 'Step by step: the Studio opens on Brand', run: async env => { await makeMenu(env, 'A site for a choir that sings in a railway arch', 'site'); await click(env.page, '.hm-menu [data-k="now"]'); await click(env.page, '#feed .talk-opts [data-pick="go:steps"]', 12000); await vis(env.page, '.project.scaffold .sc-row', 15000) }, settle: 3000 },
   { id: 'm-busy-toast', flow: MAKE, title: 'The "A build is running…" toast', run: () => no('not reachable: the server answers "busy" only to a message inside an open build (from/redo, server/server.mjs), and the Make box never sends one, so web/home.js never shows this toast') },
-  { id: 'm-busy', flow: `${MAKE} (a build is running)`, uses: 'live', title: 'Make a website while another build runs: what Make does', run: async env => { const s = await live(env); await go(env, s); await makeText(env, 'A site for a bike repair shop that also sells coffee', 'site'); await click(env.page, '.hm-menu [data-k="now"]'); await env.wait(3000) } },
+  { id: 'm-busy', flow: `${MAKE} (a build is running)`, uses: 'live', title: 'Just make it while another build runs: the same question, the work chip in the top bar', run: async env => { const s = await live(env); await go(env, s); await makeText(env, 'A site for a bike repair shop that also sells coffee', 'site'); await click(env.page, '.hm-menu [data-k="now"]'); await env.wait(3000) } },
 
   // ---------- The Studio scaffold
-  ...[['brand', 'Brand'], ['references', 'References'], ['assets', 'Assets'], ['plan', 'Plan'], ['proposal', 'Lock']].map(([k, name]) => ({ id: `m-studio-${k}`, flow: STU, uses: 'rich', title: `The Studio scaffold on ${name}`, run: env => scaffold(env, k), settle: 2200 })),
+  ...[['brand', 'Brand'], ['references', 'References'], ['assets', 'Assets'], ['plan', 'Plan'], ['proposal', 'Lock']].map(([k, name]) => ({ id: `m-studio-${k}`, flow: STU, uses: 'rich', title: `The Studio scaffold on ${name}`, run: env => scaffold(env, k), settle: 2500 })),
+  ...[['brand', 'Brand'], ['references', 'References'], ['assets', 'Assets'], ['plan', 'Plan'], ['proposal', 'Lock']].map(([k, name]) => ({ id: `m-studio-chip-${k}`, flow: STU, uses: 'rich', title: `The Studio scaffold: ${name} pressed on the step path`, run: async env => { await scaffold(env, ''); await click(env.page, `.sc-path .sc-chip[data-step="${k}"]`); await env.wait(900) }, settle: 1800 })),
   { id: 'm-studio-whole', flow: STU, uses: 'rich', title: 'The Studio scaffold, the whole board', run: env => scaffold(env, ''), settle: 2200 },
-  { id: 'm-studio-step', flow: STU, uses: 'rich', title: 'A step picked on the path: Skip · Remove', run: async env => { await scaffold(env, 'references'); await click(env.page, '.sc-path .sc-chip[data-step="references"]'); await insp(env.page, '.project.scaffold') }, settle: 1200 },
   { id: 'm-studio-ref', flow: STU, uses: 'rich', title: 'A reference picked: its inspector', run: async env => { await scaffold(env, 'references'); await click(env.page, '.project.scaffold [data-key="ref:rwalk1"]'); await insp(env.page, '.project.scaffold') }, settle: 1200 },
   { id: 'm-studio-asset', flow: STU, uses: 'rich', title: 'An asset picked: its role', run: async env => { await scaffold(env, 'assets'); await click(env.page, '.project.scaffold [data-key="asset:awalk1"]'); await insp(env.page, '.project.scaffold') }, settle: 1200 },
   { id: 'm-studio-page', flow: STU, uses: 'rich', title: 'A planned page picked', run: async env => { await scaffold(env, 'plan'); await click(env.page, '.project.scaffold [data-key="page:0"]'); await insp(env.page, '.project.scaffold') }, settle: 1200 },
@@ -400,18 +411,25 @@ const LIST = [
     await env.page.mouse.click(b.x + b.width * 0.3, b.y + b.height * 0.4)
     await vis(env.page, '.pj-insp .pl-pick.on')
   }, settle: 1200 },
-  { id: 'm-plan-gate', flow: PLANB, uses: 'rich', title: 'Lock: the Gate', run: async env => { await board(env); if (/^Build/.test(await env.page.locator('.topbar .pl-primary').first().innerText())) no('this plan is locked already (m-plan-locked ran before it)'); await click(env.page, '.topbar .pl-primary'); await vis(env.page, '.ui-dialog.pl-gate .pl-go') } },
+  { id: 'm-plan-gate', flow: PLANB, uses: 'rich', title: 'Lock: the Gate', run: async env => { await board(env); if (/^build/i.test(await env.page.locator('.topbar .pl-primary').first().innerText())) no('this plan is locked already (m-plan-locked ran before it)'); await click(env.page, '.topbar .pl-primary'); await vis(env.page, '.ui-dialog.pl-gate .pl-go') } },
   { id: 'm-plan-locked', flow: PLANB, uses: 'rich', title: 'The board after Lock: Build, Mocks, World, Close-ups', run: async env => {
     await board(env)
-    if (!/^Build/.test(await env.page.locator('.topbar .pl-primary').first().innerText())) { await click(env.page, '.topbar .pl-primary'); await click(env.page, '.ui-dialog.pl-gate .pl-go') }
+    if (!/^build/i.test(await env.page.locator('.topbar .pl-primary').first().innerText())) { await click(env.page, '.topbar .pl-primary'); await click(env.page, '.ui-dialog.pl-gate .pl-go') }
     await vis(env.page, '.project.plan [data-sec="build"]', 12000)
     await vis(env.page, '.project.plan [data-sec="close"]')
   }, settle: 2500 },
+  { id: 'm-plan-locked-build', flow: PLANB, uses: 'rich', title: 'The board after Lock, moved down to its Build section', run: async env => {
+    await board(env)
+    if (!/^build/i.test(await env.page.locator('.topbar .pl-primary').first().innerText())) no('the plan is not locked (m-plan-locked locks it)')
+    const b = await env.page.locator('.project.plan [data-sec="cards"]').first().boundingBox()
+    await env.page.mouse.move(b.x + b.width + 40, b.y + 40)
+    await env.page.mouse.wheel(0, env.phone ? 900 : 420)
+  }, settle: 1500 },
 
   // ---------- The Overview
   { id: 'm-ov-work', flow: `${OV} (a build is running)`, uses: 'live', title: 'The work chip and Stop', run: async env => { const s = await live(env); await overviewOf(env, s, s.ids.site); await vis(env.page, '.topbar .work-chip', 20000); await vis(env.page, '.topbar .work-stop') }, settle: 1200 },
   { id: 'm-ov-work-pop', flow: `${OV} (a build is running)`, uses: 'live', title: 'The work chip’s popover', run: async env => { const s = await live(env); await overviewOf(env, s, s.ids.site); await click(env.page, '.topbar .work-chip', 20000); await vis(env.page, '.wk-pop .wk-row') }, settle: 800 },
-  { id: 'm-ov-tell-busy', flow: `${OV} (a build is running)`, uses: 'live', title: 'Tell the crew while a build runs', run: async env => { const s = await live(env); await go(env, s, `/?project=${s.ids.site}&version=${s.ids.site2}`, '.project:not(.plan) .pj-world'); await env.page.locator('form.pj-ask input[name=q]').first().fill('Add a page for gift boxes'); await env.page.keyboard.press('Enter') }, settle: 4000 },
+  { id: 'm-ov-tell-busy', flow: `${OV} (a build is running)`, uses: 'live', title: 'Tell the crew while a build runs, four seconds after Send', run: async env => { const s = await live(env); await go(env, s, `/?project=${s.ids.site}&version=${s.ids.site2}`, '.project:not(.plan) .pj-world'); await env.page.locator('form.pj-ask input[name=q]').first().fill('Add a page for gift boxes'); await env.page.keyboard.press('Enter') }, settle: 4000 },
   { id: 'm-ov-stop', flow: `${OV} (a build is running)`, uses: 'live', title: 'Stop pressed', run: async env => { const s = await live(env); await overviewOf(env, s, s.ids.site); await click(env.page, '.topbar .work-stop', 20000) }, settle: 2500 },
   { id: 'm-ov-live-line', flow: OV, uses: 'rich', title: 'The live line: who is painting', run: async env => { const s = await rich(env); await overviewOf(env, s, s.R.art); await vis(env.page, 'button.pj-now') }, settle: 2000 },
   { id: 'm-ov-picture-failed', flow: OV, uses: 'rich', title: 'A picture that failed: Try again', run: async env => { const s = await rich(env); await overviewOf(env, s, s.R.art); await vis(env.page, '.pj-world .ab.art.pt-failed .pt-again'); await env.page.locator('.pj-world .ab.art.pt-failed').first().click(); await insp(env.page) }, settle: 1500 },
@@ -439,8 +457,8 @@ const LIST = [
   // ---------- The Design deck
   { id: 'm-deck-brief', flow: DECK, uses: 'rich', title: 'The chat with a brief: Build · Keep talking (Just make it, an app)', run: async env => { await makeMenu(env, 'An app where neighbours lend each other tools and track returns', 'app'); await click(env.page, '.hm-menu [data-k="now"]'); await vis(env.page, '#feed .talk-brief', 12000); await vis(env.page, '#feed .talk-acts [data-more]') }, settle: 1200 },
   { id: 'm-deck-keep-talking', flow: DECK, uses: 'rich', title: 'Keep talking pressed', run: async env => { await makeMenu(env, 'An app where a choir picks its next songs by vote', 'app'); await click(env.page, '.hm-menu [data-k="now"]'); await click(env.page, '#feed .talk-acts [data-more]', 12000) }, settle: 1500 },
-  { id: 'm-deck-planning', flow: `${DECK} (a build is running)`, uses: 'live', title: 'The progress line: Planning the pages…', run: async env => { const s = await live(env); const run = s.run || (await s.api('/api/work')).jobs[0].run; await deckOf(env, s, run); await vis(env.page, '#feed .item.bot.working', 12000) }, settle: 1500 },
-  { id: 'm-deck-stop', flow: `${DECK} (a build is running)`, uses: 'live', title: 'Stop pressed on the deck: what is kept, and Resume', run: async env => { const s = await live(env); const run = s.run || (await s.api('/api/work')).jobs[0].run; await deckOf(env, s, run); await click(env.page, '.work-stop', 20000); s.run = null; await vis(env.page, '#feed .item.bot .chips button', 12000) }, settle: 1500 },
+  { id: 'm-deck-planning', flow: `${DECK} (a build is running)`, uses: 'live', title: 'The progress line: Planning the pages…', run: async env => { const s = await live(env); const run = s.run || (await s.api('/api/work')).jobs[0].run; await deckOf(env, s, run); await chat(env); await vis(env.page, '#feed >> text=/Planning the pages/', 12000) }, settle: 1500 },
+  { id: 'm-deck-stop', flow: `${DECK} (a build is running)`, uses: 'live', title: 'Stop pressed on the deck while the planner plans', run: async env => { const s = await live(env); const run = s.run || (await s.api('/api/work')).jobs[0].run; await deckOf(env, s, run); await chat(env); await click(env.page, '.work-stop', 20000); s.run = null; await env.page.locator('.work-stop').first().waitFor({ state: 'hidden', timeout: 10000 }) }, settle: 2500 },
   { id: 'm-deck-stopped', flow: DECK, uses: 'rich', title: 'A build that stopped, opened again: what is kept, and Resume', run: async env => { const s = await rich(env); await deckOf(env, s, s.R.stopped); await vis(env.page, '#feed .item.bot .chips button.primary', 12000) }, settle: 1500 },
   { id: 'm-deck-comment', flow: DECK, uses: 'rich', title: 'A comment sent, and the crew’s reply', run: async env => {
     const s = await rich(env)
@@ -453,9 +471,11 @@ const LIST = [
     await vis(page, '.cbox.open textarea')
     await page.locator('.cbox.open textarea').first().fill('Make this heading shorter')
     await page.keyboard.press('Enter')
+    await env.wait(800)
+    await chat(env)
     await vis(page, '#feed .item.reply', 12000)
   }, settle: 1200, after: env => { const s = env.mx?.rich; s?.ctl.release?.(); if (s) s.ctl.hold = null } },
-  { id: 'm-deck-comment-saved', flow: DECK, uses: 'rich', title: 'A build with a comment and its reply, opened again', run: async env => { const s = await rich(env); await deckOf(env, s, s.R.talked); await vis(env.page, '#feed .item.reply', 12000) }, settle: 1200 },
+  { id: 'm-deck-comment-saved', flow: DECK, uses: 'rich', title: 'A build with a comment and its reply, opened again', run: async env => { const s = await rich(env); await deckOf(env, s, s.R.talked); await chat(env); await vis(env.page, '#feed .item.reply', 12000) }, settle: 1200 },
   { id: 'm-deck-critic', flow: `${DECK} (replay of a saved review)`, uses: 'rich', title: 'The Critic’s flags on sections', run: async env => { const s = await rich(env); await go(env, s, `/?replay=${s.R.critic}`, '#viewport'); await vis(env.page, '.rv-flag', 22000) }, settle: 600 },
   { id: 'm-deck-empty', flow: DECK, uses: 'rich', title: 'Nothing built yet: empty Layers', run: async env => { const s = await rich(env); await deckOf(env, s, s.R.bare); await tap(env.page, '.deck-layers-btn'); await vis(env.page, '.deck-layers #tree .empty') }, settle: 1200 },
 
@@ -473,15 +493,25 @@ const LIST = [
   { id: 'm-pub-live-menu', flow: PUB, uses: 'rich', title: 'A site that is live: the Publish button and its menu', run: async env => { await publishPop(env, s0(env).R.wasLive); await vis(env.page, '#publish-btn.live'); await vis(env.page, '#pub-menu .pub-live') }, settle: 800 },
   { id: 'm-pub-failed', flow: PUB, uses: 'rich', title: 'Not published: the reason, Other host, Retry', run: async env => { await publishPop(env, s0(env).R.pubFailed); await click(env.page, '#pub-menu [data-pub="site"]'); await vis(env.page, '.publish-pop .pstate.err', 12000) }, settle: 800 },
   { id: 'm-pub-domain', flow: PUB, title: 'A custom domain and its DNS steps', run: () => no('not built: nothing in web/ mentions a custom domain, DNS or CNAME (docs/ux/breadboards/publish.md says the same)') },
-  { id: 'm-launch-writing', flow: `${PUB}: Promote`, uses: 'rich', title: 'The launch kit while the posts are written', run: async env => { const s = await rich(env); rmSync(join(s.data, 'runs', s.R.ship, 'launch.json'), { force: true }); s.ctl.hold = new Promise(r => { s.ctl.release = r }); await deckOf(env, s, s.R.ship); await click(env.page, '.ap-kit', 8000); await vis(env.page, '.launch-pop'); if (await shown(env.page, '.lk-card')) no('the posts were written at once, with no waiting state to show') }, settle: 600, after: env => { const s = env.mx?.rich; s?.ctl.release?.(); if (s) s.ctl.hold = null } },
-  { id: 'm-launch-kit', flow: `${PUB}: Promote`, uses: 'rich', title: 'The launch kit: a post per network', run: async env => { await kit(env); await vis(env.page, '.launch-pop .lk-card', 20000) }, settle: 1500 },
-  { id: 'm-launch-edit', flow: `${PUB}: Promote`, uses: 'rich', title: 'The launch kit: a post being edited', run: async env => { await kit(env); await click(env.page, '.launch-pop .lk-card .lk-edit', 20000) }, settle: 800 },
-  { id: 'm-launch-video', flow: `${PUB}: Promote`, uses: 'rich', title: 'The launch kit: the promo video', run: async env => { const s = await rich(env); if (!s.shipFilm) no('no ffmpeg on this computer to make the fixture film'); await kit(env); const v = env.page.locator('.launch-pop .lk-media [data-kind="video"]').first(); await v.waitFor({ state: 'visible', timeout: 20000 }); await v.scrollIntoViewIfNeeded() }, settle: 1200 },
-  { id: 'm-launch-send', flow: `${PUB}: Promote (gateway answer stubbed)`, uses: 'rich', title: 'The launch kit: a Discord post, confirmed before it is sent', run: async env => {
-    await rich(env)
+  { id: 'm-auto-panel', flow: `${PUB}: Promote`, title: 'A finished Auto run: its panel, with Summary and Launch kit', run: () => no('not shown: the classic Studio hides the Auto panel (web/studio.css: body.cosmos .auto-panel is display none), so its Summary and Launch kit buttons cannot be pressed') },
+  { id: 'm-auto-summary', flow: `${PUB}: Promote (replay of a saved Auto run)`, uses: 'rich', title: 'An Auto run ends: its summary card', run: async env => { await summary(env) }, settle: 1500 },
+  { id: 'm-launch-writing', flow: `${PUB}: Promote (replay of a saved Auto run)`, uses: 'rich', title: 'The launch kit while the posts are written', run: async env => {
+    const s = await summary(env)
+    rmSync(join(s.data, 'runs', s.R.ship, 'launch.json'), { force: true })
+    s.ctl.hold = new Promise(r => { s.ctl.release = r })
+    await click(env.page, '.show-sum .ss-launch'); await vis(env.page, '.launch-pop')
+    await env.wait(600)
+    if (await shown(env.page, '.lk-card')) no('the posts were written at once, with no waiting state to show')
+  }, settle: 300, after: env => { const s = env.mx?.rich; s?.ctl.release?.(); if (s) s.ctl.hold = null } },
+  { id: 'm-launch-kit', flow: `${PUB}: Promote (replay of a saved Auto run)`, uses: 'rich', title: 'The launch kit: a post per network', run: async env => { await kit(env); await vis(env.page, '.launch-pop .lk-card', 15000) }, settle: 1500 },
+  { id: 'm-launch-edit', flow: `${PUB}: Promote (replay of a saved Auto run)`, uses: 'rich', title: 'The launch kit: a post being edited', run: async env => { await kit(env); await click(env.page, '.launch-pop .lk-card .lk-edit', 15000) }, settle: 800 },
+  { id: 'm-launch-video', flow: `${PUB}: Promote (replay of a saved Auto run)`, uses: 'rich', title: 'The launch kit: the promo video', run: async env => { const s = await rich(env); if (!s.shipFilm) no('no ffmpeg on this computer to make the fixture film'); await kit(env); const v = env.page.locator('.launch-pop .lk-media [data-kind="video"]').first(); await v.waitFor({ state: 'visible', timeout: 15000 }); await v.scrollIntoViewIfNeeded() }, settle: 1200 },
+  { id: 'm-launch-send', flow: `${PUB}: Promote (replay of a saved Auto run; gateway answer stubbed)`, uses: 'rich', title: 'The launch kit: a Discord post, confirmed before it is sent', run: async env => {
+    const s = await rich(env)
     await answer(env, pathIs('/api/gateway'), j => ({ ...j, platforms: { ...(j.platforms || {}), discord: ['discord:#launch'] } }))
-    await kit(env)
-    await click(env.page, '.launch-pop .lk-card[data-id="discord"] .lk-post', 20000)
+    await go(env, s, `/?replay=${s.R.ship}`, '#viewport')
+    await click(env.page, '.show-sum .ss-launch', 20000)
+    await click(env.page, '.launch-pop .lk-card[data-id="discord"] .lk-post', 15000)
     await vis(env.page, '.lk-confirm .lkc-send')
   }, settle: 800 },
 
@@ -489,7 +519,7 @@ const LIST = [
   { id: 'm-app-wall', flow: ROOMS, uses: 'rich', title: 'The App room while the crew builds: the wall (Map, code windows)', run: async env => { await appRoom(env, s0(env).R.appWork); await vis(env.page, '.codewall .cw-grid', 12000) }, settle: 2500 },
   { id: 'm-app-wall-map', flow: ROOMS, uses: 'rich', title: 'The build wall: the Map enlarged', run: async env => { await appRoom(env, s0(env).R.appWork); await click(env.page, '.codewall .mp-zoom', 12000); await vis(env.page, '.cw-map.big') }, settle: 1500 },
   { id: 'm-app-wall-tile', flow: ROOMS, uses: 'rich', title: 'The build wall: one window enlarged', run: async env => { await appRoom(env, s0(env).R.appWork); await click(env.page, '.codewall .cw-grid .cw-tile', 12000); await vis(env.page, '.cw-grid.zoom .cw-tile.big') }, settle: 1500 },
-  ...[['live', 'Live app'], ['map', 'Map'], ['art', 'Art'], ['crew', 'Crew']].map(([k, name]) => ({ id: `m-app-stage-${k}`, flow: ROOMS, uses: 'rich', title: `The App room while the crew builds: ${name}`, run: async env => { await appRoom(env, s0(env).R.appWork); await click(env.page, `#app-stageview [data-stage="${k}"]`, 12000) }, settle: 2000 })),
+  ...[['live', 'Live app'], ['map', 'Map'], ['art', 'Art'], ['crew', 'Crew']].map(([k, name]) => ({ id: `m-app-stage-${k}`, flow: ROOMS, uses: 'rich', title: `The App room while the crew builds: ${name}`, run: async env => { await appRoom(env, s0(env).R.appWork); await vis(env.page, '#app-stageview [data-stage]', 12000); if (!(await shown(env.page, `#app-stageview [data-stage="${k}"]`))) no(`this build's switch has no ${name}: ${(await env.page.locator('#app-stageview').first().innerText()).replace(/\s+/g, ' ').trim()} only (nothing is served or painted yet)`); await click(env.page, `#app-stageview [data-stage="${k}"]`) }, settle: 2000 })),
   { id: 'm-app-wall-code', flow: ROOMS, uses: 'rich', title: 'The App room while the crew builds: Code', run: async env => { await appRoom(env, s0(env).R.appWork); await click(env.page, '#app-mode [data-mode="code"]', 12000) }, settle: 2000 },
   { id: 'm-app-ask', flow: ROOMS, uses: 'rich', title: 'The App room: Ask the crew', run: async env => { await appRoom(env, s0(env).R.appWork); await tap(env.page, '.cosmos-chatbtn'); await click(env.page, '#brief'); await env.page.locator('#brief').fill('Why is the shelf first?') }, settle: 800 },
   { id: 'm-app-shipped', flow: ROOMS, uses: 'rich', title: 'An app that shipped: the App room', run: async env => { await appRoom(env, s0(env).R.ship) }, settle: 6000 },
@@ -498,7 +528,7 @@ const LIST = [
   { id: 'm-game-playtest', flow: ROOMS, uses: 'rich', title: 'The Game room: the play test on the wall', run: async env => { const s = await rich(env); await go(env, s, `/?version=${s.R.gameWork}&room=game`, '#appview'); await fold(env); await vis(env.page, '.playclip:not([hidden])', 12000) }, settle: 2500 },
   { id: 'm-game-map', flow: ROOMS, title: 'The Game room: the Map', run: async env => { const s = await main(env); await go(env, s, `/?version=${s.ids.game}&room=game`, '#appview'); await fold(env); await click(env.page, '.mapdoor', 12000); await vis(env.page, '.cw-map') }, settle: 2000 },
   { id: 'm-game-play', flow: ROOMS, uses: 'rich', title: 'A game that was built: playing it in the Game room', run: async env => { if (!sourceSig) no('engine/appjob.mjs did not load here, so the fixture game has no build stamp'); const s = await rich(env); await go(env, s, `/?version=${s.R.gamePlay}&room=game`, '#appview'); await fold(env) }, settle: 7000 },
-  { id: 'm-film-working', flow: `${ROOMS} (a build is running)`, uses: 'live', title: 'A film being made: Make the film pressed', run: async env => { const s = await live(env); await go(env, s, `/?version=${s.ids.site2}&room=video`, '.video-pop'); await fold(env); if (await shown(env.page, '.vprompt')) await env.page.locator('.vprompt').first().fill('A 20 second film about tea after a night shift'); await click(env.page, '.vagain'); await env.wait(2500); if (await shown(env.page, '.vstage.err')) no(`the film stopped at once: ${(await env.page.locator('.vstage.err').first().innerText()).slice(0, 100)}`) }, settle: 1500 },
+  { id: 'm-film-working', flow: `${ROOMS} (a build is running)`, uses: 'live', title: 'A film being made: Make the film pressed', run: async env => { const s = await live(env); await go(env, s, `/?version=${s.ids.site2}&room=video`, '.video-pop'); await fold(env); if (await shown(env.page, '.vprompt')) await env.page.locator('.vprompt').first().fill('A 20 second film about tea after a night shift'); await click(env.page, '.vagain'); await env.wait(6000); if (await shown(env.page, '.video-pop .vprompt')) no('six seconds after Make the film the room shows the form again, with no reason on screen (this Studio has no Hermes to make a film with)'); if (await shown(env.page, '.vstage.err')) no(`the film stopped at once: ${(await env.page.locator('.vstage.err').first().innerText()).slice(0, 100)}`) }, settle: 1500 },
   { id: 'm-film-storyboard', flow: `${ROOMS} (film answer stubbed)`, uses: 'rich', title: 'A film in progress: its storyboard', run: async env => {
     const s = await rich(env), run = s.R.filmWork
     // the Studio closes a film it finds half made when it starts; this shows that film as it was while it rendered
