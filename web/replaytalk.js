@@ -37,12 +37,12 @@ export function progressLine(o) {
 /**
  * The App room's pill. Live: building, running, built… In a replay: Replay and how far, whatever the recording
  * is showing.
- * @param {{ replay?: boolean, at?: number, state?: string, url?: string | null, hasApp?: boolean }} o
+ * @param {{ replay?: boolean, at?: number, state?: string, url?: string | null, hasApp?: boolean, kind?: string }} o
  */
 export function appPill(o) {
   if (o.replay) return `${REPLAY_WORD} ${replayPct(o.at || 0)}`
   const st = o.state
-  return st === 'working' ? 'building' : st === 'done' ? (o.url ? 'running' : 'built') : st === 'failed' ? 'failed' : st === 'stopped' ? 'stopped' : st === 'paused' ? 'your turn' : o.hasApp ? 'built' : 'no app yet'
+  return st === 'working' ? 'building' : st === 'done' ? (o.url ? 'running' : 'built') : st === 'failed' ? 'failed' : st === 'stopped' ? 'stopped' : st === 'paused' ? 'your turn' : o.hasApp ? 'built' : o.kind === 'game' ? 'no game yet' : 'no app yet'
 }
 
 export const REPLAY_SAYS = {
