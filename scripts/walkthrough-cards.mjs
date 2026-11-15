@@ -99,7 +99,8 @@ export const CARD_STEPS = [
     await cards(env)
     await click(env.page, '.hm-menu [data-k="s:Live"]')
     await env.wait(600)
-    const titles = (await env.page.locator('.home .card .nm b').allInnerTexts()).map(flat)
+    // the names are set in capitals by their style: read as written in the page
+    const titles = (await env.page.locator('.home .card .nm b').allTextContents()).map(flat)
     if (!titles.includes('Harbor Light')) no(`Filter › Live does not list the live project (it lists ${titles.join(', ') || 'nothing'})`)
     if (titles.includes('Cedar Cafe')) no('Filter › Live lists a project that was never published')
   }, after: async env => { await env.page.evaluate(() => { for (const k of Object.keys(localStorage)) if (/home\.filter/.test(k)) localStorage.removeItem(k) }).catch(() => {}) } },
