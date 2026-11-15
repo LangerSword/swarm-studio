@@ -32,6 +32,7 @@ one; don't edit the old one quietly.
 | [0022](0022-copy-the-look-from-a-link.md) | 2026-11-13 | Copy the look from a link: the crew walks the site, 2D first, traced to where it was given |
 | [0023](0023-switching-on-the-next-ui.md) | 2026-11-14 | Switching the next UI on for people: the choices (decided in 0024) |
 | [0024](0024-the-next-ui-is-the-studio.md) | 2026-11-14 | The next UI is the Studio at `/`; the classic one stays at `/classic/`, one click away; unmoved screens open there |
+| [0025](0025-tools-to-bring-things-in.md) | 2026-11-15 | Tools to bring things in: a research step for the planner, the Plan board's intake, the app builder's web tools, agent tools; online only through Hermes, shown before used |
 
 `tests/decisions.test.mjs` fails if the hosted studio, build credits or "paid per build" come back in
 `docs/brand/` or the README.
