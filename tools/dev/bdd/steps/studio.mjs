@@ -231,6 +231,37 @@ const BIND = {
       seen.opened && seen.byEsc && 'Esc does not close it',
       seen.opened && seen.byOutside && 'a click outside does not close it'
     ]))
+  ],
+  // the chat as the helper (decision 0025 e, spec 48): the kit's planner answers this one request with the library
+  // tool; a pack of the person's own gives the library swords without a download
+  "studio › The chat is the helper › A tool's cards to pick from": [
+    step('"find me a pixel sword" asked in the chat, with swords in the library', async fx => {
+      const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs')
+      const { tmpdir } = await import('node:os')
+      const { join } = await import('node:path')
+      const dir = mkdtempSync(join(tmpdir(), 'bdd-swords-'))
+      mkdirSync(join(dir, 'weapons'))
+      for (const n of ['pixel_sword', 'iron_sword', 'flame_sword', 'bone_sword']) writeFileSync(join(dir, 'weapons', `${n}.png`), png)
+      await fx.studio.api('/api/library/import', { path: dir, name: 'BDD Swords', credit: 'Ana', license: 'CC0' })
+      await openScaffold(fx)
+      const box = fx.page.locator('#brief, .chat-dock textarea, .side textarea').first()
+      await box.fill('find me a pixel sword')
+      await box.press('Enter')
+      await fx.page.locator('.chat-cards [role="listitem"]').first().waitFor({ timeout: 15_000 }).catch(() => {})
+      fx.seen.cards = await fx.page.locator('.chat-cards [role="listitem"]').allInnerTexts()
+      const keep = fx.page.getByRole('button', { name: /^keep this$/i }).first()
+      fx.seen.pressed = await keep.count() ? (await keep.click({ timeout: 5000 }).then(() => true, () => false)) : false
+      await wait(fx.page, 2000)
+      fx.seen.refs = (await fx.studio.api(`/api/projects/${fx.seen.id}/refs`)).refs || []
+    }),
+    step('at most three cards with their title and source, and Keep this puts one in References', async ({ seen }) => problems([
+      !seen.cards.length && "no cards under Hermia's answer",
+      seen.cards.length > 3 && `${seen.cards.length} cards, more than three`,
+      ...seen.cards.map((t, i) => !/sword/i.test(t) && `card ${i + 1} has no title: ${t.slice(0, 60)}`),
+      ...seen.cards.map((t, i) => !/Ana, CC0/.test(t) && `card ${i + 1} does not say where it came from: ${t.slice(0, 60)}`),
+      !seen.pressed && 'no Keep this to press',
+      seen.pressed && !seen.refs.some(r => r.source === 'chat' && /sword/.test(r.name)) && 'Keep this put nothing in References'
+    ]))
   ]
 }
 bind(BIND)
