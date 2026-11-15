@@ -45,7 +45,9 @@ function site(runs, run, { brief, name, t, kind, pages, done = true, extra = [] 
 // noHermes: no model of its own and an empty Hermes home, so every role goes through a Hermes that is not
 // running (the "no Hermes" screens)
 // root: the tree whose server and web/ to run (the motion check runs the base branch's too)
-export async function studio({ quiet = true, noHermes = false, root = ROOT, setup } = {}) {
+// model(request): a scripted planner for a test, (the chat request's JSON) -> the reply text, or null for no answer.
+// Without it the model always answers 500, as before.
+export async function studio({ quiet = true, noHermes = false, root = ROOT, setup, model = null } = {}) {
   const data = mkdtempSync(join(tmpdir(), 'swarm-walk-'))
   const runs = join(data, 'runs')
   mkdirSync(runs)
@@ -73,7 +75,23 @@ export async function studio({ quiet = true, noHermes = false, root = ROOT, setu
   } }))
 
   setup?.({ runs, site, T0, rid })
-  const fake = createServer((req, res) => { req.resume(); req.on('end', () => res.writeHead(500, { 'content-type': 'application/json' }).end('{"error":"no model here"}')) })
+  const fake = createServer((req, res) => {
+    let b = ''
+    req.on('data', c => { b += c })
+    req.on('end', async () => {
+      let ask = {}
+      try { ask = JSON.parse(b || '{}') } catch {}
+      const text = model ? await Promise.resolve(model(ask)).catch(() => null) : null
+      if (typeof text !== 'string') return void res.writeHead(500, { 'content-type': 'application/json' }).end('{"error":"no model here"}')
+      // an OpenAI-shaped stream: the whole reply as one delta, then [DONE]
+      res.writeHead(200, { 'content-type': 'text/event-stream' })
+      res.end(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}
+
+data: [DONE]
+
+`)
+    })
+  })
   // on a port the system picks and it keeps (asked for and let go, another process could take it first)
   await new Promise(r => fake.listen(0, '127.0.0.1', r))
   const fakePort = fake.address().port
