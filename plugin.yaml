@@ -8,6 +8,10 @@ kind: standalone
 #   thumbhash, pinned to exactly 0.1.1 (MIT), from engine/imagetools/package-lock.json (integrity recorded) into
 #   $HERMES_HOME/swarm-studio/image-tools/ with
 #   `npm ci --ignore-scripts`: nothing is compiled and no install script runs. SWARM_IMAGE_SERVICE=0 turns it off.
+# Fetched on first use (README, "What it does on your machine"):
+# - the asset library's assetrizz catalog and pictures, from raw.githubusercontent.com/mojomast/assetrizz at one
+#   pinned commit (engine/library.mjs RIZZ_SHA), into $HERMES_HOME/swarm-studio/assetrizz/. The swarm_studio tool's
+#   library_import, library_pick and reference_add ask the person first (Hermes's approval gate).
 requires_hermes: ">=0.23"
 provides_tools:
   - swarm_design
