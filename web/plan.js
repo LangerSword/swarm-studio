@@ -71,7 +71,8 @@ export function makePlan({ sw, C, root }) {
     if (c.id === 'cast') return `${(b.roster || []).length}`
     if (c.id === 'systems') return `${Object.values(b).filter(v => v === 'on').length}`
     const first = Object.values(b).find(v => typeof v === 'string' && v.trim())
-    return first ? first.split(/[,.]/)[0].slice(0, 28) : ''
+    // the whole first clause: the card clamps it to two lines with an ellipsis (plan.css), never mid-word
+    return first ? first.split(/[,.]/)[0].trim() : ''
   }
   // ---------- the pictures: sheets, mocks, backdrops, close-ups (engine/planart.mjs)
   // the sheets and shots follow the plan's genre family (engine/planshape.mjs); the action RPG's by default

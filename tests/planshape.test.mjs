@@ -251,3 +251,26 @@ test('routes: a 2D plan builds its first sprite on the key, then re-plans in pla
     assert.equal(r.data.replanned.note, 'make the ants bigger, a queen first')
   } finally { srv.close() }
 })
+
+// the owner's board, 2026-11-15: the Story card read "thinking of a cool godot 4 g…", the person's own first message
+test('the Story card is a story line, never the idea repeated back; the idea stays on the plan for the build', () => {
+  const idea = 'thinking of a cool godot 4 game, a stylish brawler with launcher plus air juggles with 3 heroines'
+  const p = planFromAnswers({ idea })
+  const premise = card(p, 'story').body.premise
+  assert.ok(!premise.includes('thinking of'), premise)
+  assert.equal(premise, 'An original action RPG with a cast of heroines')
+  assert.equal(p.idea, idea)
+  assert.match(gameBrief(p), /thinking of a cool godot 4 game/)
+  // "3 heroines" in the idea names the cast as heroines
+  assert.deepEqual(roster(p).map(r => r.name), ['Heroine 1', 'Heroine 2', 'Heroine 3'])
+  // the planner's own line wins; a narrative game's premise is never the idea either
+  assert.equal(card(planFromAnswers({ idea }, {}, { premise: 'Three heroines fight up a neon tower' }), 'story').body.premise, 'Three heroines fight up a neon tower')
+  const novel = planFromAnswers({ idea: 'a visual novel about a lighthouse keeper on a stormy coast' })
+  assert.equal(novel.shape.family, 'narrative')
+  assert.ok(!card(novel, 'story').body.premise.includes('lighthouse keeper'), card(novel, 'story').body.premise)
+})
+
+test('the planner\'s reading carries its one-line premise', () => {
+  assert.equal(readShape('{"family":"action","premise":"Rats with swords hold the night market"}').premise, 'Rats with swords hold the night market')
+  assert.equal(readShape('{"family":"action"}').premise, '')
+})

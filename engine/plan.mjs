@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { PRICE } from './meshy.mjs'
 import { keyFor } from './keycolor.mjs'
-import { shapeOf, familyCards, noShooting, GUNS, planSummary, engineFrom } from './planshape.mjs'
+import { shapeOf, familyCards, noShooting, GUNS, planSummary, engineFrom, premiseOf } from './planshape.mjs'
 import { suggestStarter, setStarter, starterView, starterSpec } from './starters.mjs'
 
 // ---------- the questions: one at a time, 4–6 chips each, or your own words
@@ -127,7 +127,8 @@ function shapePlan({ idea = '', answers = {}, title = '', note = '', force = nul
     }
   }
   const n = Math.max(1, Math.min(shape.size === 'normal' || shape.size === 'big' ? 12 : 2, parseInt(a.size, 10) || 3))
-  const girls = has(a.cast, /girl|women|female|heroine/i)
+  // a cast of heroines when the answer or the idea says so ("3 heroines" in the idea named them Hero 1, 2, 3)
+  const girls = has(`${a.cast} ${idea}`, /girl|women|female|heroine/i)
   const weapons = weaponsFor(a.combat)
   const roster = Array.from({ length: n }, (_, i) => ({ name: `${girls ? 'Heroine' : 'Hero'} ${i + 1}`, role: ROLES[i % ROLES.length], look: '', weapon: weapons[i % weapons.length] }))
   const combos = has(a.combat, /combo|stylish/i)
@@ -136,7 +137,7 @@ function shapePlan({ idea = '', answers = {}, title = '', note = '', force = nul
   const cosmetics = has(a.money, /cosmetic|gacha/i)
   const cards = {
     cast: { count: String(n), rule: a.cast, roster },
-    story: { premise: clean(idea, 400) || `An original ${a.genre.toLowerCase()} with ${girls ? 'a cast of heroines' : 'a new cast'}`, acts: '3', ending: 'One ending, unlocked by the final boss' },
+    story: { premise: premiseOf(shape, { genre: a.genre, cast: girls ? 'a cast of heroines' : '' }, hint), acts: '3', ending: 'One ending, unlocked by the final boss' },
     combat: combos
       ? { style: 'Combos with a launcher, air juggles and a D–SSS style rank', ults: 'Orb-charged cinematic ults with cut-ins', weapons: 'Switch weapons mid-combo', tools: noShooting(a) ? '' : 'Grenades', tactic: 'Hit and run against strong enemies' }
       : { style: a.combat, ults: 'One charged special', weapons: 'One weapon each', tools: '', tactic: '' },
