@@ -15,7 +15,7 @@
 
 import { publicUrl } from './chatmedia.mjs'
 
-export const RESEARCH = { searches: 3, pages: 4, results: 6, ms: 60000, findings: 6 }
+export const RESEARCH = { searches: 3, pages: 4, results: 6, ms: 60000, findings: 6, modelMs: 15000 }
 
 const clip = (s, n) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n)
 
@@ -56,11 +56,13 @@ export async function research({ ask, kind = 'site', web, chat = null, limits = 
   // every call ends at the step's limit, whatever the far side does
   const ended = new Promise(r => stop.addEventListener('abort', () => r({ ok: false, error: stopped() }), { once: true }))
   const call = body => Promise.race([web(body, stop), ended]).catch(err => ({ ok: false, error: String(err?.message || err) }))
+  // a model call gets L.modelMs of the step: a model that does not answer leaves time to search the ask as it is
+  const think = messages => { const s = AbortSignal.any([stop, AbortSignal.timeout(L.modelMs)]); return Promise.race([chat(messages, { signal: s }), new Promise((_, no) => s.addEventListener('abort', () => no(new Error('the model did not answer in time')), { once: true }))]) }
   try {
     // 1. what to search for
     let queries = []
     if (chat) try {
-      const got = jsonIn(await chat([{ role: 'system', content: QUERY_SYSTEM }, { role: 'user', content: `Making: a ${kind}.\nThe person asked: ${ask}` }], { signal: stop }))
+      const got = jsonIn(await think([{ role: 'system', content: QUERY_SYSTEM }, { role: 'user', content: `Making: a ${kind}.\nThe person asked: ${ask}` }]))
       queries = (Array.isArray(got?.queries) ? got.queries : []).map(q => clip(q, 120)).filter(Boolean)
     } catch {}
     if (!queries.length) queries = [clip(ask.replace(ASKS, ' '), 120) || ask.slice(0, 120)]
@@ -89,7 +91,7 @@ export async function research({ ask, kind = 'site', web, chat = null, limits = 
     let notes = null
     if (chat && pages.length && live()) try {
       const text = pages.map(p => `PAGE ${p.url}\nTitle: ${clip(p.title || byUrl.get(p.url)?.title, 120)}\n${clip(p.content, 4000)}`).join('\n\n')
-      const got = jsonIn(await chat([{ role: 'system', content: NOTES_SYSTEM }, { role: 'user', content: `Making: a ${kind}.\nThe person asked: ${ask}\n\n${text}` }], { signal: stop }))
+      const got = jsonIn(await think([{ role: 'system', content: NOTES_SYSTEM }, { role: 'user', content: `Making: a ${kind}.\nThe person asked: ${ask}\n\n${text}` }]))
       notes = Array.isArray(got?.findings) ? got.findings : null
     } catch {}
     const made = notes

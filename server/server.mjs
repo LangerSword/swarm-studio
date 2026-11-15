@@ -1805,6 +1805,8 @@ function matchLook(pid, ref, run) {
 // build outside a project gets them in its brief, and they join the project the build starts. The canvas hears
 // { type: 'research', state: 'looking' | 'done', … } so the person sees it happen.
 const researching = new Set()
+// the findings a build outside a project was sent again with (the ones the person kept): only what research makes
+const keptFindings = list => list.slice(0, 6).filter(f => f && /^https?:\/\//.test(String(f.url || ''))).map(f => ({ url: String(f.url).slice(0, 1000), title: String(f.title || '').slice(0, 120), took: String(f.took || '').slice(0, 400), query: String(f.query || '').slice(0, 200) })).filter(f => f.took)
 async function lookUp({ ask, kind = 'site', pid = null, signal = null }) {
   broadcast({ type: 'research', state: 'looking', ask, project: pid })
   const chat = models.planner.apiKey && modelFor('planner') ? async (messages, { signal: s } = {}) => (await streamChat(provider('planner'), {
@@ -3174,8 +3176,15 @@ const server = createServer((req, res) => {
       }
       const typed = String(input.brief).trim(), chatId = typeof input.chat === 'string' && CHAT_ID.test(input.chat) ? input.chat : null
       // research before planning: the person's words ask for it ("look up…", "look at how X does it"), or Research
+      // (decision 0025: what was found is shown, with its source, before it is used. A build that looked something up
+      // stops with what it found; it is sent again with researched: true once the person has seen it, and outside a
+      // project with found: the findings they kept)
       const lookFor = input.research === true ? wantsResearch(typed) || typed : wantsResearch(typed)
+      const researched = input.researched === true
+      const seen = researched && Array.isArray(input.found) ? keptFindings(input.found) : []
       delete input.research
+      delete input.researched
+      delete input.found
       // redo: this project from scratch, new pages and a new look; its old versions stay restorable
       const redo = input.redo === true
       // sure: a script's explicit "I'm sure" (hermes swarm --build, remix, the evals); never a model's (decision 0020)
@@ -3189,12 +3198,10 @@ const server = createServer((req, res) => {
       // and the art director matches the new pictures to them (art.styleGuide reads the brief)
       // links in the person's own words (before anything is added to the brief): pages named as what to make
       const askedLinks = linksIn(String(input.brief || ''), 2)
-      let looked = null
-      if (lookFor) looked = await lookUp({ ask: lookFor, kind: 'site', pid: typeof input.project === 'string' ? input.project : null }).catch(() => null)
       // outside a project the findings go in the brief itself; inside one, References' brief carries them (refs.brief)
-      if (looked?.findings.length && typeof input.project !== 'string') input.brief = `${String(input.brief).trim()}
+      if (seen.length && typeof input.project !== 'string') input.brief = `${String(input.brief).trim()}
 
-${researchBrief(looked.findings)}`
+${researchBrief(seen)}`
       if (typeof input.project === 'string') {
         const ups = projects.uploadsOf(input.project).filter(u => /^image\//.test(u.type)).slice(0, 12)
         if (ups.length) input.brief = `${String(input.brief).trim()}\n\nThe owner uploaded these pictures. Use them where they fit, as they are (<img src="…">, no data-gen), and make every new picture match their look:\n${ups.map(u => `- ${u.name}: ${u.src}`).join('\n')}`
@@ -3244,6 +3251,12 @@ ${researchBrief(looked.findings)}`
         const asked = await askBeforeBuild({ chatId, typed, pid }).catch(() => ({ error: 'ask', ask: 'skips', chat: null, text: ASK_TEXT, options: askOptions(null), recommended: 'pick' }))
         return void res.writeHead(409, { 'content-type': 'application/json' }).end(JSON.stringify(asked))
       }
+      // research before planning, once the build is going ahead: what it found stops the build until the person has
+      // seen it (in References, in a project); nothing found, or a script's sure build, goes on without it
+      if (lookFor && !researched && !sure) {
+        const looked = await lookUp({ ask: lookFor, kind: 'site', pid }).catch(() => null)
+        if (looked?.findings.length) return void res.writeHead(409, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'research', ask: lookFor, project: pid, findings: looked.findings, searched: looked.searched, read: looked.read, note: looked.note, ...(pid ? { refs: refs.shown(pid).filter(r => r.source === 'research') } : {}) }))
+      }
       // the look, in Open Design's order (decision 0016 point 3): a design system the request names, then the
       // project's (a locked brand sheet, or a Studio project's own brand, spec 37), then the default (the planner's).
       // A follow-up keeps the project's
@@ -3256,9 +3269,9 @@ ${researchBrief(looked.findings)}`
       if (pid) projects.claim(run.id, pid)
       // what a build outside a project looked up joins the project it starts, so the person can keep or remove it
       const home = pid || projects.projectOf(run.id)
-      if (!pid && home && looked?.findings.length) for (const f of looked.findings) try { refs.addFinding(home, f) } catch {}
+      if (!pid && home && seen.length) for (const f of seen) try { refs.addFinding(home, f) } catch {}
       // which references this build read (issue #543): the Overview shows them with its pages
-      if (pid || (home && looked?.findings.length)) try { writeFileSync(join(runsDir, run.id, 'refs-used.json'), JSON.stringify(refs.used(home))) } catch {}
+      if (pid || (home && seen.length)) try { writeFileSync(join(runsDir, run.id, 'refs-used.json'), JSON.stringify(refs.used(home))) } catch {}
       // the words go into a chat: the talk that led here, else a new one (or the project's newest)
       const chat = chatFor({ chat: chatId, text: typed, kind: 'site', project: pid })
       chatBuilt(chat, run.id, pid, typed)
