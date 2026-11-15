@@ -12,7 +12,13 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { studio } from './walkthrough-fixtures.mjs'
-import { STEPS } from './walkthrough-steps.mjs'
+import { STEPS as SCREENS } from './walkthrough-steps.mjs'
+import { CHAT_STEPS } from './walkthrough-chat.mjs'
+import { MORE_STEPS } from './walkthrough-more.mjs'
+import { FLOW_STEPS } from './walkthrough-flows.mjs'
+
+// the newer sets come after the first screens, so those keep their numbers
+const STEPS = [...SCREENS, ...CHAT_STEPS, ...MORE_STEPS, ...FLOW_STEPS]
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? process.argv[i + 1] : d }
@@ -29,6 +35,43 @@ async function loadPlaywright() {
 const { chromium } = await loadPlaywright()
 const AUDIT = readFileSync(fileURLToPath(new URL('./walkthrough-audit.js', import.meta.url)), 'utf8')
 const wait = ms => new Promise(r => setTimeout(r, ms))
+
+// Controls that are in the page but cannot be seen until the pointer is over their row or card. Each hidden
+// control's nearest visible ancestor is hovered (25 at most), and the ones that appear are listed with that
+// ancestor's box. The audit in the page cannot do this: it has no pointer.
+async function hoverOnly(page) {
+  const SEEN = `el => el.checkVisibility?.({ checkOpacity: true, checkVisibilityCSS: true }) !== false && (() => { const r = el.getBoundingClientRect(); return r.width > 1 && r.height > 1 && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth })()`
+  const hosts = await page.evaluate(`(() => {
+    const seen = ${SEEN}
+    const ACT = 'button, a[href], input:not([type=hidden]), select, [role=button], [role=menuitem], [role=switch]'
+    const hosts = []
+    document.querySelectorAll('[data-walk-host]').forEach(e => e.removeAttribute('data-walk-host'))
+    document.querySelectorAll('[data-walk-hid]').forEach(e => e.removeAttribute('data-walk-hid'))
+    for (const el of document.querySelectorAll(ACT)) {
+      if (seen(el) || el.hidden || el.closest('[hidden], [inert], [aria-hidden=true], dialog:not([open])')) continue
+      let host = el.parentElement
+      while (host && !seen(host)) host = host.parentElement
+      if (!host || host === document.body || host === document.documentElement) continue
+      const r = host.getBoundingClientRect()
+      if (r.width * r.height > innerWidth * innerHeight * 0.4) continue
+      let i = hosts.indexOf(host)
+      if (i < 0) { if (hosts.length >= 25) continue; i = hosts.push(host) - 1; host.setAttribute('data-walk-host', i) }
+      el.setAttribute('data-walk-hid', i)
+    }
+    return hosts.map(h => { const r = h.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)] })
+  })()`)
+  const found = []
+  for (let i = 0; i < hosts.length; i++) {
+    const [x, y, w, h] = hosts[i]
+    await page.mouse.move(x + w / 2, y + h / 2)
+    await wait(180)
+    const shown = await page.evaluate(`(() => { const seen = ${SEEN}; return [...document.querySelectorAll('[data-walk-hid="${i}"]')].filter(seen).map(el => (el.getAttribute('aria-label') || el.innerText || '').trim().replace(/\\s+/g, ' ').slice(0, 40)) })()`)
+    if (shown.length) found.push({ box: hosts[i], shows: shown.slice(0, 6) })
+  }
+  await page.mouse.move(0, 0)
+  await wait(120)
+  return found
+}
 
 mkdirSync(join(OUT, 'img'), { recursive: true })
 const WIDTHS = [
@@ -61,6 +104,8 @@ try {
           await wait(step.settle ?? 500)
           await page.screenshot({ path: join(OUT, rec.file), type: 'jpeg', quality: 55 })
           rec.audit = await page.evaluate(`${AUDIT}(${JSON.stringify({ touch: W.touch })})`)
+          // controls a person only finds by hovering (the owner's rule: nothing behind a hover); a mouse only
+          if (!W.touch) rec.audit.hover = await hoverOnly(page)
           rec.reached = true
         } catch (err) {
           rec.reached = false
@@ -76,6 +121,8 @@ try {
     } finally {
       await ctx.close()
       s.stop()
+      // a second Studio a step started and a skipped step would have ended
+      for (const k of ['night', 'nh', 'fs']) { try { env[k]?.stop?.() } catch {} }
     }
   }
 } finally {
