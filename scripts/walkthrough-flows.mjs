@@ -562,6 +562,8 @@ const FAILING = [
   { id: 'f-fail-fix', flow: FAIL, title: 'Fix mode ("/fix", then "Why did the build stop?"): what Fix says, from the Studio’s own facts (no model answers here)', run: async env => {
     const s = await failed(env)
     await deck(env, s, s.failed)
+    // the build is on screen (its end is said in the chat) before Fix is asked about it
+    await chatBtn(env.page, 'Resume').waitFor({ state: 'visible', timeout: 10000 })
     await send(env, '/fix')
     await env.wait(400)
     await send(env, 'Why did the build stop?')
