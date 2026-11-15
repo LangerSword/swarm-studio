@@ -108,3 +108,20 @@ test('outside a project the findings go in the brief, with the same rule', () =>
   assert.equal(researchBrief([]), '')
   assert.match(researchBrief([{ url: 'https://a.example', title: 'A', took: 'B' }]), /never copy a source's wording[\s\S]*- A \(https:\/\/a\.example\): B/)
 })
+
+test('a real Studio: Research on a project with no Hermes says why and keeps nothing', { timeout: 60000 }, async () => {
+  const { studio } = await import('../scripts/walkthrough-fixtures.mjs')
+  const s = await studio()
+  try {
+    const made = await s.api('/api/studio', { kind: 'site', idea: 'Cedar Cafe, a small cafe by the river' })
+    const pid = made.project.id
+    const call = body => fetch(`${s.BASE}/api/projects/${pid}/research`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-swarm-token': 'walkthrough' }, body: JSON.stringify(body) })
+    const res = await call({ ask: 'look up cafes by the river in York' })
+    assert.equal(res.status, 200)
+    const got = await res.json()
+    assert.deepEqual(got.findings, [])
+    assert.match(got.note, /Hermes/)
+    assert.equal(got.refs.filter(r => r.source === 'research').length, 0)
+    assert.equal((await fetch(`${s.BASE}/api/projects/nope/research`, { method: 'POST', headers: { 'x-swarm-token': 'walkthrough' }, body: '{}' })).status, 404)
+  } finally { s.stop() }
+})

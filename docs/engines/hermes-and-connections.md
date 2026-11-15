@@ -1,6 +1,6 @@
 # Hermes and connections
 
-Glue: launcher.py, bridge.py, bridge_llm.py, engine/bridge.mjs, engine/hermesllm.mjs, engine/llm.mjs, engine/hermeshealth.mjs, engine/hermes_connect.mjs, engine/connect.mjs, engine/proc.mjs, engine/ckff.mjs, engine/paint-ckff.mjs, engine/auto.mjs, engine/appkit.mjs, engine/media.mjs, engine/socketsafe.mjs, server/server.mjs, web/show.js
+Glue: launcher.py, bridge.py, bridge_llm.py, engine/bridge.mjs, engine/research.mjs, engine/hermesllm.mjs, engine/llm.mjs, engine/hermeshealth.mjs, engine/hermes_connect.mjs, engine/connect.mjs, engine/proc.mjs, engine/ckff.mjs, engine/paint-ckff.mjs, engine/auto.mjs, engine/appkit.mjs, engine/media.mjs, engine/socketsafe.mjs, server/server.mjs, web/show.js
 Status: built in
 
 Hermes is the host: Swarm Studio is a Hermes plugin (`requires_hermes: ">=0.23"`, plugin.yaml:6) under FSL-1.1-ALv2 (plugin.yaml:58). Hermes's own licence: Unchecked (not in this repo; settle from Hermes's repo). Every other service here is an outside service reached through Hermes or a declared key.
@@ -70,7 +70,16 @@ Hermes is the host: Swarm Studio is a Hermes plugin (`requires_hermes: ">=0.23"`
 - `ckffCreds` reads only `CKFF_API_KEY`, the name plugin.yaml declares and launcher.py passes (engine/ckff.mjs, tests/enginegaps.test.mjs). The `CKFF_IMAGE_KEY` alias it also read was never passed and is gone.
 - engine/paint-ckff.mjs is a developer command line (sprite sheets), not called by the server. It reads `CKFF_IMAGE_KEY` or an Octo vault item via `OCTO_AGENT_KEY`, and `CKFF_BASE` / `OCTO_URL`; none declared in plugin.yaml (engine/paint-ckff.mjs:1-33).
 - Tools outside the server paint through `POST /api/hermes/image` (server/server.mjs:3292-3305).
-- The bridge also has `POST /web`: `{search, limit}` runs Hermes's own `web_search` and `{urls}` its `web_extract` through `ctx.dispatch_tool`, at most 20 results or 5 http(s) addresses a call (bridge.py `web`, tests/test_bridge.py). Nothing in the server calls it yet: it is the ground for the app engine's search, fetch and clone routes, which are not built (docs/engines/dyad.md, Limits).
+- The bridge also has `POST /web`: `{search, limit}` runs Hermes's own `web_search` and `{urls}` its `web_extract` through `ctx.dispatch_tool`, at most 20 results or 5 http(s) addresses a call (bridge.py `web`, tests/test_bridge.py). It is also the ground for the app engine's search, fetch and clone routes, which are not built (docs/engines/dyad.md, Limits).
+
+### Research before planning (engine/research.mjs)
+
+- The planner's research step calls `/web` (server/server.mjs `lookUp`). It runs only when the person's own words ask to look something up (`wantsResearch`: "look up", "look at how X does it", "research", "find out", "search for", "see how X does"), or they press Research (`POST /api/projects/:pid/research {ask?}`); a plain brief makes no `/web` call (tests/research.test.mjs).
+- Limits, per build (`RESEARCH`): 3 searches, 6 results a search, 4 pages read, 6 findings kept, 60 s for the whole step; every call is raced against that limit, so a slow backend ends the step and the build goes on. With no Hermes attached the bridge answers `absent` and the step says so; the build goes on without it.
+- Private addresses: Hermes's `web_extract` refuses a private or internal address before any fetch (Hermes v0.23.1 tools/web_tools.py:410-418, `async_is_safe_url`). The studio also checks each result's address with `publicUrl` (engine/chatmedia.mjs) before passing it on. `web_search` fetches nothing itself.
+- The planner's model (`trace: research`) picks the searches (`QUERY_SYSTEM`) and what to take from each page (`NOTES_SYSTEM`), up to 4,000 characters a page; with no model, the ask is searched as it is and each result's own description is kept.
+- Each finding is a link in the project's References with source `research` and `found: { state: 'ready', took, query }` (engine/refs.mjs `addFinding`): the person removes it like any reference, and `refs.brief` gives the newest 6 to the crew under "What the crew looked up on the web before planning", with the rule never to copy a source's wording, layout, logo or pictures. `refs.used` lists them in `refs-used.json`, so a build shows which ones it was given (#598). A build outside a project gets them in its brief (`researchBrief`), and they join the project that build starts.
+- The canvas hears `{ type: 'research', state: 'looking' | 'done', ask, findings, searched, read, note }`.
 - Clips: Hermes `video_generate` only (server/server.mjs:209-213). FAL is Hermes's own `FAL_KEY` (docs/specs/33-hermes-bridge.md:70-71).
 
 ### Posting (Postiz and others)
