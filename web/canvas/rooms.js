@@ -418,7 +418,7 @@ function renderApp() {
   const st = appv.state, working = st === 'working', elsewhere = !!appv.elsewhere
   // a replay's pill reads Replay and how far along it is, never "building" or "running" (web/replaytalk.js)
   appEls.state.className = `app-state pill ${st}${rec.on ? ' replay' : ''}`
-  appEls.state.textContent = appPill({ replay: rec.on, at: rec.at, state: st, url: appv.url, hasApp: appv.hasApp })
+  appEls.state.textContent = appPill({ replay: rec.on, at: rec.at, state: st, url: appv.url, hasApp: appv.hasApp, kind: appv.kind })
   setText(appEls.stage, working ? appv.stage : appv.result ? `${appv.result.turns} turn${appv.result.turns === 1 ? '' : 's'} · ${appv.result.files} files · checks ${appv.result.gatesPassed ? 'passed' : 'not passed'}${appv.deployed ? ` · live at ${appv.deployed}` : ''}` : '')
   const stick = appEls.steps.scrollHeight - appEls.steps.scrollTop - appEls.steps.clientHeight < 60
   appEls.steps.innerHTML = stepsHtml()
