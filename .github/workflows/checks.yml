@@ -68,6 +68,8 @@ jobs:
       # the image service's libraries (engine/imagetools): its prebuilt binary for this system, nothing compiled;
       # tests/images.test.mjs then runs against the real binary
       - run: npm ci --prefix engine/imagetools --ignore-scripts --no-audit --no-fund
+      # main's newest commit, so the type-check ratchet can say what main has and what this pull request adds
+      - run: git fetch --quiet --depth 1 origin main:refs/remotes/origin/main || true
       - run: bash scripts/check.sh
         env:
           SWARM_NEED_UI: '1'
