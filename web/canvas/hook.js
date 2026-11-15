@@ -17,6 +17,7 @@ import { snapFrame, pageCapture, hiddenCopy, ANCHOR_JS, layerKey, SNAP_SECTION, 
 import { gensOf, pics } from './start.js'
 import { nextRoute, setNextRoute, github } from './loop.js'
 import { dataUrl } from '../capture.js'
+import { paintSend } from '../chatmode.js'
 
 // ---------- studio hook: what web/studio.js, web/home.js and web/project.js may read and call.
 // Kept to this one block so the canvas and the studio views merge cleanly.
@@ -38,6 +39,8 @@ window.swarm = {
   // talk.start({ text, kind, build, blank, said }) opens the talk in this chat; talk.end() leaves it
   // the planner's one line in the left chat (the Studio's "start with…", docs/specs/37-studio-first.md)
   say: text => botMsg(String(text || '')),
+  // the chat's box says what sending does (web/chatmode.js): asked again when a build opens beside an open chat
+  chatBox: paintSend,
   readTalk, hermesReady, hermesSays, talk: { start: talkStart, ask: talkAsk, end: talkEnd, saidOf, lock: () => (talk.on && talk.kind === 'game' ? gameLock() : null), get on() { return talk.on }, get chat() { return talk.on ? talk.chat : null }, get kind() { return talk.kind }, get plan() { return talk.plan } },
   // a replay started from ☰ → Replay ends when the deck is left
   stopReplay,

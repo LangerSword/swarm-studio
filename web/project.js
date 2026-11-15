@@ -133,6 +133,8 @@ export function makeProject({ sw, C, root }) {
     for (const k of P.pendingKeys) if (!now.has(k) && board?.art?.some(a => `art:${a.page}/${a.layer}/${a.gen}` === k)) { P.landed.set(k, Date.now()); setTimeout(() => { P.landed.delete(k); P.standin.delete(k.split('/').slice(2).join('/')); if (P.on) renderStage() }, 1600) }
     P.pendingKeys = now
     P.board = board; P.boardOf = run
+    // the chat is open beside the Overview: its box follows the build that is now open (web/chatmode.js)
+    sw.chatBox?.()
     // the pages' saved snapshots paint at once, before the canvas behind has drawn anything
     fromDisk(board?.snaps)
     // a site and the game made from it are two runs of one version: the rooms switch between them

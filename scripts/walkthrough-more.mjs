@@ -449,6 +449,7 @@ const LIST = [
     const s = await main(env); await overviewOf(env, s, s.ids.site)
     const { page } = env
     await click(page, '.pj-dock [data-tool="scribble"]')
+    await env.wait(400)
     const b = await page.locator('.pj-world .ab[data-key="page:home"]').first().boundingBox()
     await page.mouse.move(b.x + b.width * 0.25, b.y + b.height * 0.25); await page.mouse.down()
     await page.mouse.move(b.x + b.width * 0.6, b.y + b.height * 0.5, { steps: 8 }); await page.mouse.up()

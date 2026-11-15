@@ -90,7 +90,7 @@ const feedText = page => page.locator('#feed').first().innerText().catch(() => '
 const toEnd = page => page.evaluate(() => { const f = document.querySelector('#feed'); if (f) f.scrollTop = f.scrollHeight })
 const posted = (page, re) => page.waitForResponse(r => re.test(new URL(r.url()).pathname) && r.request().method() === 'POST', { timeout: 15000 }).catch(() => null)
 // no "On it" toast: what happened is a line in the chat
-async function noToast(page) { const t = await page.locator('.project .hm-toast').first().innerText().catch(() => ''); if (/On it|Painting/i.test(t)) no(`a toast says "${t.trim()}" instead of the chat`) }
+async function noToast(page) { const t = await page.evaluate(() => document.querySelector('.project .hm-toast')?.innerText || ''); if (/On it|Painting/i.test(t)) no(`a toast says "${t.trim()}" instead of the chat`) }
 // the chat says what the server answered: accepted, or "Nothing happened: <why>"
 async function saysTruth(env, res, accepted) {
   await env.wait(1500)
