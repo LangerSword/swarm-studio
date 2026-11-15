@@ -6,6 +6,7 @@
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { createHash } from 'node:crypto'
+import { researchTool } from './researchtool.mjs'
 
 // The asset library (engine/assetlib.mjs): "find me a pixel sword" shows three pictures, each with its credit and
 // licence; pressing one puts it where this talk is: a game plan's art references, else the project's References.
@@ -198,6 +199,8 @@ export function chatTools(deps = {}) {
     ...(deps.assets && deps.refs ? [libraryTool(deps)] : []),
     ...(deps.plans?.refUse ? gameIntakeTools(deps) : []),
     ...(deps.reads && deps.change ? webTools(deps) : []),
+    // (a) research #606: the web through Hermes's own tools (server/researchtool.mjs)
+    ...(deps.refs && deps.web ? [researchTool(deps)] : []),
     ...(deps.extra || [])
   ]
 }
