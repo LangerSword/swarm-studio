@@ -113,7 +113,8 @@ async function noRaw(env, { within = '#feed', must = null, not = null } = {}) {
 async function oneWay(env, label) {
   const last = env.page.locator('#feed > .item').last()
   const btns = (await last.locator('button').allInnerTexts().catch(() => [])).map(t => t.trim()).filter(Boolean)
-  if (btns.length !== 1 || btns[0] !== label) throw new Error(`the newest line offers [${btns.join(', ')}], not only "${label}"`)
+  // (the chips are set in capitals by their style, so the label is matched whatever its case)
+  if (btns.length !== 1 || btns[0].toLowerCase() !== label.toLowerCase()) throw new Error(`the newest line offers [${btns.join(', ')}], not only "${label}"`)
 }
 // Projects › Chats › New chat: the Design deck with nothing built, its chat empty
 async function newChat(env, s) {
