@@ -274,3 +274,14 @@ test('the planner\'s reading carries its one-line premise', () => {
   assert.equal(readShape('{"family":"action","premise":"Rats with swords hold the night market"}').premise, 'Rats with swords hold the night market')
   assert.equal(readShape('{"family":"action"}').premise, '')
 })
+
+test('a plan saved with the person\'s message as its premise is shown with a story line; a written premise is kept', async () => {
+  const { planView } = await import('../engine/plan.mjs')
+  const idea = 'thinking of a cool godot 4 game, a stylish brawler with launcher plus air juggles with 3 heroines'
+  const p = planFromAnswers({ idea })
+  // as saved before 2026-11-15
+  const old = { ...p, cards: p.cards.map(c => c.id === 'story' ? { ...c, body: { ...c.body, premise: idea } } : c) }
+  assert.equal(card(planView(old), 'story').body.premise, 'An original action RPG with a cast of heroines')
+  const mine = { ...p, cards: p.cards.map(c => c.id === 'story' ? { ...c, body: { ...c.body, premise: 'Rats hold the night market' } } : c) }
+  assert.equal(card(planView(mine), 'story').body.premise, 'Rats hold the night market')
+})

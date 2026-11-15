@@ -346,4 +346,13 @@ export function firstPicture(plan) {
   const c = (plan.build?.characters || []).find(x => x.front?.state === 'done' && x.front.src)
   return c ? { name: c.name, src: c.front.src } : null
 }
-export const planView = plan => ({ ...plan, price: planPrice(plan), summary: planSummary(plan), first: firstPicture(plan), starterView: starterView(plan.starter ? plan : { ...plan, starter: suggestStarter(plan) }) })
+// a plan saved before 2026-11-15 kept the person's first message as its Story premise (the owner's board read
+// "thinking of a cool godot 4 g…"): shown as a story line made from the plan instead; a premise anyone wrote is kept
+function premiseShown(plan) {
+  const idea = clean(plan.idea, 400), story = (plan.cards || []).find(c => c.id === 'story')
+  if (!idea || !story || clean(story.body?.premise, 400) !== idea) return plan.cards
+  const heroines = has(`${plan.answers?.cast || ''} ${plan.idea}`, /girl|women|female|heroine/i)
+  const premise = premiseOf(plan.shape, { genre: plan.shape?.family === 'narrative' ? 'story game' : plan.answers?.genre, cast: heroines ? 'a cast of heroines' : '' })
+  return plan.cards.map(c => c === story ? { ...c, body: { ...c.body, premise } } : c)
+}
+export const planView = plan => ({ ...plan, cards: premiseShown(plan), price: planPrice(plan), summary: planSummary(plan), first: firstPicture(plan), starterView: starterView(plan.starter ? plan : { ...plan, starter: suggestStarter(plan) }) })
