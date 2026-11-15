@@ -1,5 +1,5 @@
 {
-  "why": "Hermia's dotted radio line (web/canvas/start.js) was never hidden: `hidden` set as a property on an SVG element is not the attribute, so its empty path ran its dash animation unseen in every room. It now runs only while she is giving a helper an order (#560, #529, #530).",
+  "why": "The game scene's address (?version=<game>&room=game, no run) now opens the Game room it names (#560, #571): before, the room move was dropped and the scene showed the game build's Overview with Hermia working on it. Hermia is not on the Game room's stage. (Its radio line runs only while she gives an order, #578.)",
   "gained": [],
-  "lost": ["page @radio-dash endless path"]
+  "lost": ["page @pet-dot endless i", "page @pet-tap endless span.pet-body", "page ~opacity span.pet-dots"]
 }
