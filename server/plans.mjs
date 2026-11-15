@@ -8,7 +8,7 @@ import { planStore, planView, editCard, editStarter, setSystems, lockPlan, asser
 import { addSheet, addMocks, lockStyle, addBackdrops, addCloseups, entryFor, settleStale, buildScope, charEntry, viewJob, spriteJobs, VIEWS, gameBrief } from '../engine/planart.mjs'
 import { askShape } from '../engine/planshape.mjs'
 import { nextStep } from '../engine/gamestep.mjs'
-import { addPlanRef, removePlanRef, planRefAsIs, planRefs, carryPlanRefs } from '../engine/planrefs.mjs'
+import { addPlanRef, removePlanRef, planRefAsIs, planRefFor, planRefs, carryPlanRefs } from '../engine/planrefs.mjs'
 import { planTemplate, remixPlan, templateStore, TEMPLATE_ID } from '../engine/template.mjs'
 
 // paint({ prompt, quality: 'medium' | 'high', aspect, crop, refs }) -> { ok, path, error }: one picture
@@ -136,9 +136,9 @@ export function planRoutes({ dataDir, hooks = {}, paint = null, make = null, onP
     return () => runJobs(plan.id, jobs)
   }
   const art = {
-    sheet: (plan, input) => painting(plan, () => addSheet(plan, String(input.kind || 'cast'))),
+    sheet: (plan, input) => painting(plan, dir => addSheet(plan, String(input.kind || 'cast'), dir)),
     mocks: (plan, input) => painting(plan, dir => addMocks(plan, dir, Array.isArray(input.shots) && input.shots.length ? input.shots.map(String) : undefined)),
-    backdrops: (plan, input) => painting(plan, () => addBackdrops(plan, { stage: input.stage })),
+    backdrops: (plan, input) => painting(plan, dir => addBackdrops(plan, { stage: input.stage, dir })),
     closeups: (plan, input) => painting(plan, dir => addCloseups(plan, dir, { name: input.name ? String(input.name) : undefined })),
     // draw one view of a character again (the person did not like it), before or between builds
     view: (plan, input) => painting(plan, dir => {
@@ -250,6 +250,16 @@ export function planRoutes({ dataDir, hooks = {}, paint = null, make = null, onP
     const plan = PLAN_ID.test(String(planId || '')) && store.get(planId)
     if (!plan) throw Object.assign(new Error('no such plan'), { status: 404 })
     const r = addPlanRef(plan, files(plan.id), { name, buf })
+    lockAgain(plan)
+    store.save(plan)
+    return r
+  }
+  // one art reference's use, from the chat's helper: { asIs } like this or as is, { slot } the part it is for
+  // (planRefFor; null frees it). Returns the reference.
+  handle.refUse = (planId, refId, { asIs, slot } = {}) => {
+    const plan = PLAN_ID.test(String(planId || '')) && store.get(planId)
+    if (!plan) throw Object.assign(new Error('no such plan'), { status: 404 })
+    const r = slot !== undefined ? planRefFor(plan, refId, slot) : planRefAsIs(plan, refId, asIs !== false)
     lockAgain(plan)
     store.save(plan)
     return r

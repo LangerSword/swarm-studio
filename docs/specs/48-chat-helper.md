@@ -7,7 +7,7 @@ Hermia, the planner in the chat, can use a tool when the person asks for what it
 tool found as a few cards to pick from, three at most, each saying where it came from. It is the same planner,
 in every talk (a website's, an app's, a film's, a game's), not a second assistant. This is the interface each
 part plugs its tool into: (a) research #606, (b) the game Plan board's intake #607, (c) the app builder's web
-tools #608. The asset library search is the first tool wired (`server/chattools.mjs`).
+tools #608. The asset library search is the first tool wired (`server/chattools.mjs`). The game intake's are next to it (`gameIntakeTools`, game talks only): `plan_use_for` ("use this for the boss": the owner's picture for one sheet, screen or the backdrops), `plan_references` (like this, or use as is) and `game_characters` (characters from the library; the one pressed is the look the cast sheet follows).
 
 ## A tool
 
