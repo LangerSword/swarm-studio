@@ -543,3 +543,18 @@ test('the door: a folder on this computer, a checkout on a branch of its own or 
     assert.ok(!existsSync(join(S.runsDir, st.job.run, 'app', '.swarm-studio.json')), "the record of what it wrote is not brought in")
   } finally { S.jobs.close() }
 })
+
+test('the door, from the chat: a typed path is the folder the files go in; a folder in a checkout is that checkout\'s', async () => {
+  const G = github(), S = studio(G)
+  S.built('p1', 'Cedar Cafe', '2020-r1', { 'index.html': 'v1' })
+  mkdirSync(join(S.home, 'code'))
+  const repo = join(S.home, 'code', 'repo'); put(repo, { 'a.txt': 'a' }); g(repo, 'init', '-q'); g(repo, 'add', '-A'); g(repo, 'commit', '-qm', 'a')
+  mkdirSync(join(repo, 'web'))
+  try {
+    await assert.rejects(S.route.act('p1', { action: 'push', folder: join(repo, 'web'), sub: 'site' }), /inside the git checkout .*name the checkout itself/)
+    await S.route.act('p1', { action: 'push', folder: '~/code/site' }); const st = await S.done('p1')
+    assert.equal(st.job.state, 'done', st.job.message)
+    assert.equal(readFileSync(join(S.home, 'code', 'site', 'index.html'), 'utf8'), 'v1')
+    assert.deepEqual({ folder: st.link.folder, sub: st.link.sub, mode: st.link.mode }, { folder: join(S.home, 'code'), sub: 'site', mode: 'folder' })
+  } finally { S.jobs.close() }
+})

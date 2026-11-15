@@ -7,7 +7,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { cleanName, folderChanges, folderTarget, freeLocalBranch, toCheckout, toFolder } from '../engine/sourcefolder.mjs'
+import { cleanName, folderChanges, folderTarget, freeLocalBranch, pathTarget, toCheckout, toFolder } from '../engine/sourcefolder.mjs'
 
 const tmp = () => realpathSync(mkdtempSync(join(tmpdir(), 'sourcefolder-')))
 const put = (root, files) => { for (const [f, text] of Object.entries(files)) { mkdirSync(join(root, f, '..'), { recursive: true }); writeFileSync(join(root, f), text) } return root }
@@ -19,8 +19,11 @@ test('a folder is one inside the home folder, never the home folder, the Studio\
   const home = tmp(), studio = join(home, '.hermes'), outside = tmp()
   mkdirSync(join(home, 'code', 'site'), { recursive: true }); mkdirSync(studio)
   project({ 'a.txt': 'a' }, join(home, 'code', 'repo'))
-  assert.deepEqual(folderTarget('~/code/site', { home }), { folder: join(home, 'code', 'site'), checkout: false })
-  assert.deepEqual(folderTarget(join(home, 'code', 'repo'), { home }), { folder: join(home, 'code', 'repo'), checkout: true })
+  assert.deepEqual(folderTarget('~/code/site', { home }), { folder: join(home, 'code', 'site'), checkout: false, within: null })
+  assert.deepEqual(folderTarget(join(home, 'code', 'repo'), { home }), { folder: join(home, 'code', 'repo'), checkout: true, within: null })
+  // a folder in a checkout's working tree is that checkout's
+  mkdirSync(join(home, 'code', 'repo', 'web'))
+  assert.equal(folderTarget(join(home, 'code', 'repo', 'web'), { home }).within, join(home, 'code', 'repo'))
   assert.throws(() => folderTarget(home, { home }), /inside your home folder/)
   assert.throws(() => folderTarget(outside, { home }), /inside your home folder/)
   assert.throws(() => folderTarget('code/site', { home }), /whole path/)
@@ -107,4 +110,16 @@ test('a plain folder never gets a key file, never leaves the folder, and a check
   // what a write would do, said before it does it
   const c = await folderChanges({ dir: project({ 'a.txt': 'a' }), target: join(folder, 'new') })
   assert.deepEqual({ add: c.add, theirs: c.theirs }, { add: ['a.txt'], theirs: [] })
+})
+
+test('a typed path is the checkout itself, or the folder the files go in, made inside its parent', () => {
+  const home = tmp()
+  mkdirSync(join(home, 'code'))
+  project({ 'a': 'a' }, join(home, 'code', 'repo'))
+  assert.deepEqual(pathTarget('~/code/repo', { home }), { folder: join(home, 'code', 'repo'), checkout: true, within: null, sub: null })
+  assert.deepEqual(pathTarget('~/code/site/', { home }), { folder: join(home, 'code'), checkout: false, within: null, sub: 'site' })
+  mkdirSync(join(home, 'code', 'made'))
+  assert.deepEqual(pathTarget(join(home, 'code', 'made'), { home }), { folder: join(home, 'code'), checkout: false, within: null, sub: 'made' })
+  assert.throws(() => pathTarget('~/site', { home }), /inside your home folder/, 'the home folder itself is not the parent')
+  assert.throws(() => pathTarget('~/nowhere/site', { home }), /No such folder/)
 })

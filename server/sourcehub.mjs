@@ -30,7 +30,7 @@ import { fileURLToPath } from 'node:url'
 import { GITHUB, ghCli, ghLogin, listRepos, pushSource, remoteHead, localHead, hasCommit, isBehind, changedUnder, repoName, readTarget, sourceLinks, rememberLink } from '../engine/sourcehub.mjs'
 import { parseRepo, cleanSub, KINDS } from '../engine/bringin.mjs'
 import { chooseOwner, ghOrgs, ownerFor, ownerView, savedOwner } from '../engine/ghowner.mjs'
-import { cleanName, folderChanges, folderTarget, folderWhere, freeLocalBranch, toCheckout, toFolder } from '../engine/sourcefolder.mjs'
+import { cleanName, folderChanges, folderTarget, folderWhere, freeLocalBranch, pathTarget, toCheckout, toFolder } from '../engine/sourcefolder.mjs'
 import { git as gitIn } from '../engine/sourcehub.mjs'
 
 // the plugin's own folder: never a place a project's source is written
@@ -160,9 +160,12 @@ export function sourceRoutes({ runsDir, dataDir, projects, readEvents, record, b
     if (action === 'push' && (input.folder || link?.folder)) {
       if (input.folder && link && !link.folder) throw fail(`This project goes to ${link.repo}. Unlink it first, to write it into a folder.`, 409)
       if (input.repo && !input.folder) throw fail(`This project goes to ${folderWhere(link)}. Unlink it first, to put it on GitHub.`, 409)
-      const at = folderTarget(input.folder || link.folder, { home, deny })
+      // the sheet names the folder and the subfolder; the chat names the folder the files go in, made when it is not there
+      const at = input.folder && (input.sub == null || input.sub === '') ? pathTarget(input.folder, { home, deny })
+        : { ...folderTarget(input.folder || link.folder, { home, deny }), sub: input.sub ?? link?.sub }
       const mode = at.checkout ? 'checkout' : 'folder'
-      const sub = mode === 'folder' ? cleanName(input.sub ?? link?.sub) : null
+      if (mode === 'folder' && at.within) throw fail(`${at.folder} is inside the git checkout ${at.within}: name the checkout itself, so this project goes to a branch of it`, 409)
+      const sub = mode === 'folder' ? cleanName(at.sub) : null
       start(key, 'push', async step => {
         if (mode === 'checkout') {
           const branch = link?.folder === at.folder && link.branch ? link.branch : await freeLocalBranch(at.folder, src.title)

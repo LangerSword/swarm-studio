@@ -42,7 +42,10 @@ import { cursor, CREW } from './icons.js'
 /**
  * The moves, typed in the chat. Only a message that is one of these, whole: "push the button to the left" is
  * a change for the crew, not a push.
- * @param {string} text @returns {{ did: 'push' | 'pull' | 'where' } | { did: 'link', repo: string } | null}
+ * Also: "connect this to my repo owner/name" links one; "save this into ~/code/site" writes it into a folder of the
+ * home folder; after a repository with other work is refused, "push to a new branch" or "bring its files in first";
+ * after a folder write is refused, "replace them".
+ * @param {string} text @returns {{ did: 'push' | 'pull' | 'where' | 'branch' | 'merge' | 'replace' } | { did: 'link', repo: string } | { did: 'folder', folder: string } | null}
  */
 export function githubAsk(text) {
   const t = String(text || '').trim().replace(/[.!?]+$/, '').replace(/\s+/g, ' ')
@@ -51,8 +54,14 @@ export function githubAsk(text) {
   if (new RegExp(`^(?:please )?(?:push|send|put|upload) ${it}(?:to|on) github$`).test(s)) return { did: 'push' }
   if (new RegExp(`^(?:please )?(?:pull|update|sync) ${it}from github$`).test(s) || /^(?:please )?pull (?:the )?(?:new|latest) (?:commits|changes) from github$/.test(s)) return { did: 'pull' }
   if (/^(?:where is (?:it|this|the (?:project|game|app|source|code)) on github|is (?:it|this) on github|github status|which (?:github )?repo(?:sitory)? is (?:it|this))$/.test(s)) return { did: 'where' }
-  const link = t.match(/^(?:please )?link (?:(?:it|this) )?(?:to )?(?:github )?((?:https:\/\/(?:www\.)?github\.com\/)?[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9._-]+?)(?:\.git)?\/?$/i)
+  const link = t.match(/^(?:please )?(?:link|connect) (?:(?:it|this|the (?:project|game|app|site|source|code)) )?(?:to )?(?:my )?(?:github )?(?:repo(?:sitory)? )?((?:https:\/\/(?:www\.)?github\.com\/)?[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9._-]+?)(?:\.git)?\/?$/i)
   if (link) return { did: 'link', repo: link[1].replace(/^https:\/\/(?:www\.)?github\.com\//i, '') }
+  // a folder of the home folder, written as a path from the top or from ~ (never a word like "the footer")
+  const into = t.match(/^(?:please )?(?:save|write|put|copy) (?:it |this |the (?:project|game|app|site|source|code) )?(?:in|into|to) ((?:~|\/|[A-Za-z]:[\\/])\S*)$/i)
+  if (into) return { did: 'folder', folder: into[1].replace(/[\\/]+$/, '') || into[1] }
+  if (/^(?:please )?(?:push (?:it |this )?to a new branch|(?:use|make) a new branch|new branch)$/.test(s)) return { did: 'branch' }
+  if (/^(?:please )?bring (?:its|their|the(?: repo(?:sitory)?'s)?) files in(?: first)?$/.test(s)) return { did: 'merge' }
+  if (/^(?:please )?(?:replace them|replace the files|write (?:it )?anyway)$/.test(s)) return { did: 'replace' }
   return null
 }
 
@@ -354,7 +363,7 @@ export function githubDoor(host) {
     host.youSaid(text)
     const project = host.project()
     if (!project) { host.botMsg('Open a project first: its GitHub is in its menu.'); return true }
-    const item = host.botMsg(GH_DOING[want.did === 'pull' ? 'pull' : want.did === 'where' ? 'check' : 'push'], true)
+    const item = host.botMsg(want.did === 'folder' || want.did === 'replace' ? 'Writing it' : GH_DOING[want.did === 'pull' ? 'pull' : want.did === 'where' ? 'check' : 'push'], true)
     item.classList.add('crew-wait')
     const head = item.querySelector('b'), txt = /** @type {HTMLElement} */ (item.querySelector('.txt'))
     const hermia = head?.innerHTML || ''
@@ -369,10 +378,23 @@ export function githubDoor(host) {
     ;(async () => {
       const first = await ask(project, null, `?check=1${runQ()}`)
       if (want.did === 'where') return end(githubWhere(first), first.link?.url || first.origin?.url)
-      if (first.job?.state !== 'working') await ask(project, { action: want.did === 'link' ? 'push' : want.did, piece: first.piece, ...(want.did === 'link' ? { repo: want.repo } : {}) })
+      // the answer to a refusal is for the refusal still on screen: the repository that holds other work, or the
+      // folder write that would replace files
+      if ((want.did === 'branch' || want.did === 'merge') && !first.job?.other) return end('Nothing is waiting for that. Say "push to github" first.')
+      if (want.did === 'merge' && first.job?.other?.bring) return end(`${first.job.other.repo}'s files can't come in: ${first.job.other.bring}. Say "push to a new branch".`)
+      if (want.did === 'replace' && !first.job?.changes) return end('Nothing is waiting for that.')
+      const body = want.did === 'link' ? { action: 'push', repo: want.repo }
+        : want.did === 'folder' ? { action: 'push', folder: want.folder }
+        : want.did === 'branch' || want.did === 'merge' ? { action: 'push', repo: first.job?.other?.repo, mode: want.did }
+        : want.did === 'replace' ? { action: 'push', confirm: true }
+        : { action: want.did }
+      if (first.job?.state !== 'working') await ask(project, { ...body, piece: first.piece })
       const st = await follow(project, first.piece, s => { txt.textContent = ghCap(s.job?.step || txt.textContent || '') })
       const job = st.job
-      end(job?.state === 'failed' ? `${job.message}${job.pull ? ' Say "pull from github".' : ''}` : job?.message || githubWhere(st), job?.state === 'failed' ? undefined : job?.url || st.link?.url)
+      const next = job?.pull ? ' Say "pull from github".'
+        : job?.other ? ` Say "push to a new branch"${job.other.bring ? '' : ' or "bring its files in first"'}.`
+        : job?.changes ? ' Say "replace them" to write it anyway.' : ''
+      end(job?.state === 'failed' ? `${job.message}${next}` : `${job?.message || githubWhere(st)}${job?.pr ? ` Open a pull request: ${job.pr}` : ''}`, job?.state === 'failed' ? undefined : job?.url || st.link?.url || undefined)
     })().catch(e => end(String(e?.message || 'That did not work')))
     return true
   }
