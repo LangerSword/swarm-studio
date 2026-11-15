@@ -236,7 +236,7 @@ async function cardPick(page, w) {
 // Projects: each card says what it is and how far it got; a filter by kind or status; Assets by project
 async function homeState(page, w) {
   const st = await page.evaluate(() => [...document.querySelectorAll('.hm-body .card')].map(c => c.querySelector('.st')?.textContent || ''))
-  const shape = /^(Website|App|Game|Video) · (Draft|Building|Designed|App built|App failed|Game built|Game failed|Live)\b/
+  const shape = /^(Website|App|Game|Video) · (Draft|Building|Designed|Partly built|Failed|Stopped|App built|App failed|Game built|Game failed|Live)\b/
   ok(st.length > 0 && st.every(t => shape.test(t)), `Cards @${w}: each card has a one-line kind · status (${st.slice(0, 3).join(' | ')})`)
   await page.evaluate(() => document.querySelector('.hm-filter').click()); await wait(300)
   const opts = await page.evaluate(() => [...document.querySelectorAll('.hm-menu button')].map(b => b.textContent.trim()))

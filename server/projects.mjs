@@ -56,7 +56,11 @@ export function kindsOf(card) {
 }
 
 // what a build is and how far it got, in words, from its real events (never a guess):
-// kind Website, App, Game or Video; status Draft, Building, Designed, App built, App failed or Live with its host
+// kind Website, App, Game or Video; status Draft, Building, Designed, App built, App failed or Live with its host.
+// A website's words come from its one build state (engine/buildstate.mjs, on the card as buildState): Designed
+// only when every section is built, else Partly built, Failed (nothing built) or Stopped (by the person, for
+// a cause, or with no end). The state's own name goes out as `site`, and `empty` when no section stands.
+const SITE_WORD = { done: 'Designed', unchanged: 'Designed', partly: 'Partly built', failed: 'Failed', stopped: 'Stopped', halted: 'Stopped', replaced: 'Stopped', unsure: 'Stopped' }
 const hostOf = url => { try { return new URL(url).host } catch { return null } }
 // how far a game build is, from its step lines: painting its art (n of N), then stage x of y
 export function gameProgress(steps = []) {
@@ -77,6 +81,9 @@ export function stateOf(card, cards = [card]) {
   const game = card.kind === 'game' || card.game
   const kind = game ? 'Game' : card.build || card.app ? 'App' : card.pages > 0 || card.planned > 0 ? 'Website' : card.video ? 'Video' : 'Website'
   const made = game ? 'Game' : 'App'
+  // a website build's own state; an app, a game, a film on its own or a project brought in has none
+  const site = kind === 'Website' && !card.intake ? card.buildState || null : null
+  const word = site ? SITE_WORD[site.state] || null : null
   // live once any version went out: its newest published address
   const out = [...cards].reverse().map(c => c.deployed || Object.values(c.sites || {})[0]).find(Boolean)
   // a build still writing steps in the last ten minutes is running, here or on another Studio server
@@ -95,9 +102,11 @@ export function stateOf(card, cards = [card]) {
     : game && (card.build === 'working' || card.build === 'stopped') ? 'Stopped'
     : card.build === 'failed' ? `${made} failed`
     : card.build === 'built' || (card.app && !card.build) ? `${made} built`
+    : word ? word
     : card.layers > 0 || card.video ? 'Designed'
     : 'Draft'
-  return { kind, status, host: out ? hostOf(out) : null }
+  // empty only at rest, under the site's own word: a card that reads Live or Building is not an empty version
+  return { kind, status, host: out ? hostOf(out) : null, ...(site ? { site: site.state, ...(status === word && site.done + site.kept === 0 ? { empty: true } : {}) } : {}) }
 }
 
 // removeDir: how a folder is deleted for good (a test hands in one that fails like a held file on Windows)

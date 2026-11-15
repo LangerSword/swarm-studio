@@ -60,7 +60,7 @@ that do not read it today.
 Ranked by how wrong the screen is and how easily a person hits it. Holes that share a root are joined.
 
 1. **B1.** The chat says "All 3 pages are built" and "play the prototype" when sections failed. Fixed text picked by `e.resume` (`web/canvas/panels.js:350`, `web/canvas/panels.js:363`).
-2. **B2.** A failed or stopped website reads "Website · Designed" on its card. The only test is "has one section" (`server/projects.mjs:98`), and a dead newest version borrows an older one's words (`web/home.js:102`).
+2. **B2.** **Closed** (`engine/buildstate.mjs`: the card reads "Partly built", "Failed" or "Stopped" and never borrows). As it was: a failed or stopped website reads "Website · Designed" on its card. The only test is "has one section" (`server/projects.mjs:98`), and a dead newest version borrows an older one's words (`web/home.js:102`).
 3. **C1 (also C11, C23, B16, PL19, PI5, PU6).** Raw provider errors are shown as Hermia's words, with Build under them (`web/canvas/talk.js:86`, `server/server.mjs:3539`, `engine/llm.mjs:83`). The same raw text is printed by the build, the plan, a picture and a publish.
 4. **B3 and B9.** No Resume when a failed or stopped build is opened again. Resume needs a `run:stopped` that was not the person's (`web/canvas/replay.js:225`), and a build whose sections all failed ends as `run:done` (`server/server.mjs:559`).
 5. **B4.** "Try again" answers "Couldn't start it again: ask". It sends the brief with no "sure", so the ask-before-build rule refuses it (`web/canvas/panels.js:281`, `server/server.mjs:3346`).
