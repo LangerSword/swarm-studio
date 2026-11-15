@@ -259,6 +259,8 @@ const BIND = {
       seen.cards.length > 3 && `${seen.cards.length} cards, more than three`,
       ...seen.cards.map((t, i) => !/sword/i.test(t) && `card ${i + 1} has no title: ${t.slice(0, 60)}`),
       ...seen.cards.map((t, i) => !/Ana, CC0/.test(t) && `card ${i + 1} does not say where it came from: ${t.slice(0, 60)}`),
+      // its note (for a library picture, what it is), in both Studios
+      ...seen.cards.map((t, i) => !/weapons/i.test(t) && `card ${i + 1} does not show its note: ${t.slice(0, 60)}`),
       !seen.pressed && 'no Keep this to press',
       seen.pressed && !seen.refs.some(r => r.source === 'chat' && /sword/.test(r.name)) && 'Keep this put nothing in References'
     ]))

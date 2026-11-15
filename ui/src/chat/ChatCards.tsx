@@ -15,6 +15,8 @@ export function ChatCards({ cards, onPick, busy }: { cards: ChatCard[], onPick?:
           <div className="flex min-w-0 flex-1 flex-col">
             <b className="truncate font-body text-xs font-semibold">{c.title}</b>
             <small className="line-clamp-2 font-body text-[11px] text-muted" title={c.source}>{c.source}</small>
+            {/* what the card is or what was taken from it (the classic card's third line) */}
+            {c.note && <i className="line-clamp-2 font-body text-[11px] not-italic text-muted" title={c.note}>{c.note}</i>}
             {c.picked ? <span className="font-body text-[11px] font-semibold">Done</span>
               : c.pick && onPick ? <Button role="ghost" className="mt-0.5 self-start" isDisabled={busy} onPress={() => onPick(c)}>{c.pick}</Button> : null}
           </div>
