@@ -1,6 +1,6 @@
 # Hermes and connections
 
-Glue: launcher.py, bridge.py, bridge_llm.py, engine/bridge.mjs, engine/hermesllm.mjs, engine/llm.mjs, engine/hermeshealth.mjs, engine/hermes_connect.mjs, engine/connect.mjs, engine/proc.mjs, engine/ckff.mjs, engine/paint-ckff.mjs, engine/auto.mjs, engine/appkit.mjs, engine/media.mjs, engine/socketsafe.mjs, server/server.mjs, web/show.js
+Glue: launcher.py, bridge.py, bridge_llm.py, engine/bridge.mjs, engine/hermesllm.mjs, engine/llm.mjs, engine/hermeshealth.mjs, engine/hermes_connect.mjs, engine/connect.mjs, engine/proc.mjs, engine/ckff.mjs, engine/paint-ckff.mjs, engine/auto.mjs, engine/appkit.mjs, engine/media.mjs, engine/socketsafe.mjs, server/server.mjs#hermes, web/show.js
 Status: built in
 
 Hermes is the host: Swarm Studio is a Hermes plugin (`requires_hermes: ">=0.23"`, plugin.yaml:6) under FSL-1.1-ALv2 (plugin.yaml:58). Hermes's own licence: Unchecked (not in this repo; settle from Hermes's repo). Every other service here is an outside service reached through Hermes or a declared key.
