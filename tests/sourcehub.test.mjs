@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { keyFile, keyFilesIn, pushSource, remoteHead, joinHistory, repoName, readTarget, sourceLinks, rememberLink, changedUnder, GITHUB } from '../engine/sourcehub.mjs'
+import { keyFile, keyFilesIn, listRepos, pushSource, remoteHead, joinHistory, repoName, readTarget, sourceLinks, rememberLink, changedUnder, GITHUB } from '../engine/sourcehub.mjs'
 import { appJobs } from '../engine/appjob.mjs'
 import { bringInRoutes } from '../server/bringin.mjs'
 import { sourceRoutes } from '../server/sourcehub.mjs'
@@ -25,6 +25,7 @@ function github({ login = 'me' } = {}) {
   const hub = { url: at, page: GITHUB.page, file: true }
   const make = (slug, { isPrivate = true, desc = '' } = {}) => { mkdirSync(at(slug), { recursive: true }); g(at(slug), 'init', '-q', '--bare'); g(at(slug), 'symbolic-ref', 'HEAD', 'refs/heads/main'); priv.set(slug, [isPrivate, desc]) }
   const changed = { files: null }
+  const refuse = new Set()
   // hold() keeps a push job at its look-up of the repository until the function it returns is called: the job is then
   // still working when the test asks again, whatever the machine's speed (a job's own git work is real, and fast).
   // The state's own questions (who is signed in) are not held
@@ -38,13 +39,19 @@ function github({ login = 'me' } = {}) {
     if (cmp) return changed.files ? { ok: true, out: JSON.stringify([changed.files.length, ...changed.files]), err: '' } : { ok: false, out: '', err: 'HTTP 404' }
     const one = args[0] === 'api' && args[1].match(/^repos\/([^/]+\/[^/]+)$/)
     if (one) return priv.has(one[1]) ? { ok: true, out: JSON.stringify(priv.get(one[1])), err: '' } : { ok: false, out: '', err: 'gh: Not Found (HTTP 404)' }
+    if (args[0] === 'repo' && args[1] === 'list') {
+      if (refuse.has(args[2])) return { ok: false, out: '', err: `HTTP 403: ${args[2]} needs single sign-on` }
+      const mine = [...priv.keys()].filter(k => k.startsWith(`${args[2]}/`))
+      const empty = slug => { try { g(at(slug), 'rev-parse', '--verify', '-q', 'refs/heads/main'); return false } catch { return true } }
+      return { ok: true, out: JSON.stringify(mine.map((k, i) => ({ nameWithOwner: k, isPrivate: priv.get(k)[0], isEmpty: empty(k), updatedAt: new Date(Date.UTC(2026, 0, 1 + i)).toISOString() }))), err: '' }
+    }
     if (args[0] === 'repo' && args[1] === 'create') { make(args[2], { isPrivate: args.includes('--private'), desc: args[args.indexOf('--description') + 1] }); return { ok: true, out: '', err: '' } }
     return { ok: false, out: '', err: `unexpected gh ${args.join(' ')}` }
   }
   // someone else's commit on the repository
   const commit = (slug, files, msg = 'from elsewhere') => { const c = tmp(); g(c, 'clone', '-q', at(slug), '.'); change(c, files, msg); g(c, 'push', '-q', 'origin', 'HEAD:refs/heads/main'); const sha = g(c, 'rev-parse', 'HEAD'); rmSync(c, { recursive: true, force: true }); return sha }
   const head = slug => g(at(slug), 'rev-parse', 'refs/heads/main')
-  return { root, hub, gh, calls, make, commit, head, at, priv, changed, hold }
+  return { root, hub, gh, calls, make, commit, head, at, priv, changed, hold, refuse }
 }
 
 test('a key file is known by its name, an example is not', () => {
@@ -362,4 +369,58 @@ test('GET and POST /api/projects/<id>/github answer as JSON, and a refusal carri
     r = await call('GET', '/api/projects/p1/github')
     assert.deepEqual({ repo: r.body.link.repo, private: r.body.link.private, url: r.body.link.url }, { repo: 'me/shop-source', private: false, url: 'https://github.com/me/shop-source' })
   } finally { S.jobs.close() }
+})
+
+test('the repositories to link are the account\'s and the organizations\', newest first; an owner GitHub will not list is said', async () => {
+  const G = github()
+  G.make('me/old-site'); G.make('acme/shop', { isPrivate: false }); G.make('me/newest'); G.make('other/not-mine')
+  G.commit('me/old-site', { 'a.txt': 'a' })
+  const got = await listRepos(['me', 'acme', 'me', 'bad name', 'locked'], G.gh)
+  assert.deepEqual(got.repos.map(r => r.repo), ['me/newest', 'acme/shop', 'me/old-site'])
+  assert.deepEqual(got.repos.map(r => [r.private, r.empty]), [[true, true], [false, true], [true, false]])
+  assert.deepEqual(got.errors, [])
+  G.refuse.add('acme')
+  const half = await listRepos(['me', 'acme'], G.gh)
+  assert.deepEqual(half.repos.map(r => r.repo), ['me/newest', 'me/old-site'])
+  assert.match(half.errors[0], /^acme: .*single sign-on/)
+  // once per owner: the same owner twice is asked once, and a name that is not one is never asked
+  assert.equal(G.calls.filter(c => c[0] === 'repo' && c[1] === 'list' && c[2] === 'me').length, 2)
+  assert.ok(!G.calls.some(c => c[2] === 'bad name'))
+})
+
+test('Unlink forgets where a piece goes; the repository on GitHub and the project\'s files stay as they were', async () => {
+  const G = github(), S = studio(G)
+  S.built('p1', 'Shop', '2020-r1', { 'index.html': 'x' })
+  try {
+    await assert.rejects(S.route.act('p1', { action: 'unlink' }), e => e.status === 409 && /not linked/.test(e.message))
+    await S.route.act('p1', { action: 'push' }); let st = await S.done('p1')
+    assert.equal(st.link.repo, 'me/shop'); assert.equal(st.link.branch, 'main')
+    const before = G.head('me/shop')
+    st = await S.route.act('p1', { action: 'unlink' })
+    assert.equal(st.link, null); assert.equal(st.job, null)
+    assert.equal(sourceLinks(S.dataDir)['p1:app'], undefined)
+    assert.equal(G.head('me/shop'), before)
+    assert.equal(readFileSync(join(S.appOf('2020-r1'), 'index.html'), 'utf8'), 'x')
+    // linked again by name: the same repository, already this project's, so the push is an ordinary one
+    await S.route.act('p1', { action: 'push', repo: 'me/shop' }); st = await S.done('p1')
+    assert.equal(st.job.state, 'done', st.job.message); assert.equal(st.link.repo, 'me/shop')
+  } finally { S.jobs.close() }
+})
+
+test('GET /api/github/repos lists the person\'s repositories, and says how to sign in when no one is', async () => {
+  const call = (S, path) => new Promise(ok => {
+    const res = { writeHead(code) { this.code = code; return this }, end(text) { ok({ code: this.code, body: JSON.parse(text) }) } }
+    S.route({ method: 'GET', on: () => {} }, res, new URL(`http://x${path}`))
+  })
+  const G = github(), S = studio(G)
+  G.make('me/one')
+  try {
+    const r = await call(S, '/api/github/repos')
+    assert.equal(r.code, 200); assert.equal(r.body.login, 'me'); assert.deepEqual(r.body.repos.map(x => x.repo), ['me/one'])
+  } finally { S.jobs.close() }
+  const N = github({ login: '' }), T = studio(N)
+  try {
+    const r = await call(T, '/api/github/repos')
+    assert.equal(r.code, 424); assert.match(r.body.error, /gh auth login/)
+  } finally { T.jobs.close() }
 })
