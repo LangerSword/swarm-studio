@@ -89,10 +89,19 @@ def outward(args: dict | None) -> tuple[str, str] | None:
         return f"deploy the app of {build} to Vercel", "swarm-studio:deploy"
     if action == "github" and a.get("move") == "push":
         # a rule each, so an "always" for a private push never makes source public, and one for a named repository
-        # is for that repository alone
+        # is for that repository alone (and for how it goes there: a new branch, or its files brought in first)
         repo = str(a.get("repo") or "").strip()
+        folder = str(a.get("folder") or "").strip()
+        if folder:
+            # a folder on this computer: nothing goes on the internet, but the person's own files may change
+            replace = a.get("confirm") is True
+            return (f"write the source of {build} into the folder {folder} on this computer (a git checkout gets a new branch of its own; nothing is pushed)"
+                    + (", replacing files there it did not write" if replace else ""),
+                    f"swarm-studio:folder:write:{folder.lower()}" + (":replace" if replace else ""))
+        mode = a.get("mode") if a.get("mode") in ("branch", "merge") else ""
         if "/" in repo:
-            return f"push the source of {build} to the GitHub repository {repo}", f"swarm-studio:github:push:named:{repo.lower()}"
+            how = {"branch": " on a new branch of its own", "merge": ", after bringing that repository's files into the project"}.get(mode, "")
+            return f"push the source of {build} to the GitHub repository {repo}{how}", f"swarm-studio:github:push:named:{repo.lower()}" + (f":{mode}" if mode else "")
         if a.get("public") is True:
             return f"push the source of {build} to a new PUBLIC GitHub repository (on your login, or the organization builds go to)", "swarm-studio:github:push:public"
         return f"push the source of {build} to a private GitHub repository (on your login, or the organization builds go to)", "swarm-studio:github:push:private"
@@ -584,7 +593,7 @@ def _publish(ref: str, target: str) -> str:
     return f"“{r['title']}” is hosted on this computer: {job.get('url')}{note}"
 
 
-def _github(ref: str, move: str, repo: str = "", public: bool = False) -> str:
+def _github(ref: str, move: str, repo: str = "", public: bool = False, mode: str = "", folder: str = "", sub: str = "", confirm: bool = False) -> str:
     """A build's source on GitHub (docs/specs/45-intake.md): where it is, push it, pull what is new."""
     r = _pick_run(ref)
     if not r:
@@ -596,7 +605,8 @@ def _github(ref: str, move: str, repo: str = "", public: bool = False) -> str:
         if not s.get("source"):
             return f"“{r['title']}” has no app or game source yet, so there is nothing to push."
         link, origin = s.get("link"), s.get("origin")
-        out = [f"https://github.com/{link['repo']} ({'private' if link.get('private') else 'public'})" if link
+        out = [f"{link.get('where')} (a folder on this computer)" if link and link.get("folder")
+               else f"https://github.com/{link['repo']} ({'private' if link.get('private') else 'public'}{', branch ' + link['branch'] if link.get('base') else ''})" if link
                else f"Brought in from github.com/{origin['repo']}{'/' + origin['path'] if origin.get('path') else ''}; not pushed anywhere" if origin
                else "Not on GitHub yet"]
         if link and not link.get("fits"):
@@ -618,6 +628,14 @@ def _github(ref: str, move: str, repo: str = "", public: bool = False) -> str:
         body["repo"] = repo
     if move == "push" and public:
         body["public"] = True
+    if move == "push" and mode in ("branch", "merge"):
+        body["mode"] = mode
+    if move == "push" and folder:
+        body["folder"] = folder
+        if sub:
+            body["sub"] = sub
+    if move == "push" and confirm:
+        body["confirm"] = True
     st = _api(path, body, timeout=60)
     deadline = time.time() + 600
     while (st.get("job") or {}).get("state") == "working" and time.time() < deadline:
@@ -627,8 +645,12 @@ def _github(ref: str, move: str, repo: str = "", public: bool = False) -> str:
     if job.get("state") == "working":
         return f"Still {move}ing; ask again in a moment."
     if job.get("state") == "failed":
-        return f"Not done: {job.get('message')}" + (" Pull first (action github, move pull), then push again." if job.get("pull") else "")
-    return f"{job.get('message') or lines(st)}" + (f"\n{job['url']}" if job.get("url") else "")
+        other, changes = job.get("other") or {}, job.get("changes")
+        nxt = (" Pull first (action github, move pull), then push again." if job.get("pull")
+               else (" Ask the person: push to a new branch there (mode branch), " + ("or bring its files in first and push on top (mode merge)." if not other.get("bring") else f"since its files can't come in ({other.get('bring')}).")) if other
+               else " Ask the person before writing again with confirm true: it replaces those files." if changes else "")
+        return f"Not done: {job.get('message')}{nxt}"
+    return f"{job.get('message') or lines(st)}" + (f"\n{job['url']}" if job.get("url") else "") + (f"\nOpen a pull request: {job['pr']}" if job.get("pr") else "")
 
 
 def _app(ref: str, ask: str) -> str:
@@ -908,6 +930,10 @@ TOOL_SCHEMA = {
             "asset": {"type": "string", "description": "for library_pick: a picture id from library_search; omit to clear the slot's pick"},
             "what": {"type": "string", "description": "for library_pick: what the picture is for, in a few words"},
             "project": {"type": "string", "description": "for reference_add: the project's name or id"},
+            "mode": {"type": "string", "enum": ["branch", "merge"], "description": "for github push to a repository that already holds other work (the push without it is refused, saying what it holds): branch puts this project on a new branch of its own there (with GitHub's page for a pull request); merge brings that repository's files into the project first and pushes on top. Never a force push. Ask the person which"},
+            "folder": {"type": "string", "description": "for github push: a folder inside the person's home folder (~/code/site) instead of GitHub. A git checkout gets this project on a new branch of its own (nothing pushed); any other path is the folder the files go in. The person is asked first"},
+            "sub": {"type": "string", "description": "for github push with folder: the subfolder of a plain folder the files go in (default: the folder named is that subfolder)"},
+            "confirm": {"type": "boolean", "description": "for github push with folder: true to replace files there the project did not write, after the person said yes to that list"},
             "target": {"type": "string", "enum": ["github", "vercel", "cloudflare", "local"], "description": "for publish: github (a public GitHub Pages link through the gh login, the default), vercel or cloudflare (the person's own account, once connected on the canvas), or local (hosted on this computer)"},
         },
         "required": ["action"],
@@ -931,7 +957,8 @@ def tool(args: dict | None = None, **_: object) -> str:
     if action in ("video", "fix", "seo", "publish", "app", "game", "game_questions", "deploy", "github"):
         try:
             if action == "github":
-                return _github(str(a.get("build") or ""), str(a.get("move") or "status"), str(a.get("repo") or "").strip(), a.get("public") is True)
+                return _github(str(a.get("build") or ""), str(a.get("move") or "status"), str(a.get("repo") or "").strip(), a.get("public") is True,
+                               str(a.get("mode") or ""), str(a.get("folder") or "").strip(), str(a.get("sub") or "").strip(), a.get("confirm") is True)
             if action == "game_questions":
                 qs = _api("/api/game")["questions"]
                 return "\n".join(f"{q['id']}: {q['q']}  [{' / '.join(q['chips'])}]" for q in qs)

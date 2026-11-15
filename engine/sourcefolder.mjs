@@ -14,7 +14,7 @@
 // fsmonitor of the checkout's own; nothing of the project or the checkout is run.
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve, sep } from 'node:path'
+import { basename, dirname, join, resolve, sep } from 'node:path'
 import { checkFolder, CAPS } from './bringin.mjs'
 import { GITHUB, git, isBehind, keyFile, keyFilesIn, localHead, repoName, saveChanges } from './sourcehub.mjs'
 import { execFile } from './proc.mjs'
@@ -33,7 +33,28 @@ const BRANCH = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$/
 export function folderTarget(given, { home, deny = [] } = {}) {
   const s = String(given ?? '').trim().replace(/^~(?=$|[\\/])/, home || '~')
   const folder = checkFolder(s, { home, deny })
-  return { folder, checkout: existsSync(join(folder, '.git')) }
+  const checkout = existsSync(join(folder, '.git'))
+  // a folder inside a checkout (its working tree) is that checkout's: files are never written into it loose
+  let within = null
+  if (!checkout) {
+    const top = realpathSync(home)
+    for (let d = dirname(folder); d.length >= top.length && d !== dirname(d); d = dirname(d)) {
+      if (existsSync(join(d, '.git'))) { within = d; break }
+      if (d === top) break
+    }
+  }
+  return { folder, checkout, within }
+}
+
+/** What a typed path means: the folder named itself when it is a checkout; otherwise the folder the files go in,
+ * made inside its parent when it is not there yet (the chat's "save this into ~/code/site"). → { folder, checkout, sub } */
+export function pathTarget(given, { home, deny = [] } = {}) {
+  let at = null
+  try { at = folderTarget(given, { home, deny }) } catch (err) { if (!/No such folder/.test(err.message)) throw err }
+  if (at?.checkout) return { ...at, sub: null }
+  const p = resolve(String(given ?? '').trim().replace(/^~(?=$|[\\/])/, home || '~').replace(/[\\/]+$/, ''))
+  const parent = folderTarget(dirname(p), { home, deny })
+  return { ...parent, sub: cleanName(basename(p)) }
 }
 
 /** A subfolder's name for a plain folder: one or more plain names, never leaving the folder. → 'site' or 'web/site' */
