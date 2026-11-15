@@ -32,7 +32,7 @@ class AgentLibrary(unittest.TestCase):
                 {"action": "reference_add", "project": "Cedar Cafe", "path": "C:/brief.pdf"})
         got = [commands.approval_hook(tool_name="swarm_studio", args=a) for a in asks]
         self.assertTrue(all(g and g["action"] == "approve" for g in got))
-        self.assertEqual([g["rule_key"] for g in got], ["swarm-studio:library:import", "swarm-studio:library:pick", "swarm-studio:reference:add", "swarm-studio:reference:add"])
+        self.assertEqual([g["rule_key"] for g in got], ["swarm-studio:library:import", "swarm-studio:library:pick", "swarm-studio:reference:add:link", "swarm-studio:reference:add:file"])
         self.assertIn("credited to 'Ana'", got[0]["message"])
         self.assertIn("downloaded", got[1]["message"])
         self.assertIn("opened to read its look", got[2]["message"])
@@ -40,15 +40,21 @@ class AgentLibrary(unittest.TestCase):
 
     def test_search_asks_nobody_and_names_credit_and_licence(self):
         self.assertIsNone(commands.approval_hook(tool_name="swarm_studio", args={"action": "library_search", "text": "kite"}))
-        with mock.patch.object(commands, "_api", return_value={"results": [ROW, OWN]}) as api:
+        def api(path, body=None, **_):
+            return {"packs": [{"id": "pixel_art", "own": False}]} if path == "/api/library/packs" else {"results": [ROW, OWN]}
+        with mock.patch.object(commands, "_api", side_effect=api) as called:
             out = commands.tool({"action": "library_search", "text": "kite lamp", "category": "icons"})
-        path = api.call_args[0][0]
+        path = called.call_args_list[0][0][0]
         self.assertTrue(path.startswith("/api/library?") and "q=kite+lamp" in path and "category=icons" in path, path)
         self.assertIn("pixel_art/icons/kite.png", out)
         self.assertIn("assetrizz by mojomast, full grant from the author <https://github.com/mojomast/assetrizz>", out)
         self.assertIn("my_pack/props/lamp.png", out)
         self.assertIn("Ana, CC BY 4.0", out)
         self.assertIn("yours", out)
+        self.assertNotIn("not on this computer yet", out)
+        # before any game has needed a library picture, assetrizz's catalog is not here: the answer says so
+        with mock.patch.object(commands, "_api", side_effect=lambda path, *a, **k: {"packs": [{"id": "my_pack", "own": True}]} if path.endswith("/packs") else {"results": [OWN]}):
+            self.assertIn("assetrizz's catalog is not on this computer yet", commands.tool({"action": "library_search", "text": "lamp"}))
 
     def test_import_needs_a_credit_and_says_what_it_brought(self):
         with mock.patch.object(commands, "_api", side_effect=AssertionError("called")):
@@ -61,17 +67,21 @@ class AgentLibrary(unittest.TestCase):
         self.assertIn("credit: Ana, CC0", out)
 
     def test_pick_sets_the_slot_and_names_the_credit(self):
-        run = {"id": "2026-11-15T00-00-00-000Z", "title": "Lantern Run"}
+        run = {"id": "2026-11-15T00-00-00-000Z", "title": "Lantern Run", "kind": "game"}
 
         def api(path, body=None, **_):
             if path.endswith("/art/picks"):
                 self.assertEqual(body, {"slot": "item-kite", "asset": ROW["id"], "what": "the glide kite"})
                 return {"picks": [body], "note": "used the next time this build paints its art"}
+            self.assertEqual(path, "/api/library?id=pixel_art%2Ficons%2Fkite.png", "the credit is looked up by the picture's id, in any pack size")
             return {"results": [ROW]}
         with mock.patch.object(commands, "_pick_run", return_value=run), mock.patch.object(commands, "_api", side_effect=api):
             out = commands.tool({"action": "library_pick", "build": "1", "slot": "item-kite", "asset": ROW["id"], "what": "the glide kite"})
         self.assertIn("Lantern Run", out)
         self.assertIn("Credit: assetrizz by mojomast", out)
+        # a site or an app has no picture slots: refused, nothing written
+        with mock.patch.object(commands, "_pick_run", return_value={**run, "kind": "site", "title": "Alpha Tea"}), mock.patch.object(commands, "_api", side_effect=AssertionError("called")):
+            self.assertIn("not a game", commands.tool({"action": "library_pick", "build": "1", "slot": "item-kite", "asset": ROW["id"]}))
 
     def test_a_reference_link_goes_to_the_named_project(self):
         projects = {"projects": [{"id": "p1", "name": "Alpha Tea"}, {"id": "s-cedar", "name": "Cedar Cafe"}]}

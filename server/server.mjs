@@ -3364,6 +3364,8 @@ const server = createServer((req, res) => {
   // and pick a picture for a slot of a build (used instead of painting that slot)
   if (url.pathname === '/api/library' && req.method === 'GET') {
     const q = url.searchParams
+    // ?id=: one picture, as a search answers it (the agent's pick names its credit, commands.py library_pick)
+    if (q.get('id')) { const one = assets.one(q.get('id')); return json(200, { results: one ? [{ ...one, src: `/api/library/file?id=${encodeURIComponent(one.id)}` }] : [] }) }
     const results = assets.search({ q: q.get('q') || '', category: q.getAll('category').filter(Boolean), pack: q.get('pack') || '', all: q.get('all') === '1', limit: Number(q.get('limit')) || 40 })
     return json(200, { results: results.map(r => ({ ...r, src: `/api/library/file?id=${encodeURIComponent(r.id)}` })) })
   }

@@ -107,9 +107,11 @@ def outward(args: dict | None) -> tuple[str, str] | None:
         return (f"use the library picture {str(a.get('asset') or '(none: clear it)')!r} for the slot {str(a.get('slot') or '?')!r} of {build} "
                 "(downloaded the first time it is used)"), "swarm-studio:library:pick"
     if action == "reference_add":
-        what = f"the link {a.get('url')}" if a.get("url") else f"the file {str(a.get('path') or '?')!r}"
-        walked = " (its site is opened to read its look)" if a.get("url") else ""
-        return f"add {what} to the References of the project {str(a.get('project') or '?')!r}{walked}", "swarm-studio:reference:add"
+        # a link and a file are each their own "always": one for links never lets the model read files of yours
+        project = str(a.get("project") or "?")
+        if a.get("url"):
+            return f"add the link {a.get('url')} to the References of the project {project!r} (its site is opened to read its look)", "swarm-studio:reference:add:link"
+        return f"add the file {str(a.get('path') or '?')!r} from this computer to the References of the project {project!r}", "swarm-studio:reference:add:file"
     return None
 
 
@@ -826,10 +828,14 @@ def _library(action: str, a: dict) -> str:
         if a.get("pack"):
             q["pack"] = str(a["pack"])
         found = _api("/api/library?" + urlencode(q)).get("results", [])
+        # assetrizz's catalog comes with the first game that needs a library picture (engine/library.mjs); until then
+        # a search finds the person's own packs only, and says so
+        rizz = any(not p.get("own") for p in _api("/api/library/packs").get("packs", []))
+        later = "" if rizz else "\n(assetrizz's catalog is not on this computer yet: it comes with the first game that needs a library picture. Your own packs were searched.)"
         if not found:
-            return "Nothing in the asset library matches. Try other words, or another category."
+            return "Nothing in the asset library matches. Try other words, or another category." + later
         rows = [f"{r['id']}: {r.get('subject') or ''} ({r.get('category')}, pack {r.get('pack')}{', yours' if r.get('own') else ''}) · credit: {_credit(r)}" for r in found]
-        return "From the asset library (use an id with library_pick):\n" + "\n".join(rows)
+        return "From the asset library (use an id with library_pick):\n" + "\n".join(rows) + later
     if action == "library_import":
         if not str(a.get("credit") or "").strip():
             return "Say whose art it is (credit): it goes with every picture a build takes from the pack."
@@ -839,12 +845,13 @@ def _library(action: str, a: dict) -> str:
         r = _pick_run(str(a.get("build") or ""))
         if not r:
             return "No such build. See /swarm files."
+        if r.get("kind") and r.get("kind") != "game":
+            return f"“{r['title']}” is a {r.get('kind')}, not a game: picture slots are a game's. Add the picture to its project's References instead (reference_add)."
         asset = str(a.get("asset") or "").strip()
         got = _api(f"/api/runs/{quote(r['id'])}/art/picks", {"slot": str(a.get("slot") or ""), "asset": asset or None, "what": str(a.get("what") or "")})
         if not asset:
             return f"Cleared the pick for {a.get('slot')} in “{r['title']}”: that picture is painted again."
-        pack = asset.split("/")[0]
-        row = next((x for x in _api("/api/library?" + urlencode({"q": "", "pack": pack, "all": "1", "limit": "200"})).get("results", []) if x.get("id") == asset), None)
+        row = next(iter(_api("/api/library?" + urlencode({"id": asset})).get("results", [])), None)
         credit = f" Credit: {_credit(row)}." if row else ""
         return f"“{r['title']}” uses {asset} for {a.get('slot')}.{credit} {got.get('note') or ''}".strip()
     # reference_add: a link, or a file on this computer
