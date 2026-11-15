@@ -424,3 +424,78 @@ test('GET /api/github/repos lists the person\'s repositories, and says how to si
     assert.equal(r.code, 424); assert.match(r.body.error, /gh auth login/)
   } finally { T.jobs.close() }
 })
+
+test('a repository with other work: refused with what it holds, nothing changed; then a new branch of its own and a pull request page', async () => {
+  const G = github(), dir = project({ 'index.html': 'mine' })
+  G.make('team/site'); G.commit('team/site', { 'README.md': 'theirs', 'docs/a.md': 'a' })
+  const theirs = G.head('team/site')
+  // asked plainly first: what it holds, and the two ways; nothing is pushed
+  const no = await pushSource({ dir, title: 'Cedar Cafe', want: { repo: 'team/site' }, hub: G.hub, gh: G.gh }).catch(e => e)
+  assert.equal(no.status, 409); assert.match(no.message, /already holds other work on main \(2 files\)\. Nothing was changed/)
+  assert.deepEqual({ ...no.other, bytes: undefined }, { repo: 'team/site', branch: 'main', files: 2, bytes: undefined, bring: null })
+  assert.equal(G.head('team/site'), theirs)
+  assert.equal(g(dir, 'log', '--format=%s'), 'init', "the project's own history is as it was")
+  // a new branch: theirs stays as it is
+  const out = await pushSource({ dir, title: 'Cedar Cafe', want: { repo: 'team/site', mode: 'branch' }, hub: G.hub, gh: G.gh })
+  assert.deepEqual({ branch: out.branch, base: out.base, made: out.made }, { branch: 'swarm/cedar-cafe', base: 'main', made: false })
+  assert.equal(out.pr, 'https://github.com/team/site/compare/main...swarm%2Fcedar-cafe?expand=1')
+  assert.equal(G.head('team/site'), theirs, 'main is not touched')
+  assert.equal(g(G.at('team/site'), 'rev-parse', 'refs/heads/swarm/cedar-cafe'), g(dir, 'rev-parse', 'HEAD'))
+  // linked to its branch, the next push goes on to that branch, an ordinary one
+  change(dir, { 'index.html': 'mine, again' })
+  const link = { repo: 'team/site', branch: out.branch, base: out.base }
+  const next = await pushSource({ dir, title: 'Cedar Cafe', link, hub: G.hub, gh: G.gh })
+  assert.equal(next.branch, 'swarm/cedar-cafe'); assert.equal(next.same, false)
+  assert.equal(g(G.at('team/site'), 'rev-parse', 'refs/heads/swarm/cedar-cafe'), g(dir, 'rev-parse', 'HEAD'))
+  assert.equal(G.head('team/site'), theirs)
+  // a second project of the same name gets a branch the repository does not have yet
+  const two = await pushSource({ dir: project({ 'index.html': 'other' }), title: 'Cedar Cafe', want: { repo: 'team/site', mode: 'branch' }, hub: G.hub, gh: G.gh })
+  assert.equal(two.branch, 'swarm/cedar-cafe-2')
+  // someone else's commit on the branch is pulled first, never overwritten
+  const c = tmp(); g(c, 'clone', '-q', '-b', 'swarm/cedar-cafe', G.at('team/site'), '.'); change(c, { 'x.txt': 'x' }); g(c, 'push', '-q', 'origin', 'HEAD')
+  change(dir, { 'index.html': 'mine, third' })
+  await assert.rejects(pushSource({ dir, title: 'Cedar Cafe', link, hub: G.hub, gh: G.gh }), e => e.pull === true && /on swarm\/cedar-cafe/.test(e.message))
+})
+
+test("a repository with other work: its files come in first under the Bring-in rules, this project's kept where both have one, and it is pushed on top", async () => {
+  const G = github(), dir = project({ 'index.html': 'mine', 'app.js': 'run()' })
+  G.make('team/site'); G.commit('team/site', { 'README.md': 'theirs', 'index.html': 'theirs', 'img/logo.svg': '<svg/>' })
+  const theirs = G.head('team/site')
+  const out = await pushSource({ dir, title: 'Cedar Cafe', want: { repo: 'team/site', mode: 'merge' }, hub: G.hub, gh: G.gh })
+  assert.equal(out.branch, 'main'); assert.equal(out.base, null); assert.equal(out.pr, null); assert.equal(out.same, false)
+  // their files are in the project now; where both have one, the project's is kept
+  assert.equal(readFileSync(join(dir, 'README.md'), 'utf8'), 'theirs')
+  assert.equal(readFileSync(join(dir, 'img/logo.svg'), 'utf8'), '<svg/>')
+  assert.equal(readFileSync(join(dir, 'index.html'), 'utf8'), 'mine')
+  // pushed on top: their newest commit is one of the new one's parents, so nothing of theirs was rewritten
+  assert.equal(G.head('team/site'), g(dir, 'rev-parse', 'HEAD'))
+  assert.ok(g(dir, 'log', '--format=%P', '-1').split(' ').includes(theirs))
+  assert.match(g(dir, 'log', '--format=%s', '-1'), /Brought in team\/site \(main\)/)
+  // and the next push is an ordinary one to the same repository
+  change(dir, { 'index.html': 'mine, again' })
+  const next = await pushSource({ dir, title: 'Cedar Cafe', link: { repo: 'team/site', branch: 'main' }, hub: G.hub, gh: G.gh })
+  assert.equal(next.same, false); assert.equal(G.head('team/site'), g(dir, 'rev-parse', 'HEAD'))
+})
+
+test('files that may not come in (a key file, a link) leave the project and the repository as they were; a new branch is still offered', async () => {
+  const G = github()
+  G.make('team/keys'); G.commit('team/keys', { 'README.md': 'x', 'config/.env': 'TOKEN=1' })
+  const dir = project({ 'index.html': 'mine' })
+  const before = g(dir, 'rev-parse', 'HEAD'), theirs = G.head('team/keys')
+  const no = await pushSource({ dir, title: 'Shop', want: { repo: 'team/keys' }, hub: G.hub, gh: G.gh }).catch(e => e)
+  assert.match(no.other.bring, /look like keys \(config\/\.env\)/)
+  assert.match(no.message, /Push this project to a new branch there\.$/, 'bringing its files in is not offered')
+  await assert.rejects(pushSource({ dir, title: 'Shop', want: { repo: 'team/keys', mode: 'merge' }, hub: G.hub, gh: G.gh }), /files can't come in: it holds files that look like keys/)
+  assert.equal(g(dir, 'rev-parse', 'HEAD'), before); assert.ok(!existsSync(join(dir, 'README.md'))); assert.equal(G.head('team/keys'), theirs)
+  // a link to another place
+  G.make('team/linky')
+  // a commit holding a link, made from its parts (no link is made on this disk)
+  const at = G.at('team/linky')
+  const x = (args, input) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: at, encoding: 'utf8', input }).trim()
+  const blob = x(['hash-object', '-w', '--stdin'], '../../somewhere')
+  const tree = x(['mktree'], `120000 blob ${blob}	outside
+`)
+  x(['update-ref', 'refs/heads/main', x(['commit-tree', tree, '-m', 'a link'])])
+  const linky = await pushSource({ dir, title: 'Shop', want: { repo: 'team/linky' }, hub: G.hub, gh: G.gh }).catch(e => e)
+  assert.match(linky.other.bring, /links to other places \(outside\)/)
+})
