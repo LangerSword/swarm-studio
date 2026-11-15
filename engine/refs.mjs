@@ -21,6 +21,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { join, extname } from 'node:path'
 import { lookBrief } from './sitelook.mjs'
+import { researchBrief } from './research.mjs'
 
 const PID = /^[\w-]{1,64}$/
 const REF_ID = /^r[0-9a-z]{4,16}$/
@@ -168,10 +169,9 @@ export function refStore({ projectsDir, uploadsOf = () => [], known = () => true
     if (g.pics.length) out.push(`The owner's reference pictures. Match their look; place one as it is (<img src="…">, no data-gen) only where its use says so:\n${g.pics.map(r => `- ${r.name}${r.use ? ` (for ${r.use})` : ''}: ${r.src}`).join('\n')}`)
     if (g.looks.length) out.push(...g.looks.map(r => lookBrief(r)))
     if (g.plain.length) out.push(`Links the owner gave as references:\n${g.plain.map(r => `- ${r.url}${r.use ? ` (for ${r.use})` : ''}`).join('\n')}`)
+    // what the crew looked up before planning (engine/research.mjs), each with its source and what was taken
+    if (g.found.length) out.push(researchBrief(g.found.map(r => ({ url: r.url, title: r.name, took: r.found.took }))))
     // documents the owner gave (a PDF, a text or Markdown file): what the crew read in them (issue #543)
-    if (g.found.length) out.push(`What the crew looked up on the web before planning. Use these facts where they fit; never copy a source's wording, layout, logo or pictures, and never present a fact as the owner's unless the brief says so:
-${g.found.map(r => `- ${r.name} (${r.url}): ${r.found.took}`).join('
-')}`)
     if (g.docs.length) out.push(`Documents the owner gave. Build from what they say (the facts, the names, the pages, who it is for); never copy their layout or quote them at length:\n${g.docs.map(docLine).join('\n')}`)
     return out.join('\n\n')
   }

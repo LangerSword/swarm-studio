@@ -52,6 +52,10 @@ export async function research({ ask, kind = 'site', web, chat = null, limits = 
   if (!web) return { ...out, note: 'Hermes is not open, so nothing was looked up' }
   const stop = AbortSignal.any([AbortSignal.timeout(L.ms), ...(signal ? [signal] : [])])
   const live = () => !stop.aborted
+  const stopped = () => `stopped after ${Math.round(L.ms / 1000)} s`
+  // every call ends at the step's limit, whatever the far side does
+  const ended = new Promise(r => stop.addEventListener('abort', () => r({ ok: false, error: stopped() }), { once: true }))
+  const call = body => Promise.race([web(body, stop), ended]).catch(err => ({ ok: false, error: String(err?.message || err) }))
   try {
     // 1. what to search for
     let queries = []
@@ -64,7 +68,7 @@ export async function research({ ask, kind = 'site', web, chat = null, limits = 
     const hits = []
     for (const q of queries.slice(0, L.searches)) {
       if (!live()) break
-      const r = await web({ search: q, limit: L.results }, stop).catch(err => ({ ok: false, error: String(err?.message || err) }))
+      const r = await call({ search: q, limit: L.results })
       out.searched.push(q)
       if (!r?.ok) { out.note = clip(r?.error || 'the search failed', 200); continue }
       for (const h of r.res?.data?.web || []) if (h?.url && !hits.some(x => x.url === h.url)) hits.push({ url: String(h.url), title: clip(h.title, 120), description: clip(h.description, 300), query: q })
@@ -75,8 +79,8 @@ export async function research({ ask, kind = 'site', web, chat = null, limits = 
       if (pick.length >= L.pages || !live()) break
       try { await isPublic(h.url); pick.push(h) } catch {}
     }
-    if (!pick.length) return { ...out, note: out.note || (hits.length ? 'no public page among the results' : 'the search found nothing') }
-    const r = live() ? await web({ urls: pick.map(h => h.url) }, stop).catch(err => ({ ok: false, error: String(err?.message || err) })) : null
+    if (!pick.length) return { ...out, note: !live() ? stopped() : out.note || (hits.length ? 'no public page among the results' : 'the search found nothing') }
+    const r = live() ? await call({ urls: pick.map(h => h.url) }) : null
     const pages = (r?.ok ? r.res?.results || [] : []).filter(p => p?.url && p.content && !p.error)
     out.read = pages.map(p => String(p.url))
     if (!r?.ok && r) out.note = clip(r.error || 'the pages could not be read', 200)
