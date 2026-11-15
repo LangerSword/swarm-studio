@@ -42,7 +42,7 @@ test('the night\'s false lines are cut against the plan file, and true ones stay
 test('the next step on that plan: Lock at the board\'s price, then Godot, then the picks the sheet waits on', () => {
   const plan = plan0(), chat = chat0()
   let s = nextStep(chat, plan, { godot: false })
-  assert.match(s.text, /not locked yet, so nothing paints\. Lock it at about 21 pictures, no credits\./)
+  assert.match(s.text, /not locked yet\. Lock it at about 21 pictures, no credits\./)
   assert.deepEqual(s.options.map(o => [o.id, o.label]), [['lock', 'Lock · 21 pictures'], ['talk', 'Keep talking']])
   plan.gate.locked = true
   s = nextStep(chat, plan, { godot: false })

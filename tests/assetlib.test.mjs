@@ -126,3 +126,15 @@ test('rowOf keeps the credit of the pack a row came from', () => {
   assert.deepEqual([r.id, r.own, r.credit, r.license], ['mine/a/b.png', true, 'me', 'CC-BY'])
   assert.equal(searchRows([r], { q: 'b' }).length, 1)
 })
+
+test('one picture by its id, as a search answers it: credit and licence, no download (the agent\'s pick, #609)', () => {
+  const { lib: l, fetched } = lib()
+  const one = l.one('cel_shaded_anime/props/misc/water_tower.png')
+  assert.equal(one.subject, 'water tower')
+  assert.equal(one.credit, 'assetrizz by mojomast')
+  assert.equal(one.license, 'full grant from the author')
+  assert.equal(one.words, undefined, 'the search index stays inside')
+  assert.equal(l.one('lowpoly_render/props/misc/water_tower.png').pack, 'lowpoly_render', 'a render pack too: an id is asked for by name')
+  assert.equal(l.one('nope/x.png'), null)
+  assert.equal(fetched.length, 0)
+})

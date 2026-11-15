@@ -77,6 +77,8 @@ ${BACKEND}
 Finish with a working build: the typecheck and build must pass.`
 }
 
+// a run made as a game (Make › Game; its brief's kind, or the game builder's spec), before any app job ran for it
+export const isGameRun = (events = []) => events.some(e => (e.type === 'run:start' && e.kind === 'game') || e.type === 'game:spec')
 const BUSY = /out of quota|rate.?limit|cooling down|capacity|busy|429|overloaded|no available provider|exhausted/i
 const APP_FALLBACKS = ['cb/deepseek-v4.1-flash', 'deepseek-v4.1-flash', 'gemini-3.8-flash', 'claude-haiku-5.5']
 
@@ -303,7 +305,9 @@ export function appJobs({ runsDir, record, broadcast, readEvents, provider, mode
     // the last build's outcome: app:ready and app:deployed only say a server started or a deploy went out
     const last = events.findLast(e => ['app:start', 'app:done', 'app:failed', 'app:paused'].includes(e.type))
     const steps = events.filter(e => e.type === 'app:step').slice(-200).map(e => e.step)
-    if (!last) return { state: 'idle', engineReady: engineReady() }
+    // nothing built yet: a game's run still says it is a game, so the Game room shows a game's start, not an
+    // app's "Turn this design into a working app" (game-mode walk, 2026-11-15)
+    if (!last) return { state: 'idle', engineReady: engineReady(), ...(isGameRun(events) ? { kind: 'game' } : {}) }
     const kindOf = () => events.find(e => e.type === 'app:start')?.kind || 'site'
     // a build another Studio drives (same runs folder): its log still moves, so it is working,
     // with the dev server it reported; this Studio only watches it
