@@ -100,5 +100,11 @@ export const CHAT_STEPS = [
     n.ctl.fail = true
     await say(env, 'make hero 2 taller')
     await env.wait(4000)
+    // the failure is said, in plain words, with the one way forward; the provider's text is never in the chat
+    const text = await env.page.locator('#feed').first().innerText().catch(() => '')
+    const raw = text.match(/HTTP \d{3}|\{"error"|ECONN|\[object Object\]|undefined/)
+    if (raw) throw new Error(`a raw error ("${raw[0]}") is shown in the chat`)
+    if (!/The model didn.t answer/.test(text)) throw new Error('the chat does not say the planner\'s model did not answer')
+    if (!(await env.page.locator('#feed .fail-turn button', { hasText: 'Try again' }).last().isVisible().catch(() => false))) throw new Error('no Try again under the failed turn')
   }, after: endNight }
 ]
