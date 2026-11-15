@@ -248,7 +248,7 @@ test('the source: every client handles the ask before treating a 409 as busy; He
   // the old UI's Make box and a project's Build need nothing more: the question's chat opens on the deck (home.js openChat)
   assert.match(loop, /openAsk\(j\.chat\)/)
   assert.match(loop, /if \(!from\) \{ window\.swarmCosmos\?\.go\?\.\('station', 'canvas'\)/, 'a talk from the Make box opens on the deck')
-  assert.match(read('web/home.js'), /if \(!input\.value && !made\?\.ask\) input\.value = text/, 'the words leave the box once asked')
+  assert.match(read('web/home.js'), /if \(!input\.value && !made\?\.ask && !made\?\.research\) input\.value = text/, 'the words leave the box once asked (or once a build stopped with what it looked up)')
   for (const f of ['ui/src/screens/projects/MakeBox.tsx', 'ui/src/screens/deck/DeckChat.tsx']) assert.ok(read(f).includes("error === 'ask'"), f)
   const launcher = read('launcher.py'), init = read('__init__.py'), commands = read('commands.py')
   // swarm_design passes brief and agents only; sure is a script's (--build, remix)
