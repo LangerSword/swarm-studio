@@ -24,10 +24,19 @@ echo "· type-check ratchet"
 # lines of code (not blank, comment or import lines) in web files without // @ts-check on their first line
 # (tsconfig.json; CI runs the type check itself with tools/dev). Counted in lines, not files, so splitting a
 # file (web/canvas/) neither helps nor hurts. The cap only goes down: type a file, then lower it.
-cap=4754
+cap=4749
 untyped=$(for f in $(git ls-files 'web/*.js' | grep -v '^web/vendor/'); do head -1 "$f" | grep -q '^// @ts-check' || echo "$f"; done)
 n=$(for f in $untyped; do cat "$f"; done | grep -cvE '^[[:space:]]*(//|$|import )' || true)
-if [ "$n" -gt "$cap" ]; then echo "$n untyped lines of web code, over the cap of $cap; start new files with // @ts-check. Untyped files:"; echo "$untyped"; exit 1; fi
+if [ "$n" -gt "$cap" ]; then
+  # two pull requests each under the cap can be over it together (merge skew): say what main has and what this adds,
+  # when main is here to count (a shallow CI checkout may not have it)
+  base=""
+  if git rev-parse -q --verify origin/main >/dev/null; then
+    m=$(for f in $(git ls-tree -r --name-only origin/main -- web | grep '[.]js$' | grep -v '^web/vendor/'); do git show "origin/main:$f" | head -1 | grep -q '^// @ts-check' || git show "origin/main:$f"; done | grep -cvE '^[[:space:]]*(//|$|import )' || true)
+    base=" (main is at $m of $cap; this adds $((n - m)))"
+  fi
+  echo "$n untyped lines of web code, over the cap of $cap$base; start new files with // @ts-check, or type one. Untyped files:"; echo "$untyped"; exit 1
+fi
 if [ "$n" -lt "$cap" ]; then echo "  $n untyped lines, under the cap of $cap: lower cap= in scripts/check.sh to $n"; fi
 
 echo "· engine modules load"
@@ -129,7 +138,8 @@ curl -sf http://127.0.0.1:$hport/studio/app/api/intake > "$tmp/reply"; has '"sho
 [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"repo":"a/b","kind":"game"}' http://127.0.0.1:$hport/studio/app/api/intake)" = 403 ] || { echo 'the hosted studio took an intake'; exit 1; }
 # and it has no GitHub door: no state, no push, no pull (the person's gh login is never the host's)
 [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$hport/api/projects/p1/github)" = 403 ] || { echo 'the hosted studio answered the GitHub door'; exit 1; }
-for act in push pull bring; do
+[ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$hport/api/github/repos)" = 403 ] || { echo 'the hosted studio listed GitHub repositories'; exit 1; }
+for act in push pull bring unlink; do
   code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"action":"'$act'","repo":"a/b"}' http://127.0.0.1:$hport/studio/app/api/projects/p1/github)
   [ "$code" = 403 ] || { echo "the hosted studio took a GitHub $act"; exit 1; }
 done

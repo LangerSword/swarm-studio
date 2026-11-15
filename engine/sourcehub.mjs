@@ -10,7 +10,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { execFile } from './proc.mjs'
-import { parseRepo } from './bringin.mjs'
+import { parseRepo, CAPS } from './bringin.mjs'
 
 const fail = (message, status = 400, more = {}) => Object.assign(new Error(message), { status, ...more })
 const MARK = 'made with Swarm Studio'
@@ -26,7 +26,7 @@ const exec = (cmd, args, { cwd, timeout = 120000 } = {}) => new Promise(ok => {
 /** gh, as the person: → { ok, out, err } */
 export const ghCli = (args, opts) => exec('gh', args, { timeout: 30000, ...opts })
 // git in the run's own folder: no hook of the project's runs, nothing is asked, the gh login answers for GitHub
-const git = (dir, args, hub = GITHUB, opts) => exec('git', ['-c', 'core.hooksPath=', '-c', 'credential.helper=', '-c', 'credential.helper=!gh auth git-credential', '-c', `protocol.file.allow=${hub.file ? 'always' : 'never'}`,
+export const git = (dir, args, hub = GITHUB, opts) => exec('git', ['-c', 'core.hooksPath=', '-c', 'credential.helper=', '-c', 'credential.helper=!gh auth git-credential', '-c', `protocol.file.allow=${hub.file ? 'always' : 'never'}`,
   '-c', 'user.name=Swarm Studio', '-c', 'user.email=swarm@localhost', ...args], { cwd: dir, ...opts })
 // git's own last words, without any name and password in an address
 const said = text => String(text || '').split('\n').map(l => l.trim()).filter(Boolean).slice(-2).join(' ').replace(/https:\/\/[^@\s/]+@/g, 'https://').slice(0, 240)
@@ -84,16 +84,66 @@ export const isBehind = async (dir, sha, hub = GITHUB) => (await hasCommit(dir, 
 
 /** The repository's newest commit and its branch, asked of the remote (one request, nothing is fetched).
  * → { sha: null, branch: 'main' } for an empty one; throws in words when it cannot be reached */
-export async function remoteHead(slug, hub = GITHUB, { timeout = 20000 } = {}) {
-  const r = await git(undefined, ['ls-remote', '--symref', '--', hub.url(slug), 'HEAD'], hub, { timeout })
+export async function remoteHead(slug, hub = GITHUB, { timeout = 20000, branch = null } = {}) {
+  const r = await git(undefined, ['ls-remote', '--symref', '--', hub.url(slug), branch ? `refs/heads/${branch}` : 'HEAD'], hub, { timeout })
   if (!r.ok) {
     if (/ENOENT/.test(r.err)) throw fail('git is not installed on this computer', 424)
     if (/not found|Authentication|could not read|denied|403|404/i.test(r.err)) throw fail(`GitHub would not give ${slug}. If it is private, sign in first: gh auth login`, 424)
     throw fail(`Could not reach ${slug}: ${said(r.err) || 'git stopped'}`, 502)
   }
-  const branch = r.out.match(/^ref: refs\/heads\/(\S+)\s+HEAD$/m)?.[1] || 'main'
+  if (branch) return { sha: r.out.match(/^([0-9a-f]{40,64})\s+refs\/heads\//m)?.[1] || null, branch }
+  const head = r.out.match(/^ref: refs\/heads\/(\S+)\s+HEAD$/m)?.[1] || 'main'
   const sha = r.out.match(/^([0-9a-f]{40,64})\s+HEAD$/m)?.[1] || null
-  return { sha, branch }
+  return { sha, branch: head }
+}
+
+// ---------- a repository that already holds other work
+// It is never overwritten and never force-pushed. The person chooses: this project goes to a NEW BRANCH there (and
+// GitHub's own page opens a pull request from it), or its files COME IN FIRST and this project is pushed on top.
+/** a branch name the repository does not have yet: swarm/<name>, else swarm/<name>-2, -3 … */
+async function freeBranch(slug, want, hub = GITHUB) {
+  const r = await git(undefined, ['ls-remote', '--heads', '--', hub.url(slug)], hub, { timeout: 20000 })
+  if (!r.ok) throw fail(`Could not read the branches of ${slug}: ${said(r.err) || 'git stopped'}`, 502)
+  const have = new Set(r.out.split('\n').map(l => l.split('refs/heads/')[1]).filter(Boolean))
+  for (let n = 1; n < 50; n++) { const b = n === 1 ? want : `${want}-${n}`; if (!have.has(b)) return b }
+  throw fail(`${slug} has too many branches named ${want}`, 409)
+}
+/** What is on the repository's branch, fetched into the project's own git (its newest commit only; nothing is
+ * checked out, nothing runs): how many files, how big, and whether they may come in under the Bring-in rules
+ * (files only: no links, no submodules; no key files; at most CAPS). → { repo, branch, files, bytes, bring: null
+ * or the reason they may not } */
+export async function otherWork(dir, slug, branch, hub = GITHUB) {
+  const f = await git(dir, ['fetch', '--quiet', '--depth', '1', '--no-tags', '--no-recurse-submodules', '--', hub.url(slug), `refs/heads/${branch}`], hub, { timeout: 180000 })
+  if (!f.ok) throw fail(`Could not read ${slug}: ${said(f.err) || 'git stopped'}`, 502)
+  const t = await git(dir, ['ls-tree', '-r', '-l', '-z', 'FETCH_HEAD'], hub)
+  if (!t.ok) throw fail(`Could not read ${slug}: ${said(t.err)}`, 502)
+  let files = 0, bytes = 0
+  const links = [], modules = [], keys = []
+  for (const row of t.out.split('\0').filter(Boolean)) {
+    const [meta, path] = row.split('\t')
+    const [mode, , , size] = meta.split(/\s+/)
+    if (mode === '120000') links.push(path)
+    else if (mode === '160000') modules.push(path)
+    else { files++; bytes += Number(size) || 0; if (keyFile(path)) keys.push(path) }
+  }
+  const list = a => `${a.slice(0, 4).join(', ')}${a.length > 4 ? ` and ${a.length - 4} more` : ''}`
+  const bring = keys.length ? `it holds files that look like keys (${list(keys)})`
+    : links.length ? `it holds links to other places (${list(links)})`
+    : modules.length ? `it holds other repositories inside it (${list(modules)})`
+    : files > CAPS.files ? `it has more than ${CAPS.files.toLocaleString('en-US')} files`
+    : bytes > CAPS.bytes ? `it is more than ${Math.round(CAPS.bytes / 1048576)} MB` : null
+  return { repo: slug, branch, files, bytes, bring }
+}
+/** Bring the branch's files into the project's history (fetched by otherWork just before), this project's files
+ * kept where both have one: a merge commit whose parents are this project's newest and the repository's, so the
+ * push that follows is an ordinary one. Their history stays as it was. A merge git cannot finish is undone. */
+async function bringOnTop(dir, other, hub = GITHUB) {
+  if (other.bring) throw fail(`${other.repo}'s files can't come in: ${other.bring}. Push this project to a new branch there instead.`, 409)
+  const m = await git(dir, ['merge', '--quiet', '--no-ff', '--allow-unrelated-histories', '-X', 'ours', '-m', `Brought in ${other.repo} (${other.branch}) before this project was pushed there`, 'FETCH_HEAD'], hub, { timeout: 300000 })
+  if (!m.ok) {
+    await git(dir, ['merge', '--abort'], hub)
+    throw fail(`${other.repo}'s files could not be brought in: ${said(m.err) || 'git stopped'}. Nothing was changed. Push this project to a new branch there instead.`, 409)
+  }
 }
 
 /** who is signed in to gh, or null */
@@ -104,15 +154,58 @@ export async function ghLogin(gh = ghCli) {
 }
 /** a repository as the person's login sees it: { private, mine: the Studio made it } or null when there is none */
 async function repoFacts(slug, gh = ghCli) {
-  const r = await gh(['api', `repos/${slug}`, '--jq', '[.private, (.description // "")] | @json'])
+  const r = await gh(['repo', 'view', slug, '--json', 'isPrivate,description'])
   if (!r.ok) {
-    if (/404|Not Found/i.test(r.err + r.out)) return null
+    if (/404|Not Found|Could not resolve to a Repository/i.test(r.err + r.out)) return null
     throw fail(/ENOENT/.test(r.err) ? 'The GitHub CLI (gh) is not installed on this computer' : `GitHub did not answer for ${slug}: ${said(r.err)}`, 502)
   }
-  let got = []
-  try { got = JSON.parse(r.out) } catch {}
-  return { private: got[0] === true, mine: String(got[1] || '').includes(MARK) }
+  let got = {}
+  try { got = JSON.parse(r.out) || {} } catch {}
+  return { private: got.isPrivate === true, mine: String(got.description || '').includes(MARK) }
 }
+/** The same list through GitHub's own MCP server, when the person added it to Hermes and granted it to this plugin
+ * (engine/hermes_connect.mjs; Hermes holds the token). Its `search_repositories` tool takes a GitHub search query.
+ * → the same shape as listRepos, or null when it gave nothing to read (the caller then asks gh) */
+export async function listReposByConnector(owners, call) {
+  const repos = [], errors = []
+  for (const owner of [...new Set(owners.filter(o => /^[A-Za-z0-9-]{1,39}$/.test(String(o || ''))))]) {
+    let got
+    try { got = await call('github', 'search_repositories', { query: `user:${owner} fork:true`, perPage: 100 }) } catch (err) { errors.push(`${owner}: ${String(err.message || err).slice(0, 200)}`); continue }
+    const items = Array.isArray(got?.items) ? got.items : Array.isArray(got) ? got : null
+    if (!items) return null
+    for (const x of items) {
+      const name = x?.full_name || x?.nameWithOwner
+      if (typeof name !== 'string' || !/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(name)) continue
+      repos.push({ repo: name, private: x.private === true, empty: x.size === 0, updated: Date.parse(x.pushed_at || x.updated_at) || 0 })
+    }
+  }
+  repos.sort((a, b) => b.updated - a.updated || a.repo.localeCompare(b.repo))
+  return { repos, errors, by: 'connector' }
+}
+
+/** The repositories the person's gh login can see under each of `owners` (their login, their organizations), the
+ * newest first, for the sheet's "An existing repository" list. One owner GitHub would not list is said in `errors`
+ * and the others still come back. → { repos: [{ repo, private, empty, updated }], errors: [words] } */
+export async function listRepos(owners, gh = ghCli) {
+  const repos = [], errors = []
+  for (const owner of [...new Set(owners.filter(o => /^[A-Za-z0-9-]{1,39}$/.test(String(o || ''))))]) {
+    const r = await gh(['repo', 'list', owner, '--limit', '200', '--json', 'nameWithOwner,isPrivate,isEmpty,updatedAt'])
+    if (!r.ok) {
+      if (/ENOENT/.test(r.err)) throw fail('The GitHub CLI (gh) is not installed on this computer', 424)
+      errors.push(`${owner}: ${said(r.err) || 'GitHub did not list it'}`)
+      continue
+    }
+    let got = []
+    try { got = JSON.parse(r.out) } catch {}
+    for (const x of Array.isArray(got) ? got : []) {
+      if (typeof x?.nameWithOwner !== 'string' || !/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(x.nameWithOwner)) continue
+      repos.push({ repo: x.nameWithOwner, private: x.isPrivate === true, empty: x.isEmpty === true, updated: Date.parse(x.updatedAt) || 0 })
+    }
+  }
+  repos.sort((a, b) => b.updated - a.updated || a.repo.localeCompare(b.repo))
+  return { repos, errors }
+}
+
 /** Did anything under `path` change between two commits of the repository? → true, false, or null (GitHub
  * would not say: more than it lists, or no answer) */
 export async function changedUnder(slug, from, to, path, gh = ghCli) {
@@ -140,6 +233,21 @@ export function readTarget(given) {
 }
 
 // ---------- push
+/** What changed since the run's last commit goes into one more (the crew commits each change; a hand edit may not
+ * be), before its history goes anywhere: a key file among the changes stops it, the changes put back as they were. */
+export async function saveChanges(dir, hub = GITHUB, step = () => {}) {
+  exclude(dir)
+  if ((await localHead(dir, hub))?.dirty) {
+    step('saving the latest changes')
+    await git(dir, ['add', '-A'], hub)
+    // a key file among them (a name the patterns above missed, or one already tracked and changed) is never
+    // committed by the Studio: the changes are put back as they were, and the push stops with the names
+    const staged = (await git(dir, ['diff', '--cached', '--name-only', '--diff-filter=ACMR'], hub)).out.split('\n').filter(Boolean).filter(keyFile)
+    if (staged.length) { await git(dir, ['reset', '-q'], hub); throw fail(keysSay(staged), 422, { keys: staged }) }
+    await git(dir, ['commit', '-qm', 'Changes made in Swarm Studio'], hub)
+  }
+}
+
 /**
  * Push the run's history. `link` is the repository this project already goes to ({ repo, branch }), if any;
  * `want` is what the person asked for when there is none (or to change it): { repo: 'owner/name' } links one
@@ -157,17 +265,7 @@ export async function pushSource({ dir, link = null, want = {}, title = '', hub 
   const login = await ghLogin(gh)
   if (!login) throw fail(SIGN_IN, 424)
   if (!existsSync(join(dir, '.git'))) throw fail('Nothing to push yet: this project has no source', 409)
-  // what changed since the last commit goes into one more (the crew commits each change; a hand edit may not be)
-  exclude(dir)
-  if ((await localHead(dir, hub))?.dirty) {
-    step('saving the latest changes')
-    await git(dir, ['add', '-A'], hub)
-    // a key file among them (a name the patterns above missed, or one already tracked and changed) is never
-    // committed by the Studio: the changes are put back as they were, and the push stops with the names
-    const staged = (await git(dir, ['diff', '--cached', '--name-only', '--diff-filter=ACMR'], hub)).out.split('\n').filter(Boolean).filter(keyFile)
-    if (staged.length) { await git(dir, ['reset', '-q'], hub); throw fail(keysSay(staged), 422, { keys: staged }) }
-    await git(dir, ['commit', '-qm', 'Changes made in Swarm Studio'], hub)
-  }
+  await saveChanges(dir, hub, step)
   const local = await localHead(dir, hub)
   if (!local) throw fail('Nothing to push yet: this project has no history', 409)
 
@@ -185,16 +283,35 @@ export async function pushSource({ dir, link = null, want = {}, title = '', hub 
   }
   if (fresh && facts) throw fail(`${slug} is already on GitHub. Give another name.`, 409)
   if (!fresh && !facts) throw fail(`No repository ${slug} that your GitHub login can reach`, 404)
-  let remote = { sha: null, branch: 'main' }
-  if (!fresh) {
-    remote = await remoteHead(slug, hub)
+  let remote = { sha: null, branch: 'main', base: null }
+  // a project linked to a branch of its own (made because the repository held other work) goes on to that branch
+  const own = !fresh && link && link.repo === slug && link.base && link.branch ? link : null
+  if (own) {
+    const b = await remoteHead(slug, hub, { branch: own.branch })
+    remote = { sha: b.sha, branch: own.branch, base: own.base }
+    if (b.sha && !(await isBehind(dir, b.sha, hub))) throw fail(`${slug} has commits on ${own.branch} this project does not have. Pull them first.`, 409, { pull: true })
+  } else if (!fresh) {
+    remote = { ...await remoteHead(slug, hub), base: null }
     if (remote.sha && !(await isBehind(dir, remote.sha, hub))) {
       if (link && link.repo === slug) throw fail(`${slug} has commits this project does not have. Pull them first.`, 409, { pull: true })
-      throw fail(`${slug} already holds other work. Name an empty repository, or one this project was pushed to.`, 409)
+      if (want.mode === 'branch') {
+        // a branch of its own: the repository's branches are left as they are
+        remote = { sha: null, branch: await freeBranch(slug, `swarm/${repoName(title)}`, hub), base: remote.branch }
+        step(`pushing to a new branch, ${remote.branch}`)
+      } else {
+        step(`reading what ${slug} holds`)
+        const other = await otherWork(dir, slug, remote.branch, hub)
+        if (want.mode !== 'merge') {
+          throw fail(`${slug} already holds other work on ${remote.branch} (${other.files} file${other.files === 1 ? '' : 's'}). Nothing was changed. Push this project to a new branch there${other.bring ? '' : ', or bring its files in first and push on top'}.`, 409, { other })
+        }
+        step(`bringing in ${slug}`)
+        await bringOnTop(dir, other, hub)
+      }
     }
   }
   const keys = await keyFilesIn(dir, remote.sha ? `${remote.sha}..HEAD` : 'HEAD', hub)
   if (keys.length) throw fail(keysSay(keys), 422, { keys })
+  const head = await localHead(dir, hub)
 
   const isPrivate = fresh ? !want.public : facts.private
   if (fresh) {
@@ -202,9 +319,11 @@ export async function pushSource({ dir, link = null, want = {}, title = '', hub 
     const made = await gh(['repo', 'create', slug, isPrivate ? '--private' : '--public', '--description', `${title || slug.split('/')[1]} · ${MARK}`.slice(0, 340)])
     if (!made.ok) throw fail(`GitHub would not make ${slug}: ${said(made.err)}`, 502)
   }
-  const out = { repo: slug, url: hub.page(slug), private: isPrivate, branch: remote.branch, made: fresh ? true : !!(link && link.repo === slug && link.made), fresh: !!fresh }
+  // a branch of its own carries the branch it came from: GitHub's page for a pull request from it into that one
+  const pr = remote.base ? `${hub.page(slug)}/compare/${encodeURIComponent(remote.base)}...${encodeURIComponent(remote.branch)}?expand=1` : null
+  const out = { repo: slug, url: hub.page(slug), private: isPrivate, branch: remote.branch, base: remote.base || null, pr, made: fresh ? true : !!(link && link.repo === slug && link.made), fresh: !!fresh }
   onLink(out)
-  if (remote.sha === local.sha) return { ...out, sha: local.sha, same: true }
+  if (remote.sha === head.sha) return { ...out, sha: head.sha, same: true }
   step(`pushing to ${slug}`)
   // by address and branch, never a remote kept in the project's own git config, and never with --force
   const p = await git(dir, ['push', '--quiet', '--', hub.url(slug), `HEAD:refs/heads/${remote.branch}`], hub, { timeout: 1800000 })
@@ -213,7 +332,7 @@ export async function pushSource({ dir, link = null, want = {}, title = '', hub 
     if (/Authentication|could not read Username|denied|403/i.test(p.err)) throw fail(`GitHub would not take the push to ${slug}. ${SIGN_IN.split(': ')[1]}, with a login that may write there`, 424)
     throw fail(`Could not push to ${slug}: ${said(p.err) || 'git stopped'}`, 502)
   }
-  return { ...out, sha: local.sha, same: false }
+  return { ...out, sha: head.sha, same: false }
 }
 
 // ---------- pull

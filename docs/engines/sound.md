@@ -1,6 +1,6 @@
 # Sound: music and voice (Kokoro, ElevenLabs, Fish Audio, the studio's score)
 
-Glue: engine/sound.mjs, engine/score.mjs, engine/voice.mjs, engine/media.mjs, engine/musiccut.mjs, engine/mediareader.mjs, engine/filmcritic.mjs, server/server.mjs, launcher.py
+Glue: engine/sound.mjs, engine/score.mjs, engine/voice.mjs, engine/media.mjs, engine/musiccut.mjs, engine/mediareader.mjs, engine/filmcritic.mjs, server/server.mjs#sound, launcher.py
 Status: built in (Kokoro voice and code-written score); optional, person connects (ElevenLabs, Fish Audio, any OpenAI-compatible TTS)
 
 Four sources. Kokoro: an 82M TTS model run locally through the npm package `kokoro-js@1.2.1` (engine/sound.mjs:1-10); model weights described as "Apache-licensed" (https://github.com/hexgrad/kokoro/tree/main/kokoro.js, fetched 2026-11-12). The studio's score: Swarm's own synth code, no dependency (engine/score.mjs:30-31). ElevenLabs and Fish Audio: outside paid services reached over HTTPS (engine/score.mjs:173-174, engine/voice.mjs:52-66).

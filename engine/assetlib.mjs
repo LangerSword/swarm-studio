@@ -110,6 +110,8 @@ export function assetLib({ dataDir, fetchImpl = fetch, unzip = (zip, to) => new 
   }
   const search = opts => searchRows(rows(), opts)
   const get = id => rows().find(r => r.id === id) || null
+  // one picture as a search answers it (credit, licence, source), or null
+  const one = id => { const r = get(String(id || '')); return r ? view(r) : null }
 
   // the picture's file only when it is already on disk (never fetched): for showing it before anyone chose it
   function local(id) {
@@ -181,7 +183,7 @@ export function assetLib({ dataDir, fetchImpl = fetch, unzip = (zip, to) => new 
     own = null
     return true
   }
-  return { packs, search, get, local, file, importPack, removePack, reset: () => { rizz = own = null } }
+  return { packs, search, get, one, local, file, importPack, removePack, reset: () => { rizz = own = null } }
 }
 
 // ---------- a build's picks (runs/<id>/art-picks.json)

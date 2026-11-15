@@ -298,6 +298,13 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .gh-repo span { color: var(--muted, var(--ui-muted-foreground)); font: 500 12px/1 var(--label, inherit); letter-spacing: .08em; text-transform: uppercase; }
 .gh-lines { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; color: var(--muted, var(--ui-muted-foreground)); font: 500 13px/1.4 var(--body, inherit); }
 .gh-lines:empty { display: none; }
+.gh-help { margin: 0; color: var(--muted, var(--ui-muted-foreground)); font: 500 13px/1.45 var(--body, inherit); }
+.gh-pick { display: flex; flex-wrap: wrap; gap: 6px; max-height: 168px; overflow-y: auto; }
+.gh-pick .ui-btn { text-transform: none; letter-spacing: 0; font: 500 13px/1.2 var(--body, inherit); }
+.gh-repo .gh-unlink { margin-left: auto; }
+.gh-other { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line, var(--ui-border)); border-radius: 10px; }
+.gh-way { display: grid; gap: 6px; justify-items: start; }
+.gh-repo .gh-path { font: 500 13px/1.3 var(--mono, ui-monospace, monospace); overflow-wrap: anywhere; }
 .gh-done { margin: 0; font: 500 13px/1.4 var(--body, inherit); }
 .gh-work { position: relative; display: flex; align-items: center; gap: 10px; min-height: 34px; font: 500 13px/1.4 var(--body, inherit); }
 .gh-work .cur { position: relative; display: inline-flex; flex: none; transition: none; }

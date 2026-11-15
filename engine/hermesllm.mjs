@@ -21,7 +21,8 @@ export const WAITING = 'Waiting for Hermes: open Hermes, or run `hermes swarm`, 
 export const ROLE_MODELS = ['planner', 'worker', 'reviewer']
 const PATHS = { 'POST /llm/v1/chat/completions': '/v1/chat/completions', 'GET /llm/v1/models': '/v1/models' }
 
-export function hermesLlm({ bridge, port, broadcast = () => {}, token = randomBytes(24).toString('base64url'), defaultTimeoutMs = 600000, pollMs = 1000, graceMs = 20000, health = null, onGone = () => {} } = {}) {
+// tools: the app engine's web and picture routes (engine/enginetools.mjs), answered here behind the same key
+export function hermesLlm({ bridge, port, broadcast = () => {}, token = randomBytes(24).toString('base64url'), defaultTimeoutMs = 600000, pollMs = 1000, graceMs = 20000, health = null, onGone = () => {}, tools = null } = {}) {
   const baseUrl = () => `http://127.0.0.1:${port()}/llm/v1`
   let waiting = 0
 
@@ -34,15 +35,16 @@ export function hermesLlm({ bridge, port, broadcast = () => {}, token = randomBy
 
   // true when the request was ours (handled), false when the path is not /llm/v1/…
   function handle(req, res) {
-    const path = PATHS[`${req.method} ${new URL(req.url, 'http://127.0.0.1').pathname}`]
+    const route = `${req.method} ${new URL(req.url, 'http://127.0.0.1').pathname}`
+    const path = PATHS[route], tool = tools?.routes.includes(route)
     if (!path && !new URL(req.url, 'http://127.0.0.1').pathname.startsWith('/llm/')) return false
     const fail = (code, message) => { if (!res.headersSent) res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: { message } })) }
     if (!ok(req)) { fail(401, 'a Swarm Studio model key is needed'); return true }
-    if (!path) { fail(404, 'no such model route'); return true }
+    if (!path && !tool) { fail(404, 'no such model route'); return true }
     const chunks = []
     let size = 0
     req.on('data', c => { size += c.length; if (size > 48 << 20) req.destroy(); else chunks.push(c) })
-    req.on('end', () => forward(req, res, path, Buffer.concat(chunks)).catch(err => fail(502, String(err?.message || err).slice(0, 300))))
+    req.on('end', () => (tool ? tools.answer(route, Buffer.concat(chunks), res) : forward(req, res, path, Buffer.concat(chunks))).catch(err => fail(502, String(err?.message || err).slice(0, 300))))
     return true
   }
 

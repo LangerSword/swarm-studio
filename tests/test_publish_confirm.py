@@ -34,6 +34,26 @@ class PublishConfirm(unittest.TestCase):
         self.assertIn("PUBLIC", got[1]["message"])
         self.assertIn("Team/Ares", got[2]["message"])
 
+    def test_a_new_branch_bringing_files_in_and_a_folder_are_each_asked_and_their_own_always(self):
+        asks = ({"move": "push", "repo": "team/site", "mode": "branch"}, {"move": "push", "repo": "team/site", "mode": "merge"},
+                {"move": "push", "folder": "~/code/site"}, {"move": "push", "folder": "~/code/site", "confirm": True}, {"move": "push", "repo": "team/site", "mode": "sideways"})
+        got = [commands.approval_hook(tool_name="swarm_studio", args={"action": "github", **a}) for a in asks]
+        self.assertEqual([g["rule_key"] for g in got], ["swarm-studio:github:push:named:team/site:branch", "swarm-studio:github:push:named:team/site:merge",
+                                                        "swarm-studio:folder:write:~/code/site", "swarm-studio:folder:write:~/code/site:replace", "swarm-studio:github:push:named:team/site"])
+        self.assertIn("new branch", got[0]["message"])
+        self.assertIn("bringing that repository's files", got[1]["message"])
+        self.assertIn("nothing is pushed", got[2]["message"])
+        self.assertIn("replacing files there it did not write", got[3]["message"])
+
+    def test_the_new_fields_reach_the_studio(self):
+        sent = []
+        with mock.patch.object(commands, "_pick_run", return_value={"id": "r1", "title": "Cafe"}),                 mock.patch.object(commands, "_api", side_effect=lambda path, body=None, timeout=None: sent.append(body) or {"piece": "app", "source": True, "job": {"state": "done", "message": "Written"}}):
+            self.assertIn("Written", commands._github("1", "push", "", False, "", "~/code/site", "site", True))
+            self.assertIn("Written", commands._github("1", "push", "team/site", False, "branch"))
+        bodies = [b for b in sent if b]
+        self.assertEqual(bodies[0], {"action": "push", "piece": "app", "folder": "~/code/site", "sub": "site", "confirm": True})
+        self.assertEqual(bodies[1], {"action": "push", "piece": "app", "repo": "team/site", "mode": "branch"})
+
     def test_register_installs_the_hook(self):
         src = open(os.path.join(os.path.dirname(__file__), "..", "__init__.py"), encoding="utf-8").read()
         self.assertIn('ctx.register_hook("pre_tool_call", commands.approval_hook)', src)
