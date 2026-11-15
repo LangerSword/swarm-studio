@@ -2,7 +2,7 @@
 // web/canvas.js, split by area (web/canvas/README.md): what web/studio.js, web/home.js and web/project.js may read and call (window.swarm).
 import { layerDrag } from '../layerlink.js'
 import { clean } from '../clean.js'
-import { S, Q, WALL, BASE, BOOT, store, api, cosmosHooks, cam, els } from './core.js'
+import { S, Q, WALL, BASE, BOOT, store, api, cosmosHooks, cam, els, buildOf } from './core.js'
 import { view, setView, openGame, appAsk } from './rooms.js'
 import { toggleModels, toggleTheme, showTab, lite } from './settings.js'
 import { viewing, files, openRun, loadFiles, stopReplay } from './replay.js'
@@ -29,6 +29,8 @@ window.swarm = {
   // before it moves the page's clock again (scripts/motion-check.mjs, docs/ux/MOTION.md)
   get photographing() { return lite.busy },
   on: fn => cosmosHooks.add(fn),
+  // the server's one state of a website build (engine/buildstate.mjs), as this page was sent it; null with none
+  build: run => buildOf(run),
   openRun, setView, loadFiles, focusPage, openPlayer, closePlayer, followPlayer,
   // one more change to the open build's app (issue #542: the Overview's "Tell the crew…" on an app project)
   appAsk,

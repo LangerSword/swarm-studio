@@ -1,6 +1,7 @@
 // @ts-check
 // web/canvas.js, split by area (web/canvas/README.md): engine events drawn on the canvas.
-import { cosmosHooks, S, els } from './core.js'
+import { cosmosHooks, S, els, buildOf } from './core.js'
+import { buildLeft } from '../replaytalk.js'
 import { fresh, setTitle, navBrand, links } from './base.js'
 import { feed, botMsg, renderTheme, chatAgent, logSay, summarize, STOP_PILL, stoppedMsg, STOPPED } from './panels.js'
 import { viewing, loadFiles, traceLive, rec } from './replay.js'
@@ -188,7 +189,8 @@ export function on(e) {
       feed(null, `Done: ${e.done}/${e.planned} layers across ${e.pages} pages in ${(e.ms / 1000).toFixed(1)}s${e.failed ? `, ${e.failed} failed` : ''}`, 'sys')
       summarize(e)
       els.planState.textContent = 'done'
-      if (!viewing) { S.cheerUntil = performance.now() + 9000; banter.next = 0; loadFiles() }
+      // the crew cheers a build that is whole, never one that ended with sections failed
+      if (!viewing) { if (!buildLeft(buildOf())) { S.cheerUntil = performance.now() + 9000; banter.next = 0 } loadFiles() }
       if (live(e)) autoReview()
       break
     case 'run:stopped': {

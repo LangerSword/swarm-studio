@@ -1,8 +1,10 @@
 // @ts-check
 // The one state of a website build, from its events (runs/<id>/events.jsonl) and whether the server still
 // runs it: docs/ux/states/build.md, states W3 to W14. Every screen should read this instead of working the
-// state out again; the Projects card does (server/projects.mjs stateOf). It only reads: it writes no event,
-// and an old build's file gives the same answer as a new one's.
+// state out again: the Projects card does (server/projects.mjs stateOf), and so do the Design deck (the server
+// sends it as `build:state` and GET /api/runs/<id>/state; web/replaytalk.js has its words) and the Overview's
+// artboards (server/board.mjs `build`). It only reads: it writes no event, and an old build's file gives the
+// same answer as a new one's.
 //
 //   planning   live, and nothing of this build's own is planned yet (W3; W6, a next version before its plan)
 //   building   live, with sections of its own planned (W4)
@@ -34,15 +36,18 @@ import { reasonFromFailure } from './stopreason.mjs'
  * @property {number} kept sections carried over, built, from the last version
  * @property {FailedSection[]} failed the sections that failed and were not built later
  * @property {BuildReason | null} reason
- * @property {'resume' | null} next the one way forward the server accepts now. Try again ('again') and Set up
- *   ('setup') are not named yet: a bare brief is refused by ask-before-build (server/server.mjs /api/run, 409 `ask`)
- *   and Set up is no server action.
+ * @property {'resume' | 'again' | null} next the one way forward the server accepts now: Resume
+ *   (/api/runs/<id>/resume) when sections are kept and something is left; Try again (/api/runs/<id>/again, the
+ *   same words built afresh) when a build failed, was halted or was cut off with nothing to resume from. Set up
+ *   ('setup') is not named: it is no server action.
  * @typedef {{ type: string, [key: string]: any }} RunEvent
  */
 
 export const BUILD_STATES = /** @type {BuildStateName[]} */ (['planning', 'building', 'done', 'unchanged', 'partly', 'failed', 'stopped', 'halted', 'replaced', 'unsure'])
 // the states with nobody working and something left to build
 const UNFINISHED = new Set(['partly', 'failed', 'stopped', 'halted', 'replaced', 'unsure'])
+// the states Try again answers, when there is nothing to resume from
+const AGAIN = new Set(['failed', 'halted', 'unsure'])
 const STOPPED = /^(stopped|aborted)$/i
 
 /**
@@ -108,12 +113,17 @@ export function buildState(events = [], { live = false } = {}) {
     if (done + kept === 0) state = 'failed'
     else if (left) state = 'partly'
     else state = start?.extend && planned === 0 ? 'unchanged' : 'done'
-    // why: the newest failed section's own message, in the stop reason's words
-    if (failed.length) reason = reasonFromFailure(failed.at(-1)?.why)
   }
 
   // Resume is taken for any build with a theme and a page (server/server.mjs, /api/runs/<id>/resume: extendBase);
-  // it is the way forward only when something is left to build
-  const next = UNFINISHED.has(state) && left && extendBase(events) ? /** @type {const} */ ('resume') : null
+  // it is the way forward only when something is left to build. With nothing to resume from, a build that
+  // failed, was halted or was cut off is tried again from its own words (/api/runs/<id>/again); one the person
+  // stopped, or a newer build replaced, is not: the chat box is there.
+  const base = UNFINISHED.has(state) ? extendBase(events) : null
+  /** @type {'resume' | 'again' | null} */
+  const next = base && left ? 'resume' : !base && AGAIN.has(state) && String(start?.brief || '').trim() ? 'again' : null
+  // why a build that ran to its end is not whole: the newest failed section's own message, in the stop
+  // reason's words, said for a build that ended (never "Stopped: …") and naming the way on that `next` gives
+  if (end?.type === 'run:done' && failed.length) reason = reasonFromFailure(failed.at(-1)?.why, { ended: true, resume: next === 'resume' })
   return { state, done, planned, kept, failed, reason, next }
 }

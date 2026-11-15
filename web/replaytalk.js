@@ -34,6 +34,69 @@ export function progressLine(o) {
   return o.replay ? `Replay: ${far}` : `${o.plan ? `${o.plan} ` : ''}${o.working || 0} agents building · ${far}`
 }
 
+// ---------- A website build in words, from the server's one state of it (engine/buildstate.mjs, sent to the page
+// as `build:state` and with a saved build): the strip, the chat's progress line and what the chat says when a
+// build ends or is opened again all read the same state, so they can not disagree. The page never works the
+// state out: with none (an app, a game, the hosted studio) the words above are used as before.
+/**
+ * @typedef {{ state: string, done: number, planned: number, kept: number, failed: unknown[], reason: { code: string, message: string, action: string } | null, next: 'resume' | 'again' | null }} BuildState
+ */
+const BUILD_LIVE = new Set(['planning', 'building'])
+/** every section standing, and every section there is: this build's own and the ones it was handed  @param {BuildState} b */
+const sectionsOf = b => ({ built: b.done + b.kept, total: b.planned + b.kept })
+
+/**
+ * The canvas strip for a website build: the same words as `statusWords`, chosen by the build's state. While it
+ * runs the count is this build's own work (a next version that has planned nothing counts nothing, never the
+ * sections it was handed); once it ended, every section standing of every section there is. `state` is the
+ * strip's look (the dot and the bar), `pct` the bar.
+ * @param {BuildState} b  @param {{ working?: number, pages?: number }} [o]
+ * @returns {{ state: 'planning' | 'working' | 'done' | 'paused', text: string, num: string, pct: number }}
+ */
+export function buildStrip(b, o = {}) {
+  const { built, total } = sectionsOf(b), n = o.working || 0
+  if (b.state === 'planning') return { state: 'planning', text: b.kept ? 'Planning what to add' : 'Planning the pages', num: '', pct: 0 }
+  if (b.state === 'building') return { state: 'working', text: `${n} agent${n === 1 ? '' : 's'} building`, num: `${b.done}/${b.planned}`, pct: b.planned ? b.done / b.planned : 0 }
+  const num = total ? `${built}/${total}` : '', pct = total ? built / total : 0
+  if (b.state === 'done' || b.state === 'unchanged') return { state: 'done', text: `${o.pages || 0} pages built`, num, pct }
+  return { state: 'paused', text: b.state === 'partly' ? 'Partly built' : b.state === 'failed' ? 'Failed' : 'Stopped', num, pct }
+}
+
+/**
+ * The chat's progress line for a website build that is running: planning, then who is building and how far
+ * with this build's own sections.
+ * @param {BuildState} b  @param {{ plan?: string, working?: number, pages?: number }} [o]
+ */
+export function buildProgress(b, o = {}) {
+  if (b.state !== 'building') return b.kept ? 'Planning what to add…' : 'Planning the pages…'
+  return `${o.plan ? `${o.plan} ` : ''}${o.working || 0} agents building · ${b.done}/${b.planned} sections across ${o.pages || 0} pages`
+}
+
+/** Is this build still running on the server?  @param {BuildState | null | undefined} b */
+export const buildLive = b => !!b && BUILD_LIVE.has(b.state)
+/** Did it end, or stop, with something left to build?  @param {BuildState | null | undefined} b */
+export const buildLeft = b => !!b && ['partly', 'failed', 'stopped', 'halted', 'replaced', 'unsure'].includes(b.state)
+
+/**
+ * What the chat says of a build that ended, or stopped, with something left: what is built and kept, how many
+ * sections failed, and why, in the reason's own words. Never "All N pages are built" (the owner, 2026-11-15:
+ * the app only says what really happened). The reason's one thing to do and the button (`next`) follow it.
+ * @param {BuildState} b
+ */
+export function endWords(b) {
+  const { built, total } = sectionsOf(b), f = b.failed.length
+  const why = b.reason && b.reason.code !== 'person' ? b.reason.message : ''
+  const count = !total ? '' : `${built ? `${built} of ${total} sections are built and kept` : `None of the ${total} sections are built`}${f ? `; ${f} failed` : ''}.`
+  const join = (...parts) => parts.filter(Boolean).join(' ')
+  // it ran to its end: what stands first, then why the rest does not
+  if (b.state === 'partly' || b.state === 'failed') return join(count, why) || 'Stopped before any page was planned.'
+  // nobody knows why it ended (the server stopped, or a newer build took over)
+  if (b.state === 'unsure') return join('This run stopped before it finished.', count)
+  // stopped for a cause: the cause, then what is kept
+  if (why) return join(why, count)
+  return total ? join('Stopped.', count, b.next === 'resume' ? 'Say what to change, or Resume.' : 'Say what to change.') : 'Stopped before any page was planned.'
+}
+
 /**
  * The App room's pill. Live: building, running, built… In a replay: Replay and how far, whatever the recording
  * is showing.

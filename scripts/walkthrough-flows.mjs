@@ -458,6 +458,26 @@ async function failed(env) {
   return s
 }
 
+// What a screen may never say of a build that failed (the owner, 2026-11-15: the app only says what really
+// happened): that it is built, or, where `raw` is checked, a provider's raw error in place of a plain reason.
+// The Log, Fix mode and a planner's own error line still print the raw error (B16, B10 in docs/ux/states/build.md),
+// so `raw` is checked only on the screens that have none of those.
+async function truth(env, { within = 'body', raw = false } = {}) {
+  const text = await env.page.locator(within).first().innerText().catch(() => '')
+  const built = text.match(/All \d+ pages? (?:is|are) built/)
+  if (built) throw new Error(`a failed build reads "${built[0]}"`)
+  if (raw && text.includes('HTTP 500')) throw new Error(`a failed build shows the provider's raw error ("HTTP 500") in ${within}`)
+}
+// the Design deck of a build that is not whole: the strip and the chat say the same, and the chat has the way on
+// (the strip is set in capitals by its style, so its words are matched whatever their case)
+async function deckTruth(env, word = /Partly built|Failed|Stopped/i) {
+  await truth(env, { within: '#feed', raw: true })
+  const strip = await env.page.locator('#status').first().innerText().catch(() => '')
+  if (!word.test(strip)) throw new Error(`the strip reads "${strip.replace(/\s+/g, ' ').trim()}" for a build that is not whole`)
+  if (/pages built|Ready/i.test(strip)) throw new Error(`the strip reads "${strip.replace(/\s+/g, ' ').trim()}" for a build that is not whole`)
+  if (!(await chatBtn(env.page, 'Resume').isVisible().catch(() => false))) throw new Error('the chat of a build that is not whole offers no Resume')
+}
+
 const FAILING = [
   { id: 'f-fail-working', flow: FAIL, title: 'A build going on, live (the fixture’s half-built Cedar Cafe, resumed; the model has not answered its builders yet)', run: async env => {
     const s = await fail(env)
@@ -473,11 +493,34 @@ const FAILING = [
     await env.wait(1500)
     await chatOpen(env)
     await toEnd(env.page)
+    await deckTruth(env, /Partly built/i)
   }, settle: 900 },
-  { id: 'f-fail-projects', flow: FAIL, title: 'Projects after the build failed: its card', run: async env => { const s = await failed(env); await go(env, s) }, settle: 1200 },
-  { id: 'f-fail-overview', flow: FAIL, title: 'The failed build’s Overview', run: async env => { const s = await failed(env); await go(env, s, `/?project=${s.ids.mid}&version=${s.failed}`, '.pj-world') }, settle: 2500 },
-  { id: 'f-fail-deck', flow: FAIL, title: 'The failed build opened again in the Design deck: the deck and its chat', run: async env => { const s = await failed(env); await deck(env, s, s.failed) }, settle: 2000 },
-  { id: 'f-fail-log', flow: FAIL, title: 'The chat’s Log for the failed build', run: async env => { await failed(env); await click(env.page, '.side .tabs [data-tab="log"]') }, settle: 800 },
+  { id: 'f-fail-projects', flow: FAIL, title: 'Projects after the build failed: its card', run: async env => { const s = await failed(env); await go(env, s); await env.wait(800); await truth(env, { raw: true }) }, settle: 1200 },
+  { id: 'f-fail-overview', flow: FAIL, title: 'The failed build’s Overview', run: async env => {
+    const s = await failed(env)
+    await go(env, s, `/?project=${s.ids.mid}&version=${s.failed}`, '.pj-world')
+    // a page whose sections failed says so, with Resume, and Resume can be pressed (nothing lies over it)
+    await vis(env.page, '.pj-world .ab.page > .pt-tag', 12000)
+    const tag = await env.page.locator('.pj-world .ab.page > .pt-tag').first().innerText()
+    if (!/Failed/i.test(tag)) throw new Error(`a page with failed sections is tagged "${tag.replace(/\s+/g, ' ').trim()}"`)
+    const pressable = await env.page.locator('.pj-world .ab.page > [data-resume]').first().evaluate(b => { const r = b.getBoundingClientRect(); return document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.closest('[data-resume]') === b })
+    if (!pressable) throw new Error('Resume on a failed page’s artboard is covered by something else')
+    await truth(env, { raw: true })
+  }, settle: 2500 },
+  { id: 'f-fail-overview-resume', flow: FAIL, title: 'Resume pressed on a failed page’s artboard: the build goes on in the Overview (the model has not answered yet)', run: async env => {
+    const s = await failed(env)
+    const before = (await s.api('/api/runs')).length
+    holdBuild(s.ctl)
+    await env.page.locator('.pj-world .ab.page > [data-resume]').first().click()
+    // the next version is the one shown, and nothing of it has failed: the tags are gone while it builds
+    await env.page.locator('.pj-world .ab.page > .pt-tag').first().waitFor({ state: 'detached', timeout: 12000 })
+    let started = false
+    for (let i = 0; i < 20 && !started; i++) { started = (await s.api('/api/runs')).length > before; if (!started) await env.wait(300) }
+    if (!started) throw new Error('Resume was pressed on the Overview and no build started')
+    await env.wait(1500)
+  }, settle: 1500, after: env => letBuild(env.fs?.ctl) },
+  { id: 'f-fail-deck', flow: FAIL, title: 'The failed build opened again in the Design deck: the deck and its chat', run: async env => { const s = await failed(env); await deck(env, s, s.failed); await env.wait(1200); await toEnd(env.page); await deckTruth(env, /Partly built/i) }, settle: 2000 },
+  { id: 'f-fail-log', flow: FAIL, title: 'The chat’s Log for the failed build', run: async env => { await failed(env); await click(env.page, '.side .tabs [data-tab="log"]'); await truth(env) }, settle: 800 },
   { id: 'f-fail-fix', flow: FAIL, title: 'Fix mode ("/fix", then "Why did the build stop?"): what Fix says, from the Studio’s own facts (no model answers here)', run: async env => {
     const s = await failed(env)
     await deck(env, s, s.failed)
@@ -486,17 +529,23 @@ const FAILING = [
     await send(env, 'Why did the build stop?')
     await vis(env.page, '#feed .fix-reply', 20000)
     await toEnd(env.page)
+    await truth(env)
   }, settle: 900 },
   { id: 'f-fail-fix-resume', flow: FAIL, title: 'Finish the build (or Resume) pressed from the failed build opened again', run: async env => {
-    await failed(env)
-    const b = chatBtn(env.page, /Resume|Try again|Finish the build/)
+    const s = await failed(env)
+    // the chat's own Resume, said when the failed build was opened again (not only what Fix offers)
+    const b = chatBtn(env.page, 'Resume')
     if (!(await b.isVisible().catch(() => false))) {
       const offered = await env.page.locator('#feed .fix-reply button').allInnerTexts().catch(() => [])
-      throw new Error(`a failed build opened again offers no Resume, Try again or Finish the build in its chat; Fix offers: ${offered.map(t => `"${t.trim()}"`).join(', ') || 'no button'}`)
+      throw new Error(`a failed build opened again offers no Resume in its chat; Fix offers: ${offered.map(t => `"${t.trim()}"`).join(', ') || 'no button'}`)
     }
+    const before = (await s.api('/api/runs')).length
     await b.click()
     await env.wait(5000)
+    // Resume really started a build: a new version, which this Studio's model fails again, said as it is
+    if ((await s.api('/api/runs')).length <= before) throw new Error('Resume was pressed and no build started')
     await toEnd(env.page)
+    await truth(env)
   } },
   { id: 'f-fail-stop-opened', flow: FAIL, title: 'The same build going again, opened by its address, and Stop pressed: the chat ten seconds on', run: async env => {
     const s = await failed(env)
@@ -508,6 +557,7 @@ const FAILING = [
     await env.wait(10000)
     letBuild(s.ctl)
     await toEnd(env.page)
+    await truth(env)
   }, after: env => letBuild(env.fs?.ctl) },
   { id: 'f-fail-stop', flow: FAIL, title: 'Stop pressed in a window that follows the build as the one that started it (handed the build through the Studio’s own hook, as Make hands a new one): what is kept, and Resume', run: async env => {
     const s = await failed(env)
@@ -521,6 +571,7 @@ const FAILING = [
     await chatBtn(env.page, 'Resume').waitFor({ state: 'visible', timeout: 12000 })
     letBuild(s.ctl)
     await toEnd(env.page)
+    await truth(env)
   }, settle: 1200, after: env => letBuild(env.fs?.ctl) },
   { id: 'f-fail-resume', flow: FAIL, title: 'Resume pressed: the build goes on (the model has not answered yet)', run: async env => {
     const s = await failed(env)
@@ -537,6 +588,7 @@ const FAILING = [
     letBuild(s.ctl)
     await env.wait(7000)
     await toEnd(env.page)
+    await deckTruth(env, /Partly built/i)
   }, after: env => letBuild(env.fs?.ctl) },
   { id: 'f-fail-new', flow: FAIL, title: 'A new build whose model fails at the start: the chat says why, with Try again', run: async env => {
     const s = await failed(env)
@@ -547,11 +599,24 @@ const FAILING = [
     await env.page.locator('#feed [data-pick="go:all"]').last().click()
     await chatBtn(env.page, 'Try again').waitFor({ state: 'visible', timeout: 15000 })
     await toEnd(env.page)
+    await truth(env)
+    // stopped before any page: the strip says Stopped, never Ready
+    const strip = await env.page.locator('#status').first().innerText().catch(() => '')
+    if (!/Stopped/i.test(strip)) throw new Error(`the strip reads "${strip.replace(/\s+/g, ' ').trim()}" for a build that stopped at the start`)
   }, settle: 900 },
-  { id: 'f-fail-try-again', flow: FAIL, title: 'Try again pressed: what it does', run: async env => {
-    await failed(env)
+  { id: 'f-fail-try-again', flow: FAIL, title: 'Try again pressed: the same build starts again (the model has not answered yet)', run: async env => {
+    const s = await failed(env)
+    const before = (await s.api('/api/runs')).length
+    // the model is kept waiting, so the picture shows the build that started, not its next failure
+    holdBuild(s.ctl)
     await chatBtn(env.page, 'Try again').click()
-    await env.wait(6000)
+    await seen(env.page, /Planning the pages/, 15000)
+    await env.wait(1500)
+    const text = await env.page.locator('#feed').innerText()
+    if (/Couldn.t start it again/.test(text)) throw new Error('Try again answered "Couldn’t start it again"')
+    if ((await s.api('/api/runs')).length <= before) throw new Error('Try again was pressed and no build started')
+    const strip = await env.page.locator('#status').first().innerText().catch(() => '')
+    if (!/Planning the pages/i.test(strip)) throw new Error(`the strip reads "${strip.replace(/\s+/g, ' ').trim()}" while the build that started again plans`)
     await toEnd(env.page)
   }, after: endFlow }
 ]

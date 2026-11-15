@@ -80,21 +80,6 @@
     "why": "A build opened half way: depending on when the step falls, the current deck's cursors are still gliding up from the break room below the fold (so only /next/ has them on screen) or already near their sections at another place on the narrower /next/ canvas."
   },
   {
-    "key": "mid-build only in /: page @pulse endless 1200ms ease-in-out",
-    "label": "intended (spec design-deck)",
-    "why": "A saved build that stopped half way: the deck's spec has the pill read Stopped (openspec/specs/design-deck/spec.md:66, 75-77), so /next/ keeps still; the current deck pulses and shimmers as if the crew still worked."
-  },
-  {
-    "key": "mid-build only in /: page @shimmer endless 1400ms linear",
-    "label": "intended (spec design-deck)",
-    "why": "A saved build that stopped half way: the deck's spec has the pill read Stopped (openspec/specs/design-deck/spec.md:66, 75-77), so /next/ keeps still; the current deck pulses and shimmers as if the crew still worked."
-  },
-  {
-    "key": "mid-build only in /next/: page @in 300ms x1 ease-out",
-    "label": "intended (decision 0015)",
-    "why": "The chat docks open along the bottom of the deck (decision 0015, #458 and #472), so its lines show and arrive with the chat's fade; in the current Studio the deck's chat starts shut, so none show."
-  },
-  {
     "key": "mid-build only in /next/: page @pet-dot endless 1000ms ease-in-out",
     "label": "intended (spec design-deck)",
     "why": "The deck's spec asks for a loading skeleton with Hermia's cursor on it (openspec/specs/design-deck/spec.md, Loading); the current deck shows nothing while a build loads (its known 'deck loading' audit violation)."

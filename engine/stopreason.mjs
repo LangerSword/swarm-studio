@@ -40,19 +40,24 @@ export function providerSaid(text) {
 
 // A failed model call's text (an 'error' event's message) as a stop reason. viaHermes: the call went
 // through Hermes, so a connection that broke part way is Hermes going away, not the model.
-export function reasonFromFailure(text, { viaHermes = false } = {}) {
+// ended: the build ran to its end with sections failed (run:done), so nothing "Stopped": the words say what
+// the model did. resume: sections are kept and Resume is the way on, so the action names Resume, not Try again
+// (engine/buildstate.mjs `next`).
+export function reasonFromFailure(text, { viaHermes = false, ended = false, resume = false } = {}) {
   const t = String(text || '')
+  const lead = ended ? 'The' : 'Stopped: the'
+  const again = resume ? 'Resume' : 'Try again', then = resume ? 'resume' : 'try again'
   const status = Number((t.match(/HTTP (\d{3})/) || [])[1]) || 0
   if (!status && viaHermes && /terminated|ECONNRESET|ECONNREFUSED|socket hang up|fetch failed|other side closed/i.test(t)) return { code: 'hermes', message: 'Hermes closed during the build. What was built is kept.', action: 'Open Hermes again and the build goes on.' }
-  if (!status && /abort|timed? ?out|took too long|stall/i.test(t)) return { code: 'timeout', message: STOPS.timeout, action: 'Try again; if it keeps happening, pick a faster model in `hermes model`.' }
+  if (!status && /abort|timed? ?out|took too long|stall/i.test(t)) return { code: 'timeout', message: `${lead} model took too long to answer.`, action: `${again}; if it keeps happening, pick a faster model in \`hermes model\`.` }
   if (/Hermes isn't connected|Restart Hermes to finish|hermes_(closed|updated)/.test(t)) {
     const updated = /Restart Hermes|hermes_updated/.test(t)
-    return { code: 'hermes', message: updated ? 'Swarm Studio was updated. Restart Hermes to finish.' : "Hermes isn't connected.", action: updated ? 'Run `hermes gateway restart`, or quit Hermes Desktop and open it again.' : 'Open Hermes Desktop, or run `hermes swarm`, then try again.' }
+    return { code: 'hermes', message: updated ? 'Swarm Studio was updated. Restart Hermes to finish.' : "Hermes isn't connected.", action: updated ? 'Run `hermes gateway restart`, or quit Hermes Desktop and open it again.' : `Open Hermes Desktop, or run \`hermes swarm\`, then ${then}.` }
   }
   const said = providerSaid(t).replace(/\s+/g, ' ').trim().slice(0, 200)
-  const action = status === 402 ? "Check the provider's credit or budget cap, then try again."
-    : status === 429 ? 'Wait a minute, then try again.'
+  const action = status === 402 ? `Check the provider's credit or budget cap, then ${then}.`
+    : status === 429 ? `Wait a minute, then ${then}.`
       : status === 401 || status === 403 ? 'Check the model key in Hermes (`hermes model`).'
-        : 'Try again, or pick another model in `hermes model`.'
-  return { code: 'model', message: `Stopped: the model didn't answer${said ? ` (${said})` : status ? ` (HTTP ${status})` : ''}.`, action }
+        : `${again}, or pick another model in \`hermes model\`.`
+  return { code: 'model', message: `${lead} model didn't answer${said ? ` (${said})` : status ? ` (HTTP ${status})` : ''}.`, action }
 }

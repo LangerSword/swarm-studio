@@ -5,14 +5,14 @@ import { modeSend, mountChatMode, MODE_LINE } from '../chatmode.js'
 import { mountAgentsChip } from '../composer.js'
 import { githubDoor, ownerSay } from '../github.js'
 import { zoomToSection } from './zoom.js'
-import { cam, S, els, setLabel, FRAME_W, commandOps, api, $, BOOT } from './core.js'
+import { cam, S, els, setLabel, FRAME_W, commandOps, api, $, BOOT, buildOf } from './core.js'
 import { syncSlots, bboxActive, fit, startGesture, gestureStep, toScreen, dockCell, agentTarget, DOCK, runBanter, drawWires, doing, setAuto, focusPage, slotFor } from './deck.js'
 import { lite, litePass, frameBusy, togglePanel, toggleModels } from './settings.js'
 import { renderAgents, setText, renderToolbar, treeSel, renderTree, renderStatus, botMsg, feed, hermesReady, hermesSays, resumeRun } from './panels.js'
 import { renderDesign, drawSelBox, exp, design, selectAt, exportRunNow, undo, redo, esc } from './design.js'
 import { drawComment, review, cmt, reviewRun, sendLayers } from './marks.js'
 import { paintReplay, viewing, files, loadFiles, fileMatch, fileInfo, saveMeta, traceView, fileInto, rec, replaySay } from './replay.js'
-import { progressLine } from '../replaytalk.js'
+import { progressLine, buildProgress, buildLive } from '../replaytalk.js'
 import { pub, liveUrl, publishNow } from './publish.js'
 import { shownRun, video, VIDEO_STYLES, makeVideo, showRun, runNow } from './film.js'
 import { appv, appAsk, setView, buildApp, openGame, openCastOnly, sliceGo, view, stageSay, mediaBlock, mapSay, mapShow, intakeSay } from './rooms.js'
@@ -152,9 +152,12 @@ export function frameLoop(now) {
     setLabel(els.videoBtn, mine && video.busy ? `Video ${video.pct ? `${video.pct | 0}%` : 'writing…'}` : 'Video')
     if (S.progress) {
       const done = [...S.layers.values()].filter(l => l.status === 'done').length
-      setText(S.progress.querySelector('.txt'), progressLine({ replay: rec.on, plan: S.planText, working, done, total: S.layers.size, pages: S.frames.length }))
+      // a running website build counts its own work, from the server's state of it (a next version that has
+      // planned nothing says it is planning, not "0 agents building · 9/9" of the sections it was handed)
+      const b = rec.on ? null : buildOf(), own = buildLive(b) ? b : null
+      setText(S.progress.querySelector('.txt'), own ? buildProgress(own, { plan: S.planText, working, pages: S.frames.length }) : progressLine({ replay: rec.on, plan: S.planText, working, done, total: S.layers.size, pages: S.frames.length }))
       if (!S.progress.querySelector('.pbar')) S.progress.insertAdjacentHTML('beforeend', '<span class="pbar"><i></i></span>')
-      S.progress.querySelector('.pbar i').style.width = `${S.layers.size ? (done / S.layers.size * 100).toFixed(1) : 4}%`
+      S.progress.querySelector('.pbar i').style.width = `${own ? (own.planned ? (own.done / own.planned * 100).toFixed(1) : 4) : S.layers.size ? (done / S.layers.size * 100).toFixed(1) : 4}%`
     }
     if (S.t0 && !(viewing && !S.tEnd)) setText(els.timer, `${(((S.tEnd || Date.now()) - S.t0) / 1000).toFixed(1)}s`)
   }

@@ -122,6 +122,22 @@ export const HERMIA = `<span class="hermia">${Crew.avatar('Hermia', 18)}</span>`
 /** @type {any} the build on the canvas; fresh() makes it anew through setS */
 export let S
 export function setS(v) { S = v }
+// The server's one state of each website build this page has been told of (engine/buildstate.mjs), by run:
+// sent on the stream as `build:state` while a build runs and read with a saved build (/api/runs/<id>/state).
+// The page never works it out itself. Kept outside S: a build's start empties S, and its state comes first.
+// null: not a website build, or nothing was sent (the hosted studio): the deck then reads as it did before.
+/** @type {Map<string, import('../replaytalk.js').BuildState | null>} */
+const builds = new Map()
+/** @param {string | null} [run] */
+export const buildOf = (run = S?.run) => (run && builds.get(run)) || null
+/** @param {string} run  @param {import('../replaytalk.js').BuildState | null} state */
+export function setBuild(run, state) {
+  if (!run) return
+  builds.delete(run)
+  builds.set(run, state || null)
+  // a handful of builds at most: the oldest told of goes first
+  while (builds.size > 24) builds.delete(builds.keys().next().value)
+}
 // studio hook: web/studio.js and web/project.js listen to every event through window.swarm.on
 export const cosmosHooks = new Set()
 export const cam = { x: 40, y: 140, s: 0.16, tx: 40, ty: 140, ts: 0.16, auto: true, nextFit: 0 }
