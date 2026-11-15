@@ -1,5 +1,10 @@
 {
-  "why": "Nothing gained or lost: the Game room of a game not built yet shows a game's start instead of the app's (the end picture changes, declared in the pull request's Motion line).",
-  "gained": [],
-  "lost": []
+  "why": "A website build saved with no end (the server stopped, or a newer build took over) used to open in the Design deck reading \"2 agents building\", its strip's dot pulsing and its bar shimmering for good. The strip now reads the build's one state (engine/buildstate.mjs): Stopped, with no pulse and no shimmer, and the chat says what is kept, with Resume (the message's entrance). The mid-build scene is such a build; its end picture changes too (the pull request's Motion line).",
+  "gained": [
+    "page @in 0.3s 1 div.item<#feed"
+  ],
+  "lost": [
+    "page @pulse endless span.st-dot",
+    "page @shimmer endless i"
+  ]
 }

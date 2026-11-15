@@ -289,13 +289,13 @@ export const rec = { on: false, run: '', at: 0, event: false, n: 0 }
 const gapOf = (e, prev, speed) => Math.min(Math.max(0, (e.t || prev) - prev) / speed, 1500)
 export async function replayRun(id, speed = 8) {
   const seq = ++replaySeq
-  const res = await api(`/api/runs/${encodeURIComponent(id)}/events`).catch(() => null)
+  // with the recording, the build's own state: what its last line says is made from it too (a failed build is
+  // not replayed as built)
+  const [res, build] = await Promise.all([api(`/api/runs/${encodeURIComponent(id)}/events`).catch(() => null), buildRead(id)])
   if (!res?.ok) { if (replayAsked) endReplay(); return botMsg('That run could not be loaded.') }
   if (seq !== replaySeq) return
+  setBuild(id, build)
   const events = withTyping((await res.json()).filter(e => e.type !== 'cmd'))
-  // what the recording's last line says is the build's own state too (a failed build is not replayed as built)
-  setBuild(id, await buildRead(id))
-  if (seq !== replaySeq) return
   let clock = 0, prev = events[0]?.t || 0, total = 0
   for (const e of events) { total += gapOf(e, prev, speed); prev = e.t || prev }
   prev = events[0]?.t || 0

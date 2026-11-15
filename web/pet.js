@@ -471,9 +471,10 @@ export function makePet({ sw, C, doc = document }) {
       P.building = false
       away()
       // (a replay is a build seen again, not a new one: she says nothing of it)
-      // and nothing of a build that ended with sections failed: "all 3 pages up" would not be true (the build's
-      // one state, as the server sent it: window.swarm.build)
-      const left = ['partly', 'failed'].includes(sw.build?.(e.run)?.state)
+      // and nothing of a build that ended with sections failed, or a next version that added nothing: "all 3
+      // pages up" and "done, and it's cute" would not be true (the build's one state, as the server sent it:
+      // window.swarm.build; with none, an app or the hosted studio, she says it as before)
+      const left = ['partly', 'failed', 'unchanged'].includes(sw.build?.(e.run)?.state)
       if (was && e.type === 'run:done' && !P.replay && !left) note('built', { pages: e.pages })
     }
   })
