@@ -60,7 +60,8 @@ under it. The chat's turn waits on it (`wait`, with `install`): Hermia's working
 the percent, and when it ends the chat gets one more turn (`settle`): "Godot 4.7.2 is installed: …" and the plan's real
 next step, or "Nothing happened: <reason>." with **Try again**, **Check again** and **Browser is fine**. **Check
 again** (`do:godot:check`, or "check again", "I installed it") only looks. winget on Windows is not used: not built,
-since it could not be run or checked here. Measured on an Apple-silicon Mac (2026-11-15): see the pull request.
+since it could not be run or checked here. Run once for real on an Apple-silicon Mac (2026-11-15, the archive route into a throwaway data folder): 12 s, 337 MB
+unpacked, `--version` answered `4.7.2.stable.official.ed1daf0bf`, found by `godotBin`, nothing in `/Applications`.
 Not installed by this: Godot's export templates (below), so a Web export still needs them.
 
 **Two paths.**
