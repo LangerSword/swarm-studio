@@ -11,10 +11,10 @@ Written 2026-11-15 from the code on this branch and from the walkthrough's pictu
 | Thing | File | States | Holes |
 |---|---|---|---|
 | A build (website; app and game; film) | [build.md](build.md) | 15 + 7 + 7 | 26 (B1 to B26) |
-| A game plan and its sketch sheets | [plan.md](plan.md) | see the file | 26 (PL1 to PL26) |
+| A game plan and its sketch sheets | [plan.md](plan.md) | 30 (plan, sheets, failures) | 26 (PL1 to PL26) |
 | A picture being painted | [picture.md](picture.md) | 14 | 21 (PI1 to PI21) |
 | One turn of the planner chat | [chat-turn.md](chat-turn.md) | 19 | 24 (C1 to C24) |
-| Publishing (site, app, GitHub, Feed, export, launch kit) | [publish.md](publish.md) | see the file | 30 (PU1 to PU30) |
+| Publishing (site, app, GitHub, Feed, export, launch kit) | [publish.md](publish.md) | 51 over six routes | 30 (PU1 to PU30) |
 
 127 holes in all. Some are one root seen from two tables; the ranked list below joins those.
 
@@ -66,7 +66,7 @@ Ranked by how wrong the screen is and how easily a person hits it. Holes that sh
 5. **B4.** "Try again" answers "Couldn't start it again: ask". It sends the brief with no "sure", so the ask-before-build rule refuses it (`web/canvas/panels.js:281`, `server/server.mjs:3346`).
 6. **C2, C3, B12, B13, C21.** "An app that is designed and not built" is a state no screen reads. "App" is known only from `app:ready` or `app:done` (`server/board.mjs:52`). So a change typed in the Overview bar starts a website build (`web/route.js:26`, `web/project.js:1338`), the app chat can only say "Build the app first" (`web/canvas/wander.js:48`), and the card says "Website".
 7. **PL1.** "Next: build the game from the plan." has one button, "Read the plan", and no code builds a game from a plan (`engine/gamestep.mjs:130`, `web/kit-game.js:53`).
-8. **B6.** A build replaced by a newer one, or cut off by a restart, has no end event, and no screen says what happened. The replaced build's own stop is dropped (`server/server.mjs:554`).
+8. **B6.** A build replaced by a newer one, or cut off by a restart, has no end event, and no screen says what happened. The replaced build's own stop is dropped (`server/server.mjs:554`). Read from the code, not seen.
 9. **PU3 and PU2.** A half-built or failed build can be published with no warning, since the button reads a count of sections (`web/canvas/loop.js:148`). "Live" on the card comes from any publish ever, and is checked before "Building" and "failed" (`server/projects.mjs:81`, `server/projects.mjs:85`).
 10. **B5.** On the Overview a failed section looks like one still loading, and pulses for good. The board keeps only `done` per section (`server/board.mjs:43`, `web/project.css:86`).
 11. **PL2 and PI2.** Work left "in progress" by a server stop stays that way for good: a plan's art build (`server/plans.mjs:338`), a website picture in the queue (`server/board.mjs:61`). Same root as B6: nothing closes open work on restart, except for films.
