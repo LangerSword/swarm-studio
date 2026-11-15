@@ -25,10 +25,12 @@ tooltips, targets under 40 px (44 on touch), blue, purple or green in the chrome
 rest, sideways scroll, and (in the runner) controls found only by hovering. Names are axe's now; the audit's own
 `unnamed` count is gone.
 
-**Target size stays with the hand audit.** axe's `target-size` rule defaults to 24 px, passes a small target that
-has room around it, and `@axe-core/playwright` 4.14 has no way to reconfigure a rule's checks (no `configure`). The
-house rule is 40 px (44 on touch) with no such exception, so `small` is the source of truth and axe's rule is off
-here.
+**Target size stays with the hand audit, for now.** axe's `target-size` rule can express the house minimum: append
+`axe.configure(...)` to the axe source given to `AxeBuilder` (`axeSource`), with `minSize: 40` and the rule's
+"has room around it" check removed. Tried on Projects, the Overview and the Design deck, it flags 26 to 30
+targets a screen where the hand audit lists 9 to 14 (its list stops at 14), and it counts controls that are not on
+screen (a 1 px colour input, a closed menu's buttons). The two do not count the same things yet, so `small` is the
+source of truth and axe's rule is off here; moving to axe's is a follow-up.
 
 Where each rule lives:
 
