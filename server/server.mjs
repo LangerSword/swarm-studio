@@ -1934,7 +1934,7 @@ async function readClip(file, kind) {
 // Bring a game or app in (docs/specs/45-intake.md): POST /api/intake
 const bringInRoute = bringInRoutes({ runsDir, projects, apps: () => apps(), record, readEvents, broadcast, join: joinHistory })
 // A project's source on GitHub (the same spec): GET and POST /api/projects/<id>/github
-const sourceRoute = sourceRoutes({ runsDir, dataDir, projects, readEvents, record, broadcast, bringIn: bringInRoute.bringIn, working: async id => (await apps()).state(id)?.state === 'working' })
+const sourceRoute = sourceRoutes({ runsDir, dataDir, projects, readEvents, record, broadcast, bringIn: bringInRoute.bringIn, working: async id => (await apps()).state(id)?.state === 'working', connectors })
 const chatMediaRoute = chatMediaRoutes({ chats, projectOf: run => RUN_ID.test(String(run || '')) ? projects.projectOf(run) : null, see: seePicture, read: readClip,
   toProject: (pid, { name, buf, chat }) => projects.get(pid) ? refs.addFile(pid, { name, source: 'chat', from: chat }, buf) : null })
 const brands = brandRoutes({
