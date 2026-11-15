@@ -23,10 +23,12 @@ const refDropFiles = (/** @type {DragEvent} */ e) => [...(e.dataTransfer?.types 
 /**
  * @param {{ root: HTMLElement, at: () => string | null, api: (path: string, opts?: RequestInit) => Promise<Response>,
  *   said?: (text: string) => void, done?: (refs: any[], added: any[]) => void, asset?: (refs: any[], assets: any[]) => void,
- *   hosted?: () => boolean, skip?: (e: DragEvent) => boolean }} o
+ *   hosted?: () => boolean, skip?: (e: DragEvent) => boolean, paste?: boolean }} o
  *   skip(e): a drop this screen handles itself (the Studio's Assets section, the chat's own chips)
+ *   paste: a paste on the screen is taken too (a game's Plan board, issue #607): a picture as a drop, words as a note,
+ *     a link as a link (text/plain and text/uri-list to the same address); never while typing in a field
  */
-export function refDrop({ root, at, api, said = () => {}, done = () => {}, asset = () => {}, hosted = () => false, skip = () => false }) {
+export function refDrop({ root, at, api, said = () => {}, done = () => {}, asset = () => {}, hosted = () => false, skip = () => false, paste = false }) {
   const over = document.createElement('div')
   over.className = 'rd-over'
   over.hidden = true
@@ -43,6 +45,31 @@ export function refDrop({ root, at, api, said = () => {}, done = () => {}, asset
     e.preventDefault()
     add([...(e.dataTransfer?.files || [])])
   })
+
+  if (paste) document.addEventListener('paste', e => {
+    if (root.hidden || !root.getClientRects().length || hosted() || !at()) return
+    const t = e.target
+    if (t instanceof Element && t.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return
+    const files = [...(e.clipboardData?.files || [])]
+    if (files.length) { e.preventDefault(); add(files); return }
+    const text = (e.clipboardData?.getData('text/plain') || '').trim()
+    if (!text) return
+    e.preventDefault()
+    addText(text)
+  })
+
+  // words or a link pasted: kept with what was dropped, where nothing is asked (a picture alone is used as is)
+  /** @param {string} text */
+  async function addText(text) {
+    const p = at()
+    if (!p) return
+    const link = /^https?:\/\/\S+$/i.test(text)
+    const res = await api(`${p}/refs?source=paste`, { method: 'POST', headers: { 'content-type': link ? 'text/uri-list' : 'text/plain' }, body: text }).catch(() => null)
+    const j = res ? await res.json().catch(() => ({})) : {}
+    if (!res?.ok || !j.ref) { said(`That could not be added${j.error ? `: ${j.error}` : ''}.`); return }
+    done(j.refs || [], [j.ref])
+    said(`I kept ${link ? `the link to ${j.ref.source}` : 'your note'} in References.`)
+  }
 
   /** @param {File[]} files */
   async function add(files) {

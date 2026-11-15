@@ -8,7 +8,7 @@ import { planStore, planView, editCard, editStarter, setSystems, lockPlan, asser
 import { addSheet, addMocks, lockStyle, addBackdrops, addCloseups, entryFor, settleStale, buildScope, charEntry, viewJob, spriteJobs, VIEWS, gameBrief } from '../engine/planart.mjs'
 import { askShape } from '../engine/planshape.mjs'
 import { nextStep } from '../engine/gamestep.mjs'
-import { addPlanRef, removePlanRef, planRefAsIs, planRefs, carryPlanRefs } from '../engine/planrefs.mjs'
+import { addPlanRef, addPlanNote, addPlanLink, removePlanRef, planRefAsIs, planRefs, carryPlanRefs } from '../engine/planrefs.mjs'
 import { planTemplate, remixPlan, templateStore, TEMPLATE_ID } from '../engine/template.mjs'
 
 // paint({ prompt, quality: 'medium' | 'high', aspect, crop, refs }) -> { ok, path, error }: one picture
@@ -231,7 +231,12 @@ export function planRoutes({ dataDir, hooks = {}, paint = null, make = null, onP
       if (n > 60e6) return
       try {
         const p = store.get(id)
-        const r = addPlanRef(p, files(p.id), { name: url.searchParams.get('name') || 'reference.png', buf: Buffer.concat(chunks) })
+        // pasted words are a note, a pasted link is a link (its first address); anything else a picture
+        const type = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase()
+        const text = () => Buffer.concat(chunks).toString('utf8')
+        const r = type === 'text/uri-list' ? addPlanLink(p, { url: text().split(/\r?\n/).find(l => l.trim() && !l.startsWith('#')) })
+          : type === 'text/plain' ? addPlanNote(p, { text: text() })
+          : addPlanRef(p, files(p.id), { name: url.searchParams.get('name') || 'reference.png', buf: Buffer.concat(chunks) })
         lockAgain(p)
         store.save(p)
         json(res, 200, out(p, { ref: r }))
