@@ -154,15 +154,35 @@ export async function ghLogin(gh = ghCli) {
 }
 /** a repository as the person's login sees it: { private, mine: the Studio made it } or null when there is none */
 async function repoFacts(slug, gh = ghCli) {
-  const r = await gh(['api', `repos/${slug}`, '--jq', '[.private, (.description // "")] | @json'])
+  const r = await gh(['repo', 'view', slug, '--json', 'isPrivate,description'])
   if (!r.ok) {
-    if (/404|Not Found/i.test(r.err + r.out)) return null
+    if (/404|Not Found|Could not resolve to a Repository/i.test(r.err + r.out)) return null
     throw fail(/ENOENT/.test(r.err) ? 'The GitHub CLI (gh) is not installed on this computer' : `GitHub did not answer for ${slug}: ${said(r.err)}`, 502)
   }
-  let got = []
-  try { got = JSON.parse(r.out) } catch {}
-  return { private: got[0] === true, mine: String(got[1] || '').includes(MARK) }
+  let got = {}
+  try { got = JSON.parse(r.out) || {} } catch {}
+  return { private: got.isPrivate === true, mine: String(got.description || '').includes(MARK) }
 }
+/** The same list through GitHub's own MCP server, when the person added it to Hermes and granted it to this plugin
+ * (engine/hermes_connect.mjs; Hermes holds the token). Its `search_repositories` tool takes a GitHub search query.
+ * → the same shape as listRepos, or null when it gave nothing to read (the caller then asks gh) */
+export async function listReposByConnector(owners, call) {
+  const repos = [], errors = []
+  for (const owner of [...new Set(owners.filter(o => /^[A-Za-z0-9-]{1,39}$/.test(String(o || ''))))]) {
+    let got
+    try { got = await call('github', 'search_repositories', { query: `user:${owner} fork:true`, perPage: 100 }) } catch (err) { errors.push(`${owner}: ${String(err.message || err).slice(0, 200)}`); continue }
+    const items = Array.isArray(got?.items) ? got.items : Array.isArray(got) ? got : null
+    if (!items) return null
+    for (const x of items) {
+      const name = x?.full_name || x?.nameWithOwner
+      if (typeof name !== 'string' || !/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(name)) continue
+      repos.push({ repo: name, private: x.private === true, empty: x.size === 0, updated: Date.parse(x.pushed_at || x.updated_at) || 0 })
+    }
+  }
+  repos.sort((a, b) => b.updated - a.updated || a.repo.localeCompare(b.repo))
+  return { repos, errors, by: 'connector' }
+}
+
 /** The repositories the person's gh login can see under each of `owners` (their login, their organizations), the
  * newest first, for the sheet's "An existing repository" list. One owner GitHub would not list is said in `errors`
  * and the others still come back. → { repos: [{ repo, private, empty, updated }], errors: [words] } */

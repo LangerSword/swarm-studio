@@ -33,12 +33,11 @@ function github({ login = 'me' } = {}) {
   const hold = () => { let open; gate = new Promise(r => { open = r }); return () => { gate = null; open() } }
   const gh = async args => {
     calls.push(args)
-    if (gate && args[0] === 'api' && /^repos\/[^/]+\/[^/]+$/.test(args[1])) await gate
+    if (gate && args[0] === 'repo' && args[1] === 'view') await gate
     if (args[0] === 'api' && args[1] === 'user') return login ? { ok: true, out: `${login}\n`, err: '' } : { ok: false, out: '', err: 'not logged in' }
     const cmp = args[0] === 'api' && args[1].match(/^repos\/(.+)\/compare\//)
     if (cmp) return changed.files ? { ok: true, out: JSON.stringify([changed.files.length, ...changed.files]), err: '' } : { ok: false, out: '', err: 'HTTP 404' }
-    const one = args[0] === 'api' && args[1].match(/^repos\/([^/]+\/[^/]+)$/)
-    if (one) return priv.has(one[1]) ? { ok: true, out: JSON.stringify(priv.get(one[1])), err: '' } : { ok: false, out: '', err: 'gh: Not Found (HTTP 404)' }
+    if (args[0] === 'repo' && args[1] === 'view') return priv.has(args[2]) ? { ok: true, out: JSON.stringify({ isPrivate: priv.get(args[2])[0], description: priv.get(args[2])[1] }), err: '' } : { ok: false, out: '', err: `GraphQL: Could not resolve to a Repository with the name '${args[2]}'. (repository)` }
     if (args[0] === 'repo' && args[1] === 'list') {
       if (refuse.has(args[2])) return { ok: false, out: '', err: `HTTP 403: ${args[2]} needs single sign-on` }
       const mine = [...priv.keys()].filter(k => k.startsWith(`${args[2]}/`))
@@ -184,7 +183,7 @@ test('a project remembers its repository, and forgets the old facts when it chan
 })
 
 // ---------- the routes, with a projects store, the app jobs and the intake route standing in
-function studio(G) {
+function studio(G, { connectors = null } = {}) {
   const home = tmp(), runsDir = join(home, 'runs'), dataDir = join(home, 'data'), logs = new Map(), known = {}
   mkdirSync(runsDir)
   const record = (id, e) => { (logs.get(id) || logs.set(id, []).get(id)).push(e); return true }
@@ -201,7 +200,7 @@ function studio(G) {
   const bring = bringInRoutes({ runsDir, projects, home, record, readEvents, fetch, join: (dir, slug) => joinHistory(dir, slug, G.hub),
     apps: async () => ({ bring: (id, o) => { logs.set(id, readFileSync(join(runsDir, id, 'events.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l))); return real(id, o) } }) })
   let clock = 1000
-  const route = sourceRoutes({ runsDir, dataDir, projects, readEvents, record, bringIn: bring.bringIn, hub: G.hub, gh: G.gh, now: () => (clock += 1000), home, hermesHome: join(home, '.hermes') })
+  const route = sourceRoutes({ runsDir, dataDir, projects, readEvents, record, bringIn: bring.bringIn, hub: G.hub, gh: G.gh, now: () => (clock += 1000), home, hermesHome: join(home, '.hermes'), connectors })
   // a run the Studio built: its app/ with a history
   const built = (pid, name, run, files, kind = 'app') => {
     known[pid] ||= { name, runs: [] }; known[pid].runs.push(run)
@@ -557,4 +556,30 @@ test('the door, from the chat: a typed path is the folder the files go in; a fol
     assert.equal(readFileSync(join(S.home, 'code', 'site', 'index.html'), 'utf8'), 'v1')
     assert.deepEqual({ folder: st.link.folder, sub: st.link.sub, mode: st.link.mode }, { folder: join(S.home, 'code'), sub: 'site', mode: 'folder' })
   } finally { S.jobs.close() }
+})
+
+test("the repositories come through GitHub's own MCP server when it is added to Hermes and granted; otherwise through gh", async () => {
+  const call = (S, path) => new Promise(ok => {
+    const res = { writeHead(code) { this.code = code; return this }, end(text) { ok({ code: this.code, body: JSON.parse(text) }) } }
+    S.route({ method: 'GET', on: () => {} }, res, new URL(`http://x${path}`))
+  })
+  const G = github()
+  G.make('me/by-gh')
+  const asked = []
+  const granted = { status: async () => ({ installed: true, allowed: true }), call: async (server, tool, args) => { asked.push([server, tool, args.query]); return { total_count: 1, items: [{ full_name: 'me/by-connector', private: false, size: 3, pushed_at: '2026-11-01T00:00:00Z' }] } } }
+  const S = studio(G, { connectors: granted })
+  try {
+    const r = await call(S, '/api/github/repos')
+    assert.equal(r.body.by, 'connector'); assert.deepEqual(r.body.repos.map(x => x.repo), ['me/by-connector'])
+    assert.deepEqual(asked, [['github', 'search_repositories', 'user:me fork:true']])
+  } finally { S.jobs.close() }
+  // added but not granted to Swarm Studio, or answering nothing it can read: gh, as before
+  for (const c of [{ status: async () => ({ installed: true, allowed: false }), call: async () => { throw new Error('not allowed') } },
+    { status: async () => ({ installed: true, allowed: true }), call: async () => 'a note, not a list' }, null]) {
+    const T = studio(G, { connectors: c })
+    try {
+      const r = await call(T, '/api/github/repos')
+      assert.equal(r.body.by, 'gh'); assert.deepEqual(r.body.repos.map(x => x.repo), ['me/by-gh'])
+    } finally { T.jobs.close() }
+  }
 })

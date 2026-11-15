@@ -27,7 +27,7 @@ import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { GITHUB, ghCli, ghLogin, listRepos, pushSource, remoteHead, localHead, hasCommit, isBehind, changedUnder, repoName, readTarget, sourceLinks, rememberLink } from '../engine/sourcehub.mjs'
+import { GITHUB, ghCli, ghLogin, listRepos, listReposByConnector, pushSource, remoteHead, localHead, hasCommit, isBehind, changedUnder, repoName, readTarget, sourceLinks, rememberLink } from '../engine/sourcehub.mjs'
 import { parseRepo, cleanSub, KINDS } from '../engine/bringin.mjs'
 import { chooseOwner, ghOrgs, ownerFor, ownerView, savedOwner } from '../engine/ghowner.mjs'
 import { cleanName, folderChanges, folderTarget, folderWhere, freeLocalBranch, pathTarget, toCheckout, toFolder } from '../engine/sourcefolder.mjs'
@@ -38,7 +38,7 @@ const PLUGIN = fileURLToPath(new URL('..', import.meta.url))
 
 const fail = (message, status = 400, more = {}) => Object.assign(new Error(message), { status, ...more })
 
-export function sourceRoutes({ runsDir, dataDir, projects, readEvents, record, broadcast = () => {}, bringIn, working = async () => false, hub = GITHUB, gh = ghCli, now = () => Date.now(), home = homedir(), hermesHome = process.env.HERMES_HOME || join(homedir(), '.hermes') }) {
+export function sourceRoutes({ runsDir, dataDir, projects, readEvents, record, broadcast = () => {}, bringIn, working = async () => false, hub = GITHUB, gh = ghCli, now = () => Date.now(), home = homedir(), hermesHome = process.env.HERMES_HOME || join(homedir(), '.hermes'), connectors = null }) {
   // a folder a project's source may be written to: inside the home folder, and none of these
   const deny = [runsDir, dataDir, hermesHome, PLUGIN].filter(Boolean)
   const json = (res, code, data) => res.writeHead(code, { 'content-type': 'application/json' }).end(JSON.stringify(data))
@@ -290,7 +290,10 @@ export function sourceRoutes({ runsDir, dataDir, projects, readEvents, record, b
       const me = await login()
       if (!me) return json(res, 424, { error: 'GitHub CLI is not signed in: run gh auth login' })
       const orgs = await ghOrgs(gh).then(o => o.orgs.map(x => x.login), () => [])
-      const got = await listRepos([me, ...orgs], gh)
+      // GitHub's own MCP server through Hermes when it is added and granted; else the person's gh, as before
+      const c = connectors ? await connectors.status('github').catch(() => null) : null
+      const via = c?.installed && c.allowed ? await listReposByConnector([me, ...orgs], (s, t, a) => connectors.call(s, t, a, 60)).catch(() => null) : null
+      const got = via && via.repos.length ? via : { ...await listRepos([me, ...orgs], gh), by: 'gh' }
       json(res, 200, { login: me, ...got })
     })().catch(err => json(res, err.status || 502, { error: String(err.message || err) }))
     return true
