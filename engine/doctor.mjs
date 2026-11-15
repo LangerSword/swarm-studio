@@ -10,7 +10,12 @@
 //   python   which Python the cutters use and which of numpy, scipy and PIL each candidate lacks
 //   hermes   whether Hermes is attached
 //   models   the planner, builder, reviewer, image and video models that are set
+// A website build that did not finish is led by its one state (run.build, engine/buildstate.mjs): the reason in
+// plain words and the one way on it names (Resume, or Try again), then a short list. A provider's raw text
+// (engine/stopreason.mjs says what that is) is never Fix's answer: it is the Log's.
 import { HONEST_RULE, CANNOT, honestly } from './honest.mjs'
+import { reasonFromFailure, isRaw } from './stopreason.mjs'
+import { endWords } from '../web/replaytalk.js'
 
 const clean = (v, n = 300) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n)
 
@@ -75,6 +80,23 @@ export function causeOf(message = '') {
   return { where: 'unknown', cause: '' }
 }
 
+// a failure's own message as Fix says it: a model's or a connection's raw text in plain words, the rest as it is
+export const plainWhy = message => {
+  const where = causeOf(message).where
+  return where === 'model' || (where === 'unknown' && isRaw(message)) ? reasonFromFailure(message, { ended: true }).message.replace(/\.$/, '') : clean(message)
+}
+
+// ---------- the open website build that did not finish: failed, partly built, halted, cut off (unsure), or a
+// next version that added nothing for a reason. Its state is the server's one state of it (facts.run.build).
+const TROUBLE = new Set(['partly', 'failed', 'halted', 'unsure'])
+export function troubleOf(facts = {}) {
+  const b = facts.run?.build
+  if (!b || facts.run.working) return null
+  return TROUBLE.has(b.state) || (b.state === 'unchanged' && b.reason) ? b : null
+}
+// the parts a reason points at: Setup comes first only for these
+const REASON_PARTS = { hermes: ['hermes'], setup: ['planner', 'builders', 'hermes'] }
+
 // ---------- which Python the cutters use (scripts/cutout.py and the sheet cutter need numpy, scipy and PIL)
 export const CUT_MODULES = ['numpy', 'scipy', 'PIL']
 // candidates: the Pythons tried, in order; missing(py) -> the modules of CUT_MODULES it cannot import,
@@ -108,7 +130,17 @@ export function actionsFor(facts = {}) {
   // the part a failure points at comes first, then every other part that is not working
   const named = fails.map(f => causeOf(f.message).part).filter(Boolean)
   const parts = [...broken.filter(p => named.includes(p.k)), ...broken.filter(p => !named.includes(p.k))]
-  for (const p of parts.slice(0, 3)) out.push({ id: `setup:${p.k}`, kind: 'setup', part: p.k, group: p.group, row: p.fix?.row || 'parts', label: `Open Setup: ${p.name}`, does: `opens Setup on ${p.name} (${p.why || p.st})` })
+  const setup = p => ({ id: `setup:${p.k}`, kind: 'setup', part: p.k, group: p.group, row: p.fix?.row || 'parts', label: `Open Setup: ${p.name}`, does: `opens Setup on ${p.name} (${p.why || p.st})` })
+  // a website build that did not finish: the way on its state names comes first (Resume, or Try again). Setup
+  // goes ahead of it only when the reason is setup (Hermes away, no model), never because some part is off.
+  const trouble = troubleOf(facts)
+  if (trouble?.next && run) {
+    const first = REASON_PARTS[trouble.reason?.code] || []
+    const way = trouble.next === 'resume' ? { id: 'resume', kind: 'resume', run, label: 'Resume', does: 'builds the sections that are left, in the project\'s next version' }
+      : { id: 'again', kind: 'again', run, label: 'Try again', does: 'builds the same words again, from the start' }
+    return [...parts.filter(p => first.includes(p.k)).slice(0, 1).map(setup), way, ...parts.filter(p => !first.includes(p.k)).slice(0, 2).map(setup)]
+  }
+  for (const p of parts.slice(0, 3)) out.push(setup(p))
   // a failure caused by the Studio's own tooling comes back if it is run again as it is: no re-run is offered for it
   const rerun = f => causeOf(f.message).where !== 'studio'
   const pic = fails.findLast(f => f.kind === 'picture' && f.page && f.layer && f.gen && rerun(f))
@@ -125,8 +157,11 @@ export function factLines(facts = {}) {
   const lines = []
   const fails = facts.run?.failures || []
   if (facts.run) {
-    lines.push(`The open ${facts.run.kind === 'game' ? 'game' : facts.run.kind === 'app' ? 'app' : 'build'}${facts.run.working ? ' (building now)' : ''}: ${fails.length ? `${fails.length} recent failure${fails.length === 1 ? '' : 's'}` : 'no failures in its log'}.`)
-    for (const f of fails) { const c = causeOf(f.message); lines.push(`- ${f.kind} (${f.what}): ${f.message || 'no message'}${c.where !== 'unknown' ? ` [${c.where === 'studio' ? "the Studio's tooling" : c.where === 'model' ? 'a model or connection' : 'the project'}: ${c.cause}]` : ''}`) }
+    const trouble = troubleOf(facts)
+    // a build that stopped before any section failed has no failure in its log, and did not finish all the same
+    if (fails.length || !trouble) lines.push(`The open ${facts.run.kind === 'game' ? 'game' : facts.run.kind === 'app' ? 'app' : 'build'}${facts.run.working ? ' (building now)' : ''}: ${fails.length ? `${fails.length} recent failure${fails.length === 1 ? '' : 's'}` : 'no failures in its log'}.`)
+    if (trouble) lines.push(`The build did not finish: ${endWords(trouble)}${trouble.reason?.action ? ` ${trouble.reason.action}` : ''}${trouble.next ? ` The way on: ${trouble.next === 'resume' ? 'Resume' : 'Try again'}.` : ''}`)
+    for (const f of fails) { const c = causeOf(f.message); lines.push(`- ${f.kind} (${f.what}): ${plainWhy(f.message) || 'no message'}${c.where !== 'unknown' ? ` [${c.where === 'studio' ? "the Studio's tooling" : c.where === 'model' ? 'a model or connection' : 'the project'}: ${c.cause}]` : ''}`) }
   } else lines.push('No build is open.')
   if (facts.hermes) lines.push(`Hermes: ${facts.hermes.attached ? 'attached' : `not attached${facts.hermes.message ? ` (${clean(facts.hermes.message, 160)})` : ''}`}.`)
   if (facts.models) lines.push(`Models: ${['planner', 'worker', 'reviewer', 'image', 'video'].map(r => `${r === 'worker' ? 'builders' : r} ${facts.models[r] || 'none'}`).join(', ')}.`)
@@ -150,11 +185,19 @@ export function factLines(facts = {}) {
 // what failed and the one next step, with no model to word it: the facts, plainly
 export function plainReply(facts = {}, actions = actionsFor(facts)) {
   const fails = facts.run?.failures || []
+  // a website build that did not finish: the one reason and the one thing to do, then only what stops something
+  const trouble = troubleOf(facts)
+  if (trouble) {
+    const out = [endWords(trouble)]
+    if (trouble.reason?.action) out.push(trouble.reason.action.replace(/`/g, ''))
+    for (const p of brokenParts(facts.parts).slice(0, 3)) out.push(`- ${p.name}: ${ST[p.st]}${p.why ? ` (${p.why})` : ''}`)
+    return out.join('\n')
+  }
   const last = fails.findLast(f => causeOf(f.message).where === 'studio') || fails.at(-1)
   const out = []
   if (last) {
     const c = causeOf(last.message)
-    out.push(`What failed: ${last.what}: ${last.message || 'no message'}.`)
+    out.push(`What failed: ${last.what}: ${plainWhy(last.message) || 'no message'}.`)
     out.push(c.where === 'studio' ? `That is Swarm Studio's own tooling, not your project: ${c.cause}.` : c.where === 'model' ? `That is a model or connection, not your project: ${c.cause}.` : c.where === 'project' ? `That is in the project itself: ${c.cause}.` : 'The log does not say whether that is the Studio or the project.')
     const cmd = c.module && facts.python && !facts.python.use ? pythonCommand(facts.python) || `python3 -m pip install ${pipName(c.module)}` : ''
     if (cmd) out.push(`Next step: run this in a terminal on this computer, then restart Swarm Studio: ${cmd}`)
@@ -205,8 +248,13 @@ export async function diagnose({ facts = {}, text = '', chat = null }) {
     const say = await honestly({ answer: first.say, text, again: async note => readDoctor(await chat([...messages, { role: 'assistant', content: JSON.stringify(first) }, { role: 'user', content: `${note} Reply with the same JSON shape.` }])).say })
     // a model that keeps claiming it will fix things itself is not quoted: the facts are
     if (say === CANNOT) return plain()
+    // a provider's raw text in the model's own answer is not passed on either
+    if (isRaw(say)) return plain()
     // only actions from the list, never one the model made up
-    const offered = first.offer.map(id => actions.find(a => a.id === id)).filter(Boolean).slice(0, 2)
+    const picked = first.offer.map(id => actions.find(a => a.id === id)).filter(Boolean)
+    // a build that did not finish keeps its way on, whatever the model offered
+    const way = troubleOf(facts)?.next ? actions.find(a => a.kind === 'resume' || a.kind === 'again') : null
+    const offered = (way ? [way, ...picked.filter(a => a !== way)] : picked).slice(0, 2)
     return { reply: say.replace(/\*\*(.+?)\*\*/g, '$1').slice(0, 1200), actions: offered, by: 'model' }
   } catch { return plain() }
 }

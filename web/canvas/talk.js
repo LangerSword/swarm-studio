@@ -3,7 +3,7 @@
 import { els, api, $, ico, commandOps, BASE } from './core.js'
 import { viewing, setViewing } from './replay.js'
 import { fresh, links } from './base.js'
-import { botMsg, feed } from './panels.js'
+import { botMsg, feed, failSay } from './panels.js'
 import { esc } from './design.js'
 import { nextRoute, slashPop, slashMatches, slashAt, renderSlash, pickSlash, setNextRoute, setSlashAt } from './loop.js'
 import { runNow, shownRun } from './film.js'
@@ -18,7 +18,10 @@ import { chatCards, chatCardsLine } from '../chatcards.js'
 // The talk is kept in a chat (spec 29, engine/chats.mjs): the server makes it on the first turn and
 // answers with its id; an old chat opened from Studio home or a project's chats comes back here.
 // ask: the chat's skip question before a website's build is open (decision 0020): words and picks answer it
-export const talk = { on: false, busy: false, said: [], kind: 'site', build: null, dock: null, chat: null, from: null, plan: null, ask: false }
+// retry: the message the planner did not answer, ready to be sent again (Try again, or typed)
+export const talk = { on: false, busy: false, said: [], kind: 'site', build: null, dock: null, chat: null, from: null, plan: null, ask: false, retry: null }
+// "try again" typed after a turn that failed is the Try again button
+const AGAIN_WORDS = /^(?:please )?(?:try|say|send|ask)(?: it| that| this)? again(?: please)?[.!]?$|^retry[.!]?$/i
 // while talking, the dock sends to Hermia: its button says Send, not the mode's word (web/chatmode.js
 // writes the button: the mode can change while a talk is open)
 function talkDock(on) {
@@ -35,7 +38,7 @@ export const readTalk = (text, answerTo = '', kind = 'site') => api('/api/discus
 // web/scaffold.js, decision 0020): those words are Hermia's reply, and the planner is not asked
 export function talkStart({ text = '', kind = 'site', build, blank = false, said = [], chat = null, from = null, brief = '', what = '', sheet = false, heard = null }) {
   if (blank) { setViewing('new'); fresh(null) }
-  Object.assign(talk, { on: true, busy: false, said: [], kind, build, chat, from, plan: null, heard, ask: false })
+  Object.assign(talk, { on: true, busy: false, said: [], kind, build, chat, from, plan: null, heard, ask: false, retry: null })
   talkDock(true)
   els.feed.querySelector('.empty-chat')?.remove()
   let last = null
@@ -60,6 +63,10 @@ export const saidOf = chat => (chat?.turns || []).filter(t => t.who !== 'crew').
 const talkCards = (/** @type {HTMLElement} */ item, /** @type {any[]} */ cards, /** @type {string | null} */ turn) => chatCards(item, { cards, chat: talk.chat, turn, base: BASE, api, said: text => { talk.said.push({ who: 'hermia', text }); botMsg(text) } })
 export const talkEnd = () => { talk.on = false; talk.busy = false; talkDock(false); els.feed.querySelectorAll('.talk-acts').forEach(x => x.remove()) }
 export async function talkSay(text, brief = false) {
+  // the turn before failed and this asks for it again: the same message is sent, nothing new is said
+  const retry = talk.retry
+  talk.retry = null
+  if (retry && !brief && AGAIN_WORDS.test(String(text).trim())) { feed(null, text, 'you'); els.feed.querySelectorAll('.fail-turn .chips').forEach(x => x.remove()); return retry() }
   if (talk.kind === 'game') return gameSay({ said: text })
   if (talk.ask && !brief) return goSay({ said: text })
   const media = brief ? [] : links.take('ref')
@@ -75,6 +82,10 @@ export async function talkSay(text, brief = false) {
     if (!talk.on) return
     if (typeof reply === 'string' && reply) { for (const m of [...media, ...about]) links.add(m); talk.said.push({ who: 'hermia', text: reply }); return void botMsg(reply) }
   }
+  return talkSend(brief, media)
+}
+// the planner is asked (again, when the turn before failed): the talk as it stands, with this turn's media
+async function talkSend(brief, media) {
   const wait = botMsg(brief ? 'Writing the brief…' : '…', true)
   talk.busy = true
   const res = await api('/api/discuss', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ said: talk.said, kind: talk.kind, brief, ...(media.length ? { refs: media.map(m => m.key) } : {}), ...(talk.chat ? { chat: talk.chat } : talk.from ? { from: talk.from } : {}) }) }).catch(() => null)
@@ -83,7 +94,13 @@ export async function talkSay(text, brief = false) {
   talk.busy = false
   wait.remove()
   if (!talk.on) return
-  if (!res?.ok) return talkActs(botMsg(j.error || 'Hermia did not answer. Say it again.'))
+  // no answer: the turn is not Hermia's. The reason, and the one thing that works: the same message again
+  // (Check again when Hermes is away, Models when none is set). Never Build under an error.
+  if (!res?.ok) {
+    const again = () => { talk.retry = null; if (talk.on && !talk.busy) talkSend(brief, media) }
+    talk.retry = again
+    return void failSay(j.hermes ? { code: 'hermes', message: j.message, action: j.action } : j.reason, { again })
+  }
   if (j.brief) return talkBrief(j.brief, j.route)
   talk.said.push({ who: 'hermia', text: j.heard || j.reply })
   const msg = botMsg(j.reply)
@@ -117,9 +134,9 @@ function askActs(item, turn) {
   }
   item.append(acts)
 }
-async function goSay({ said = '', pick = '', label = '' }) {
+async function goSay({ said = '', pick = '', label = '', again = false }) {
   if (talk.busy || !talk.chat) return
-  const text = said || label
+  const text = again ? '' : said || label
   if (text) { talk.said.push({ who: 'you', text }); feed(null, text, 'you') }
   els.feed.querySelectorAll('.talk-acts').forEach(x => x.remove())
   const wait = botMsg('…', true)
@@ -134,7 +151,10 @@ async function goSay({ said = '', pick = '', label = '' }) {
     if (talk.ask) return askActs(item, turn)
     if (turn.go) return goOn(turn.go, j.chat?.id || talk.chat)
     talkActs(item)
-  } catch (err) { if (talk.on) botMsg(err.message || 'Hermia did not answer. Say it again.') } finally { talk.busy = false; wait.remove() }
+  } catch (err) {
+    // no answer: the reason and Try again, which sends the same words or pick (it was said once already)
+    if (talk.on) { const again = () => { talk.retry = null; goSay({ said, pick, again: true }) }; talk.retry = again; failSay(err.reason, { again }) }
+  } finally { talk.busy = false; wait.remove() }
 }
 // the answer: build now (this chat's brief, answered), or the Studio walk from it with the skipped steps marked
 async function goOn(go, chat) {
@@ -166,10 +186,10 @@ commandOps.chat = c => openAsk(c.target)
 // open question only); the plan takes shape on the board beside the chat. Lock makes the plan, or
 // re-plans it in place, and opens it; saying a change later ("make it 3d") reopens the spec.
 const talkPost = (path, body) => api(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) })
-  .then(async r => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`); return j })
-async function gameSay({ said = '', pick = '', label = '' }) {
+  .then(async r => { const j = await r.json().catch(() => ({})); if (!r.ok) throw Object.assign(new Error('no answer'), { reason: j.hermes ? { code: 'hermes', message: j.message, action: j.action } : j.reason || null }); return j })
+async function gameSay({ said = '', pick = '', label = '', again = false }) {
   if (talk.busy) return
-  const text = said || label
+  const text = again ? '' : said || label
   if (text) { talk.said.push({ who: 'you', text }); feed(null, text, 'you') }
   els.feed.querySelectorAll('.talk-acts').forEach(x => x.remove())
   const wait = botMsg('…', true)
@@ -186,7 +206,12 @@ async function gameSay({ said = '', pick = '', label = '' }) {
     if (j.plan?.id) { const fresh = talk.plan !== j.plan.id; talk.plan = j.plan.id; if (fresh) window.swarmCosmos?.plan?.(j.plan.id, true); else window.swarmCosmos?.planAt?.(j.plan.id, {}) }
     else if (j.draft) window.swarmCosmos?.planDraft?.(j.draft)
     if (j.turn.wait) gameWatch(j.turn.text)
-  } catch (err) { if (talk.on) botMsg(err.message || 'Hermia did not answer. Say it again.') } finally { talk.busy = false; wait.remove() }
+    // the planner's model did not answer this turn (server/talk.mjs `failed`): the step above is the plan's own;
+    // the reason is said beside it, with Try again for the same words
+    if (j.failed) { const retry = () => { talk.retry = null; gameSay({ said, pick, again: true }) }; talk.retry = retry; failSay(j.failed, { again: retry }) }
+  } catch (err) {
+    if (talk.on) { const retry = () => { talk.retry = null; gameSay({ said, pick, again: true }) }; talk.retry = retry; failSay(err.reason, { again: retry }) }
+  } finally { talk.busy = false; wait.remove() }
 }
 // While something paints, ask for the next step every few seconds; when it moves on, Hermia says it with its buttons
 function gameWatch(was) {

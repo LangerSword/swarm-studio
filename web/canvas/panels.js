@@ -3,6 +3,7 @@
 import { layerDrag } from '../layerlink.js'
 import { layerTree, layerSheet } from '../layers.js'
 import { statusWords, REPLAY_WORD, buildStrip, endWords } from '../replaytalk.js'
+import { isRaw } from '../stopreason.js'
 import { S, els, TOOL, TOOLS, Crew, HERMIA, api, WALL, buildOf } from './core.js'
 import { slotFor, setAuto, fit, post, focusPage, toolFlash } from './deck.js'
 import { design, showDtab, esc } from './design.js'
@@ -355,7 +356,9 @@ export async function hermesReady() {
   return { message: j.health.message, action: j.health.action, code: j.health.code }
 }
 // one calm line in the chat with the one thing to do, and a way to look again
-export function hermesSays(h) {
+// then: what was being sent when Hermes was found away (a talk's message): once Hermes is there it is sent again
+/** @param {any} h  @param {(() => void) | null} [then] */
+export function hermesSays(h, then = null) {
   window.swarmCosmos?.chat?.(true)
   const item = botMsg(h.message)
   if (h.action) item.querySelector('.txt').append(document.createElement('br'), actionLine(h.action))
@@ -367,10 +370,47 @@ export function hermesSays(h) {
   acts.firstChild.onclick = async () => {
     const again = await hermesReady()
     acts.remove()
-    if (!again) return botMsg('Hermes is connected. Send the message again to build.')
-    hermesSays(again)
+    if (!again) return then ? then() : botMsg('Hermes is connected. Send the message again to build.')
+    hermesSays(again, then)
   }
   item.append(acts)
+  return item
+}
+// A turn that failed is not Hermia speaking: the reason in plain words (web/stopreason.js: the one table of them),
+// the one thing to do, and the one button that does it. again: sends the same message again (Try again; for
+// Hermes away, Check again sends it once Hermes is there). A reason that is missing, or still raw, is never shown.
+/** @param {any} reason  @param {{ again?: (() => void) | null, lead?: string }} [o] */
+export function failSay(reason, { again = null, lead = '' } = {}) {
+  const r = reason && typeof reason.message === 'string' && reason.message && !isRaw(reason.message) ? reason : { code: 'studio', message: 'No answer came back.', action: '' }
+  if (r.code === 'hermes') return hermesSays(r, again)
+  window.swarmCosmos?.chat?.(true)
+  const item = document.createElement('div')
+  item.className = 'item err fail-turn'
+  item.innerHTML = '<span class="txt"></span>'
+  item.querySelector('.txt').textContent = [lead, r.message].filter(Boolean).join(' ')
+  if (r.action && !isRaw(r.action)) item.querySelector('.txt').append(document.createElement('br'), actionLine(r.action))
+  push(els.feed, item)
+  // a replay only plays: nothing that acts is offered in a line it adds
+  if (rec.event) return item
+  const acts = document.createElement('div')
+  acts.className = 'chips'
+  if (r.code === 'setup') {
+    acts.innerHTML = '<button class="primary">Models</button>'
+    // @ts-ignore
+    acts.firstChild.onclick = () => window.SwarmSetup?.open('models')
+  } else if (again && r.code !== 'nothing') {
+    acts.innerHTML = '<button class="primary">Try again</button>'
+    // @ts-ignore
+    acts.firstChild.onclick = () => { acts.remove(); again() }
+  } else return item
+  item.append(acts)
+  return item
+}
+// A raw line (a provider's text, a failed section's message) is the Log's, whoever it is from: never the chat's
+/** @param {any} a  @param {string} text */
+export function logErr(a, text) {
+  const item = feed(a, text, 'sys')
+  item.classList.add('err')
   return item
 }
 
@@ -399,6 +439,10 @@ function extendSummary(e, secs) {
   return `${did || 'Nothing was added'} in ${secs}s${e.failed ? ` (${e.failed} failed)` : ''}. ${names.length ? `The navigation links the new pages; the ${kept}.` : `The ${kept}.`}`
 }
 
+// the words each build was asked with, so a change that added nothing can be sent again as it was
+const askedOf = new Map()
+/** @param {string} run  @param {string} words */
+export const noteAsked = (run, words) => { askedOf.set(run, String(words || '')) }
 export function summarize(e) {
   S.progress?.remove()
   S.progress = null
@@ -406,6 +450,12 @@ export function summarize(e) {
   // why, with Resume, and never offers the prototype as if it were finished
   const b = buildOf()
   if (b && (b.state === 'partly' || b.state === 'failed')) return void leftMsg(b)
+  // a next version that added nothing for a reason (the model did not answer, the words named nothing to add):
+  // what happened and the one thing to do, never the prototype's buttons as if something had been made
+  if (b && b.state === 'unchanged' && b.reason) {
+    const run = S.run, words = askedOf.get(run) || ''
+    return void failSay(b.reason, { lead: 'Nothing was added.', again: words && !hosted ? () => { els.brief.value = words; els.form.requestSubmit() } : null })
+  }
   const secs = (e.ms / 1000).toFixed(1)
   const item = botMsg(e.extend ? extendSummary(e, secs) : `Built ${e.pages} pages and ${e.done} sections in ${secs}s with ${S.agents.size} agents${e.failed ? ` (${e.failed} failed)` : ''}. Open a page, or play the prototype.`)
   if (!S.frames.length) return

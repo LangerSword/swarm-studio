@@ -98,6 +98,23 @@ const seen = (page, re, timeout = 10000) => page.locator('#feed').getByText(re).
 // chat: false leaves the chat as the deck opens it (on a phone its sheet covers the pages)
 const deck = async (env, s, run, chat = true) => { await go(env, s, `/?version=${run}&room=deck`, '#viewport'); await env.wait(900); if (chat) await chatOpen(env) }
 const stopped = (page, timeout = 15000) => seen(page, /Stopped|Nothing was added|did not finish|didn.t answer/, timeout)
+// No raw error reaches a person (docs/ux/states/README.md, root 4): the chat never shows a provider's text, a
+// status line, JSON or a value that was never filled in. The Log may. `not`: words that must not be there either
+// (Build under an error); `must`: words that must.
+const RAW_SEEN = /HTTP \d{3}|\{"error"|ECONN|\[object Object\]|undefined/
+async function noRaw(env, { within = '#feed', must = null, not = null } = {}) {
+  const text = await env.page.locator(within).first().innerText().catch(() => '')
+  const raw = text.match(RAW_SEEN)
+  if (raw) throw new Error(`a raw error ("${raw[0]}") is shown in ${within}: ${text.slice(Math.max(0, raw.index - 60), raw.index + 60).replace(/\s+/g, ' ')}`)
+  if (must && !must.test(text)) throw new Error(`${within} does not say ${must}: "${text.replace(/\s+/g, ' ').trim().slice(-200)}"`)
+  if (not && not.test(text)) throw new Error(`${within} says ${not}: "${text.replace(/\s+/g, ' ').trim().slice(-200)}"`)
+}
+// the one button under the newest line of the chat (an error has exactly one way forward)
+async function oneWay(env, label) {
+  const last = env.page.locator('#feed > .item').last()
+  const btns = (await last.locator('button').allInnerTexts().catch(() => [])).map(t => t.trim()).filter(Boolean)
+  if (btns.length !== 1 || btns[0] !== label) throw new Error(`the newest line offers [${btns.join(', ')}], not only "${label}"`)
+}
 // Projects › Chats › New chat: the Design deck with nothing built, its chat empty
 async function newChat(env, s) {
   await go(env, s)
@@ -160,6 +177,7 @@ const WEBSITE = [
     await env.wait(7000)
     await chatOpen(env)
     await toEnd(env.page)
+    await noRaw(env, { must: /didn.t answer/ })
   } },
   { id: 'f-web-no-answer', flow: WEB, title: 'A new chat where the planner does not answer', run: async env => {
     const s = await web(env)
@@ -168,6 +186,8 @@ const WEBSITE = [
     await send(env, IDEA)
     await env.wait(5000)
     await toEnd(env.page)
+    await noRaw(env, { must: /The model didn.t answer/ })
+    await oneWay(env, 'Try again')
   }, after: endFlow },
   { id: 'f-web-no-hermes', flow: WEB, title: 'Hermes not running (a Studio with no Hermes and no model of its own): a new chat, the idea sent', run: async env => {
     const s = await flowStudio(env, 'web-off', { noHermes: true })
@@ -175,6 +195,8 @@ const WEBSITE = [
     await send(env, IDEA)
     await env.wait(6000)
     await toEnd(env.page)
+    await noRaw(env, { must: /Hermes isn.t connected/ })
+    await oneWay(env, 'Check again')
   }, after: endFlow }
 ]
 
@@ -248,6 +270,8 @@ const APPCHAT = [
     await send(env, 'And who can see the board?')
     await env.wait(5000)
     await toEnd(env.page)
+    await noRaw(env, { must: /The model didn.t answer/ })
+    await oneWay(env, 'Try again')
   } },
   { id: 'f-app-build-press', flow: APP, title: '"Build the app" pressed (the button the chat points to): the real first step of building it', run: async env => {
     const s = await app(env)
@@ -304,6 +328,9 @@ const CHANGE = [
     letBuild(s.ctl)
     await stopped(env.page)
     await toEnd(env.page)
+    // a change that added nothing: what happened and Try again, never the prototype's buttons
+    await noRaw(env, { must: /Nothing was added\. The model didn.t answer/, not: /Play prototype|Watch a visitor/ })
+    await oneWay(env, 'Try again')
   }, settle: 1200 },
   { id: 'f-change-talk-thinking', flow: CHG, title: 'A question about a change instead: Hermia thinking', run: async env => {
     const s = await chg(env)
@@ -347,6 +374,8 @@ const CHANGE = [
     await send(env, 'What is going on?')
     await env.wait(5000)
     await toEnd(env.page)
+    await noRaw(env, { must: /The model didn.t answer/ })
+    await oneWay(env, 'Try again')
   } },
   { id: 'f-change-ask-wait', flow: CHG, title: 'Ask mode, "/ask What is going on?": Hermia answering', run: async env => {
     const s = await chg(env)
@@ -368,6 +397,8 @@ const CHANGE = [
     await send(env, 'And is anything still building?')
     await env.wait(5000)
     await toEnd(env.page)
+    await noRaw(env, { must: /The model didn.t answer/ })
+    await oneWay(env, 'Try again')
   }, after: endFlow }
 ]
 
@@ -460,8 +491,7 @@ async function failed(env) {
 
 // What a screen may never say of a build that failed (the owner, 2026-11-15: the app only says what really
 // happened): that it is built, or, where `raw` is checked, a provider's raw error in place of a plain reason.
-// The Log, Fix mode and a planner's own error line still print the raw error (B16, B10 in docs/ux/states/build.md),
-// so `raw` is checked only on the screens that have none of those.
+// The Log keeps the raw error; the chat never shows it (`noRaw` above, which the failure steps run on the chat).
 async function truth(env, { within = 'body', raw = false } = {}) {
   const text = await env.page.locator(within).first().innerText().catch(() => '')
   const built = text.match(/All \d+ pages? (?:is|are) built/)
@@ -520,7 +550,14 @@ const FAILING = [
     await env.wait(1500)
   }, settle: 1500, after: env => letBuild(env.fs?.ctl) },
   { id: 'f-fail-deck', flow: FAIL, title: 'The failed build opened again in the Design deck: the deck and its chat', run: async env => { const s = await failed(env); await deck(env, s, s.failed); await env.wait(1200); await toEnd(env.page); await deckTruth(env, /Partly built/i) }, settle: 2000 },
-  { id: 'f-fail-log', flow: FAIL, title: 'The chat’s Log for the failed build', run: async env => { await failed(env); await click(env.page, '.side .tabs [data-tab="log"]'); await truth(env) }, settle: 800 },
+  { id: 'f-fail-log', flow: FAIL, title: 'The chat’s Log for the failed build', run: async env => {
+    await failed(env)
+    await click(env.page, '.side .tabs [data-tab="log"]')
+    await truth(env)
+    // the provider's own text is kept, here and only here
+    const log = await env.page.locator('#log').first().innerText().catch(() => '')
+    if (!/HTTP 500/.test(log)) throw new Error('the Log does not keep the provider\'s own error')
+  }, settle: 800 },
   { id: 'f-fail-fix', flow: FAIL, title: 'Fix mode ("/fix", then "Why did the build stop?"): what Fix says, from the Studio’s own facts (no model answers here)', run: async env => {
     const s = await failed(env)
     await deck(env, s, s.failed)
@@ -530,6 +567,9 @@ const FAILING = [
     await vis(env.page, '#feed .fix-reply', 20000)
     await toEnd(env.page)
     await truth(env)
+    // Fix leads with the one reason and the one way on: Resume, never Setup, never a dump or "Nothing failed"
+    await noRaw(env, { must: /didn.t answer/, not: /Nothing failed|Models: planner|Open Setup/ })
+    await oneWay(env, 'Resume')
   }, settle: 900 },
   { id: 'f-fail-fix-resume', flow: FAIL, title: 'Finish the build (or Resume) pressed from the failed build opened again', run: async env => {
     const s = await failed(env)
@@ -600,6 +640,7 @@ const FAILING = [
     await chatBtn(env.page, 'Try again').waitFor({ state: 'visible', timeout: 15000 })
     await toEnd(env.page)
     await truth(env)
+    await noRaw(env, { must: /didn.t answer/ })
     // stopped before any page: the strip says Stopped, never Ready
     const strip = await env.page.locator('#status').first().innerText().catch(() => '')
     if (!/Stopped/i.test(strip)) throw new Error(`the strip reads "${strip.replace(/\s+/g, ' ').trim()}" for a build that stopped at the start`)
@@ -728,3 +769,5 @@ function closing(steps) {
   return steps.map(s => (s !== last ? s : { ...s, after: async env => { try { await s.after?.(env) } finally { endFlow(env) } } }))
 }
 export const FLOW_STEPS = [WEBSITE, APPCHAT, CHANGE, FIRSTBUILD, FAILING, TOOLING].flatMap(closing)
+// what scripts/walkthrough-errors.mjs builds its own steps from
+export { flowStudio, endFlow, closing, newChat, deck, send, toEnd, chatBtn, seen, stopped, letBuild, noRaw, oneWay }
