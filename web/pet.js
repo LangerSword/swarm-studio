@@ -149,6 +149,30 @@ export function petSpot(r, W, H) {
   const x = r.left + Math.min(r.width * 0.3, 64), y = r.top + Math.min(r.height * 0.4, 48)
   return [Math.max(8, Math.min(W - 40, x)), Math.max(56, Math.min(H - 40, y))]
 }
+// the words on a board she never rests on: a card's name, value and line, a picture's name, a section's name (the
+// owner's game board, 2026-11-15: her badge covered "CAST")
+export const PET_WORDS = '.ab > b, .ab > span, .ab > i, .ab > em, .pj-sec > .al'
+const PET_SIZE = 32
+/**
+ * The nearest spot off the words: her 32 px badge at (x, y) moved above, below, left or right of the words it would
+ * cover, a few steps at most; where nothing fits, below them.
+ * @param {number} x
+ * @param {number} y
+ * @param {{ left: number, top: number, right: number, bottom: number }[]} words the words' own boxes, not their elements'
+ * @param {(x: number, y: number) => number[]} [fit] keeps a spot on screen and clear of the chat (the controller's clear)
+ */
+export function petOffWords(x, y, words, fit = (a, b) => [a, b]) {
+  const hit = (/** @type {number} */ a, /** @type {number} */ b) => words.find(r => a < r.right && a + PET_SIZE > r.left && b < r.bottom && b + PET_SIZE > r.top)
+  for (let i = 0; i < 4; i++) {
+    const r = hit(x, y)
+    if (!r) break
+    const ways = [[x, r.top - PET_SIZE - 4], [x, r.bottom + 4], [r.left - PET_SIZE - 4, y], [r.right + 4, y]]
+      .map(([a, b]) => fit(a, b)).filter(([a, b]) => !hit(a, b))
+      .sort((p, q) => Math.hypot(p[0] - x, p[1] - y) - Math.hypot(q[0] - x, q[1] - y))
+    ;[x, y] = ways[0] || [x, r.bottom + 4]
+  }
+  return [x, y]
+}
 
 // ---------- the cursor on the page
 
@@ -206,6 +230,21 @@ export function makePet({ sw, C, doc = document }) {
     }
     return [x, y]
   }
+  // the words on the board, measured as text (a card's name is a block as wide as the card), a few times a second
+  let words = { at: 0, rects: /** @type {DOMRect[]} */ ([]) }
+  function wordRects() {
+    if (Date.now() - words.at < 400) return words.rects
+    const range = doc.createRange(), out = []
+    for (const n of doc.querySelectorAll(PET_WORDS)) {
+      if (!n.textContent?.trim() || !n.getClientRects().length || n.closest('.pet')) continue
+      range.selectNodeContents(n)
+      for (const r of range.getClientRects()) if (r.width && r.height) out.push(r)
+    }
+    words = { at: Date.now(), rects: out }
+    return out
+  }
+  // a spot she rests on: off the words, still on screen and clear of the chat
+  const offWords = (/** @type {number[]} */ [x, y]) => petOffWords(x, y, wordRects(), clear)
   // a card she rests by; never a picture slot: beside a sketch sheet she sat on the next, empty slot as if she were
   // painting it (owner, 2026-11-14). A cursor on a picture means it is really painting (the crew's, .pl-work).
   function cardEl() {
@@ -216,7 +255,7 @@ export function makePet({ sw, C, doc = document }) {
   function aim() {
     // something is on its way: she works on it while the screen loads or the pointer rests
     if (P.work && (P.loading || phone() || Date.now() - P.movedAt > 1200)) {
-      ;[P.tx, P.ty] = petSpot(P.work.getBoundingClientRect(), win.innerWidth, win.innerHeight)
+      ;[P.tx, P.ty] = offWords(petSpot(P.work.getBoundingClientRect(), win.innerWidth, win.innerHeight))
       el.classList.toggle('flip', P.tx > win.innerWidth - 240)
       return
     }
@@ -233,9 +272,11 @@ export function makePet({ sw, C, doc = document }) {
     if (P.phoned && P.px < 0) [P.tx, P.ty] = [win.innerWidth - 120, win.innerHeight - 160]
     P.phoned = false
     const c = Date.now() - P.movedAt > 1600 && cardEl()
-    if (c) { const r = c.getBoundingClientRect(); [P.tx, P.ty] = clear(r.right + 6, r.top - 12) }
-    else if (P.px >= 0) [P.tx, P.ty] = clear(P.px + 26, P.py + 30)
-    else [P.tx, P.ty] = clear(P.tx, P.ty)
+    // beside the card she rests by, or where the pointer rests: off the words (while the pointer moves she trails it)
+    const still = Date.now() - P.movedAt > 1600
+    if (c) { const r = c.getBoundingClientRect(); [P.tx, P.ty] = offWords(clear(r.right + 6, r.top - 12)) }
+    else if (P.px >= 0) [P.tx, P.ty] = still ? offWords(clear(P.px + 26, P.py + 30)) : clear(P.px + 26, P.py + 30)
+    else [P.tx, P.ty] = offWords(clear(P.tx, P.ty))
     // near the right edge the bubble opens to her left
     el.classList.toggle('flip', P.tx > win.innerWidth - 240)
   }
@@ -260,10 +301,10 @@ export function makePet({ sw, C, doc = document }) {
     if (reduced() || phone()) { P.x = P.tx; P.y = P.ty; draw(); return }
     if (!P.raf && !doc.hidden) P.raf = win.requestAnimationFrame(step)
   }
-  // once the pointer rests, she walks to the card (and follows it while the board pans)
+  // once the pointer rests, she walks to the card (and follows it while the board pans), or off the words under it
   function rest() {
     clearTimeout(P.settle)
-    P.settle = win.setTimeout(() => { if (cardEl()) go(); if (!P.dozing && cardEl()) rest() }, 1700)
+    P.settle = win.setTimeout(() => { go(); if (!P.dozing && cardEl()) rest() }, 1700)
   }
 
   // ---------- awake, dozing, loading, away

@@ -3,7 +3,7 @@
 // twice in a row and never repeats the chat.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { PET_LINES, PET_ORDER, PET_MAX, PET_GAP, PET_BUSY, PET_NOT, PET_NEAR, petBrain, petSpot } from '../web/pet.js'
+import { PET_LINES, PET_ORDER, PET_MAX, PET_GAP, PET_BUSY, PET_NOT, PET_NEAR, petBrain, petSpot, petOffWords, PET_WORDS } from '../web/pet.js'
 
 const SAMPLES = {
   step: [{ step: 'brand' }, { step: 'references' }, { step: 'assets' }, { step: 'plan' }, { step: 'proposal' }, { step: 'nowhere' }, {}],
@@ -134,4 +134,23 @@ test('a wait where she does not go (a chat reply, a dialog) still shows her work
   for (const s of ['.side [aria-busy="true"]', '[role="dialog"] [aria-busy="true"]', '.ui-overlay [aria-busy="true"]']) assert.ok(PET_NEAR.includes(s), `${s} missing`)
   // nothing there is a place she flies to: every container is one she keeps out of, or a dialog
   for (const s of PET_NEAR.split(', ').map(x => x.split(' ')[0])) assert.ok(PET_NOT.includes(s) || s === '[role="dialog"]', `${s} is not kept out of`)
+})
+
+// the owner's game board, 2026-11-15: her badge sat on the first card's name, "CAST"
+test('she rests off the words: a spot on a card\'s name moves to the nearest place beside it, never onto other words', () => {
+  const box = (left, top, w, h) => ({ left, top, right: left + w, bottom: top + h })
+  // two cards' names and values, the way a Plan board lays them out (each word its own box)
+  const words = [box(60, 100, 40, 12), box(60, 150, 30, 30), box(350, 100, 50, 12), box(350, 150, 200, 30)]
+  const overlaps = (x, y) => words.some(r => x < r.right && x + 32 > r.left && y < r.bottom && y + 32 > r.top)
+  // on "CAST": out, a short step
+  const [x, y] = petOffWords(70, 95, words)
+  assert.ok(!overlaps(x, y), `${x},${y} is off the words`)
+  assert.ok(Math.hypot(x - 70, y - 95) <= 60, `a short step (${x},${y})`)
+  // already off the words: where it was
+  assert.deepEqual(petOffWords(200, 300, words), [200, 300])
+  // the fit (the screen's edge, the chat) is honoured: nothing above y 56
+  const [, y2] = petOffWords(70, 95, words, (a, b) => [a, Math.max(56, b)])
+  assert.ok(y2 >= 56)
+  // the words are a card's name, value and line, a picture's name and a section's name
+  for (const s of ['.ab > b', '.ab > span', '.ab > i', '.ab > em', '.pj-sec > .al']) assert.ok(PET_WORDS.includes(s), s)
 })
