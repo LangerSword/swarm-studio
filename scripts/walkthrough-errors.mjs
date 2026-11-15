@@ -50,7 +50,9 @@ const STEPS = [
     const s = await failedTalk(env)
     s.ctl.talk = null
     await send(env, 'List the prices, with a from price for each.')
-    await seen(env.page, /The model didn.t answer/, 15000)
+    // the second failed turn of this chat (the first one's line stays above, without its button)
+    await env.page.locator('#feed .fail-turn').nth(1).waitFor({ state: 'visible', timeout: 15000 })
+    await oneWay(env, 'Try again')
     const before = s.ctl.calls.filter(c => c === 'talk').length
     s.ctl.talk = 'Then Repairs and prices lists each repair with its "from" price, and Book a repair takes the bike and a day.'
     await send(env, 'try again')
