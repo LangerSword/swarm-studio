@@ -2,6 +2,8 @@
 // state, on a second throwaway Studio that holds a real game plan and its chat (tests/fixtures/rank-juggler)
 // and a planner this file scripts: it can answer, keep the person waiting, or fail. The painter is the
 // Studio's own, and the throwaway Studio has none, so "Paint" shows the failure a person would see.
+// "Install Godot 4" runs the server's stand-in installer (SWARM_WALK_GODOT, server/server.mjs): it waits a few
+// seconds, fails the first time and succeeds the second, and downloads nothing.
 // These steps come after the others (scripts/walkthrough-steps.mjs), so no earlier picture is renumbered.
 //
 //   WALK_PLAN_FILES=<folder>   the plan's pictures (its sketch sheets), copied in so the sheet shows; without
@@ -21,6 +23,8 @@ const said = text => JSON.stringify({ say: text, decide: {}, ask: null })
 async function night(env) {
   if (env.night) return env.night
   const ctl = { reply: said('Three heroes, and the first one carries the fight.'), hold: null, fail: false }
+  // only this Studio gets the stand-in: the name is taken out of this process again once it has started
+  process.env.SWARM_WALK_GODOT = 'fail,ok'
   const s = await studio({
     setup: ({ runs }) => {
       const data = dirname(runs)
@@ -29,7 +33,7 @@ async function night(env) {
       if (pics && existsSync(pics)) { mkdirSync(join(data, 'plans', PLAN), { recursive: true }); cpSync(pics, join(data, 'plans', PLAN), { recursive: true }) }
     },
     model: async () => { if (ctl.hold) await ctl.hold; return ctl.fail ? null : ctl.reply }
-  })
+  }).finally(() => { delete process.env.SWARM_WALK_GODOT })
   env.night = { ...s, ctl }
   const { page } = env
   await page.goto(s.BASE + '/')
@@ -48,6 +52,13 @@ async function say(env, text) {
 }
 // the newest button in the chat with this label
 const press = (page, label) => page.locator('.talk-acts button', { hasText: label }).last().click({ timeout: 8000 })
+// what the chat says now: it must hold `has` and must not hold `not`
+async function chatSays(page, has, not = null) {
+  const text = (await page.locator('#feed').first().innerText().catch(() => '')).replace(/\s+/g, ' ')
+  if (!has.test(text)) throw new Error(`the chat does not say ${has}: "${text.slice(-200)}"`)
+  if (not?.test(text)) throw new Error(`the chat says "${text.match(not)[0]}"`)
+}
+const NEVER = /still not on this computer|never downloads|brew install/i
 const lastTurn = (page, re, timeout = 10000) => page.locator('#feed, .feed, .chat').locator(`text=${re}`).last().waitFor({ state: 'visible', timeout })
 
 export const CHAT_STEPS = [
@@ -68,14 +79,30 @@ export const CHAT_STEPS = [
     await press(env.page, 'Lock')
     await vis(env.page, '.talk-acts button >> text=/Browser is fine/')
   }, settle: 1200 },
-  { id: 'gc-godot', flow: FLOW, title: 'Install Godot 4 pressed and it is still missing: what really happened', run: async env => {
+  { id: 'gc-godot-wait', flow: FLOW, title: 'Install Godot 4 pressed: Hermia at work on the install, and how far it is', run: async env => {
     await night(env)
     await press(env.page, 'Install Godot 4')
-    await env.wait(2500)
+    await vis(env.page, '.item.bot.crew-wait .cur')
+    await chatSays(env.page, /Installing Godot 4 now: \d+ MB from Godot's releases/, NEVER)
+    if (await env.page.locator('.talk-acts button').count()) throw new Error('buttons are offered while the install runs')
   } },
-  { id: 'gc-sheet', flow: FLOW, title: 'Browser is fine: the sketch sheet in the chat, waiting on picks', run: async env => {
+  { id: 'gc-godot-failed', flow: FLOW, title: 'The install failed: "Nothing happened", the reason, and Try again', run: async env => {
     await night(env)
-    await press(env.page, 'Browser is fine')
+    await vis(env.page, '.talk-acts button >> text=/Try again/', 20000)
+    await chatSays(env.page, /Nothing happened: this computer could not reach github\.com\./, /is installed|Installing Godot 4 now/)
+    for (const b of ['Check again', 'Browser is fine']) await vis(env.page, `.talk-acts button >> text=/${b}/`)
+    if (await env.page.locator('.item.bot.crew-wait').count()) throw new Error('the working line is still there after the install ended')
+  }, settle: 900 },
+  { id: 'gc-godot', flow: FLOW, title: 'Try again pressed: Godot 4 is installed, and the plan\'s real next step', run: async env => {
+    await night(env)
+    await press(env.page, 'Try again')
+    await vis(env.page, '.item.bot.crew-wait .cur')
+    await vis(env.page, '.talk-sheet', 20000)
+    await chatSays(env.page, /Godot 4\.\d+(\.\d+)? is installed: the game builds as a Godot 4 project\. The Cast sheet waits on your picks/, NEVER)
+    if (await env.page.locator('.item.bot.crew-wait').count()) throw new Error('the working line is still there after the install ended')
+  }, settle: 1200 },
+  { id: 'gc-sheet', flow: FLOW, title: 'The sketch sheet in the chat, waiting on picks (the plan stays a Godot 4 one)', run: async env => {
+    await night(env)
     await vis(env.page, '.talk-sheet')
   }, settle: 1500 },
   { id: 'gc-picks', flow: FLOW, title: 'Picks typed in words: "hero 1 is 4, hero 2 is 7, hero 3 is 12"', run: async env => {
