@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { card, roster, is3d, sprites, CLOSEUP_RULE } from './plan.mjs'
 import { systemsAsk } from './systems.mjs'
 import { keyFor, keyGround } from './keycolor.mjs'
-import { planRefFiles, planRefs, planRefLines } from './planrefs.mjs'
+import { planRefFiles, planRefs, planRefLines, planSlotFiles } from './planrefs.mjs'
 
 const clean = (v, n = 300) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n)
 const fail = (msg, status = 400) => Object.assign(new Error(msg), { status })
@@ -63,14 +63,15 @@ export function sheetPrompt(plan, kind, prev) {
 }
 
 // A sheet entry, painting; drawn again (with its notes) it keeps its id and picks.
-export function addSheet(plan, kind) {
+// dir: the plan's folder, where a picture the owner gave for this sheet is (planRefFor)
+export function addSheet(plan, kind, dir = null) {
   const prompt = sheetPrompt(plan, kind, (plan.sheets || []).find(s => s.kind === kind))
   plan.sheets ||= []
   let s = plan.sheets.find(x => x.kind === kind)
   if (s?.state === 'painting') throw fail('that sheet is being drawn', 409)
   if (!s) { s = { id: newId('s'), kind, grid: [5, 4], picks: [], notes: {} }; plan.sheets.push(s) }
   Object.assign(s, { prompt, quality: 'medium', state: 'painting', started: Date.now(), error: null })
-  return [{ list: 'sheets', id: s.id, prompt, quality: 'medium', aspect: 'landscape', refs: [] }]
+  return [{ list: 'sheets', id: s.id, prompt, quality: 'medium', aspect: 'landscape', refs: dir ? planSlotFiles(plan, dir, `sheet:${kind}`).slice(0, 2) : [] }]
 }
 
 // ---------- mock screenshots: 4–5 in-game frames from the picks
@@ -94,11 +95,13 @@ export function addMocks(plan, dir, shots = shotsOf(plan).map(s => s[0])) {
   if (plan.mocks.some(m => m.state === 'painting')) throw fail('the mocks are being drawn', 409)
   const jobs = []
   for (const shot of shots) {
-    const prompt = mockPrompt(plan, shot)
+    // a picture the owner gave for this screen goes first, and the prompt says to follow it
+    const own = planSlotFiles(plan, dir, `mock:${shot}`)
+    const prompt = mockPrompt(plan, shot) + (own.length ? ' The owner gave a picture for this screen: follow its look and layout.' : '')
     let m = plan.mocks.find(x => x.shot === shot)
     if (!m) { m = { id: newId('m'), shot }; plan.mocks.push(m) }
     Object.assign(m, { prompt, state: 'painting', started: Date.now(), error: null })
-    jobs.push({ list: 'mocks', id: m.id, prompt, quality: 'medium', aspect: 'landscape', refs: sheetRefs(plan, dir) })
+    jobs.push({ list: 'mocks', id: m.id, prompt, quality: 'medium', aspect: 'landscape', refs: [...new Set([...own, ...sheetRefs(plan, dir)])].slice(0, 6) })
   }
   return jobs
 }
@@ -133,7 +136,7 @@ export function backdropPrompt(plan, stage, n, shape) {
     `Style: ${styleLine(plan)}. Painted, atmospheric, big shapes; no people, no text, no UI.`
   ].join(' ')
 }
-export function addBackdrops(plan, { stage } = {}) {
+export function addBackdrops(plan, { stage, dir = null } = {}) {
   if (!plan.style?.locked) throw fail('lock the style first', 409)
   plan.backdrops ||= []
   if (plan.backdrops.some(b => b.state === 'painting')) throw fail('the backdrops are being painted', 409)
@@ -149,7 +152,7 @@ export function addBackdrops(plan, { stage } = {}) {
       let b = plan.backdrops.find(x => x.stage === i && x.n === n)
       if (!b) { b = { id: newId('b'), stage: i, n }; plan.backdrops.push(b) }
       Object.assign(b, { name: stages[i], shape, prompt, state: 'painting', started: Date.now(), error: null })
-      jobs.push({ list: 'backdrops', id: b.id, prompt, quality: 'high', aspect: 'landscape', crop: SHAPES[shape], refs: [] })
+      jobs.push({ list: 'backdrops', id: b.id, prompt, quality: 'high', aspect: 'landscape', crop: SHAPES[shape], refs: dir ? planSlotFiles(plan, dir, 'backdrops').slice(0, 2) : [] })
     }
   }
   return jobs

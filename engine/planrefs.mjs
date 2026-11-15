@@ -67,6 +67,21 @@ export function removePlanRef(plan, id, now = Date.now()) { const r = find(plan,
 // "Use as is": placed as it is in the game, never redrawn; false puts it back to a look to match. Pictures only.
 export function planRefAsIs(plan, id, asIs = true) { const r = find(plan, id); if (r.kind && asIs) throw fail('only a picture is used as is'); r.asIs = !!asIs; return r }
 
+// one picture for one part of the game ("use this for the boss", the chat's helper, decision 0025 e): the slot it
+// is the look for, a sheet ('sheet:cast'), a mock ('mock:boss') or the backdrops ('backdrops'); null frees it.
+// That picture goes first to the painter of that slot, and the brief says which it is for.
+export const PLAN_SLOT = /^(sheet|mock):[a-z][a-z0-9-]{0,30}$|^backdrops$/
+export function planRefFor(plan, id, slot) {
+  const r = find(plan, id)
+  if (slot != null && !PLAN_SLOT.test(String(slot))) throw fail('no such part of the game')
+  r.for = slot || null
+  if (slot) r.asIs = false
+  return r
+}
+// the picture files kept for a slot, newest first
+export const planSlotFiles = (plan, dir, slot) => planRefs(plan).filter(r => r.for === slot).reverse().map(r => join(dir, r.file)).filter(f => existsSync(f))
+const slotName = slot => slot === 'backdrops' ? 'the backdrops' : `the ${slot.split(':')[1].replace(/-/g, ' ')} ${slot.startsWith('sheet:') ? 'sheet' : 'screen'}`
+
 // the files the painter is given with the picked sheets (engine/planart.mjs sheetRefs)
 export const planRefFiles = (plan, dir) => planRefs(plan).filter(r => r.file).map(r => join(dir, r.file)).filter(f => existsSync(f))
 
@@ -77,7 +92,7 @@ export function planRefLines(plan) {
   const pics = live.filter(r => !r.kind), look = pics.filter(r => !r.asIs), given = pics.filter(r => r.asIs)
   const notes = live.filter(r => r.kind === 'note'), links = live.filter(r => r.kind === 'link')
   return [
-    look.length ? `The owner's art references: match their look in every picture and sprite:\n${look.map(r => `- ${r.name}: ${r.src}`).join('\n')}` : '',
+    look.length ? `The owner's art references: match their look in every picture and sprite:\n${look.map(r => `- ${r.name}: ${r.src}${r.for ? ` (for ${slotName(r.for)})` : ''}`).join('\n')}` : '',
     given.length ? `The owner's pictures to place as they are (never redrawn):\n${given.map(r => `- ${r.name}: ${r.src}`).join('\n')}` : '',
     notes.length ? `The owner's notes:\n${notes.map(r => `- ${r.text.replace(/\n+/g, ' ')}`).join('\n')}` : '',
     links.length ? `The owner's links (from ${[...new Set(links.map(r => r.source))].join(', ')}):\n${links.map(r => `- ${r.url}`).join('\n')}` : ''
