@@ -3,7 +3,8 @@
  "steps": {
   "desk:deck": {
    "axe:label-content-name-mismatch": 4,
-   "axe:label": 1
+   "axe:label": 1,
+   "load": 1
   },
   "desk:f-change-building": {
    "axe:label-content-name-mismatch": 4,
@@ -11,7 +12,8 @@
   },
   "desk:f-change-deck": {
    "axe:label-content-name-mismatch": 4,
-   "axe:label": 1
+   "axe:label": 1,
+   "load": 1
   },
   "desk:f-change-typed": {
    "axe:label-content-name-mismatch": 4,
@@ -19,7 +21,8 @@
   },
   "desk:f-fail-deck": {
    "axe:label-content-name-mismatch": 4,
-   "axe:label": 1
+   "axe:label": 1,
+   "load": 1
   },
   "desk:f-fail-live": {
    "axe:label-content-name-mismatch": 4,
@@ -36,11 +39,13 @@
   "desk:f-fail-projects": {
    "axe:label-content-name-mismatch": 9,
    "axe:label": 1,
-   "axe:nested-interactive": 5
+   "axe:nested-interactive": 5,
+   "load": 1
   },
   "desk:f-fail-working": {
    "axe:label-content-name-mismatch": 4,
-   "axe:label": 1
+   "axe:label": 1,
+   "load": 1
   },
   "desk:f-web-brief": {
    "axe:label-content-name-mismatch": 1,
@@ -52,12 +57,14 @@
   },
   "desk:f-web-empty": {
    "axe:label-content-name-mismatch": 1,
-   "axe:label": 1
+   "axe:label": 1,
+   "load": 1
   },
   "desk:f-web-no-answer": {
    "raw": 1,
    "axe:label-content-name-mismatch": 1,
-   "axe:label": 1
+   "axe:label": 1,
+   "load": 1
   },
   "desk:f-web-reply": {
    "axe:label-content-name-mismatch": 1,
@@ -72,58 +79,72 @@
    "axe:label": 1
   },
   "desk:gc-answer": {
+   "axe:label-content-name-mismatch": 19,
    "axe:label": 1
   },
   "desk:gc-godot": {
+   "axe:label-content-name-mismatch": 24,
    "axe:label": 1
   },
   "desk:gc-locked": {
+   "axe:label-content-name-mismatch": 24,
    "axe:label": 1
   },
   "desk:gc-nothing": {
+   "axe:label-content-name-mismatch": 24,
    "axe:label": 1
   },
   "desk:gc-open": {
-   "axe:label": 1
+   "axe:label-content-name-mismatch": 19,
+   "axe:label": 1,
+   "load": 1
   },
   "desk:gc-picks": {
+   "axe:label-content-name-mismatch": 24,
    "axe:label": 1
   },
   "desk:gc-sheet": {
+   "axe:label-content-name-mismatch": 24,
    "axe:label": 1
   },
   "desk:gc-thinking": {
+   "axe:label-content-name-mismatch": 19,
    "axe:label": 1,
    "axe:scrollable-region-focusable": 1
   },
   "desk:home": {
    "axe:label-content-name-mismatch": 9,
    "axe:label": 1,
-   "axe:nested-interactive": 5
+   "axe:nested-interactive": 5,
+   "load": 1
   },
   "desk:kind-menu": {
    "axe:label-content-name-mismatch": 9,
    "axe:label": 1,
-   "axe:nested-interactive": 5
+   "axe:nested-interactive": 5,
+   "load": 1
   },
   "desk:m-ov-tell-busy": {
-   "axe:aria-prohibited-attr": 1,
-   "axe:aria-required-children": 1,
-   "axe:label": 1
+   "axe:aria-required-children": 2,
+   "axe:label": 1,
+   "load": 1
   },
   "desk:no-hermes": {
    "axe:label-content-name-mismatch": 9,
    "axe:label": 1,
-   "axe:nested-interactive": 5
+   "axe:nested-interactive": 5,
+   "load": 1
   },
   "desk:overview": {
    "axe:aria-required-children": 2,
-   "axe:label": 1
+   "axe:label": 1,
+   "load": 1
   },
   "desk:setup": {
    "axe:label-content-name-mismatch": 9,
    "axe:label": 1,
-   "axe:nested-interactive": 5
+   "axe:nested-interactive": 5,
+   "load": 1
   }
  }
 }
