@@ -302,6 +302,8 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .gh-pick { display: flex; flex-wrap: wrap; gap: 6px; max-height: 168px; overflow-y: auto; }
 .gh-pick .ui-btn { text-transform: none; letter-spacing: 0; font: 500 13px/1.2 var(--body, inherit); }
 .gh-repo .gh-unlink { margin-left: auto; }
+.gh-other { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line, var(--ui-border)); border-radius: 10px; }
+.gh-way { display: grid; gap: 6px; justify-items: start; }
 .gh-done { margin: 0; font: 500 13px/1.4 var(--body, inherit); }
 .gh-work { position: relative; display: flex; align-items: center; gap: 10px; min-height: 34px; font: 500 13px/1.4 var(--body, inherit); }
 .gh-work .cur { position: relative; display: inline-flex; flex: none; transition: none; }

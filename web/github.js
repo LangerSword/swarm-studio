@@ -15,10 +15,14 @@ import { cursor, CREW } from './icons.js'
  * @property {string} project @property {string} name @property {string} piece @property {string[]} pieces
  * @property {string | null} run @property {boolean} source @property {string | null} login @property {string} suggest
  * @property {string | null} [owner] the organization a new repository goes to (null: the person's account)
- * @property {{ repo: string, url: string, private: boolean, branch?: string | null, pushed: number | null, pulled: number | null, fits: boolean } | null} link
+ * @property {{ repo: string, url: string, private: boolean, branch?: string | null, base?: string | null, pr?: string | null, pushed: number | null, pulled: number | null, fits: boolean } | null} link
  * @property {{ repo: string, path: string, url: string, pulled: number | null } | null} origin
  * @property {boolean} ahead @property {boolean | null} behind @property {string | null} unreachable
- * @property {{ did: string, state: string, step: string, message: string, url?: string, repo?: string, pull?: boolean, run?: string } | null} job
+ * @property {{ did: string, state: string, step: string, message: string, url?: string, repo?: string, pull?: boolean, run?: string, pr?: string | null, other?: GitHubOther } | null} job
+ */
+/**
+ * @typedef {object} GitHubOther a repository that already holds other work: what it holds, and whether its files may come in
+ * @property {string} repo @property {string} branch @property {number} files @property {number} bytes @property {string | null} bring
  */
 /**
  * @typedef {object} GitHubHost
@@ -230,6 +234,17 @@ export function githubDoor(host) {
       busy = false
       if (!d.closed) draw()
     }
+    /** a repository that holds other work: what it holds, and the two ways, each said before it happens @param {GitHubOther} o */
+    const otherWay = o => {
+      const files = `${o.files} file${o.files === 1 ? '' : 's'}`
+      return `<div class="gh-other" role="group" aria-label="${esc(o.repo)} holds other work">
+        <p class="gh-help"><b>${esc(o.repo)}</b> already holds other work on ${esc(o.branch)} (${files}). Nothing was changed. Choose how this project goes there:</p>
+        <div class="gh-way"><button type="button" class="ui-btn ui-btn-default" data-mode="branch">Push to a new branch</button>
+          <p class="gh-help">This project goes to a new branch of its own, swarm/${esc(st?.suggest || 'project')}. ${esc(o.branch)} is not touched. Then open a pull request on GitHub, to merge it when you choose.</p></div>
+        ${o.bring ? `<p class="gh-help">Its files can't come in: ${esc(o.bring)}.</p>` : `<div class="gh-way"><button type="button" class="ui-btn ui-btn-outline" data-mode="merge">Bring its files in first</button>
+          <p class="gh-help">Its ${files} come into this project, then this project is pushed on top of ${esc(o.branch)}. Where both have a file, this project's is kept; its history stays as it was. Nothing of it is run.</p></div>`}
+      </div>`
+    }
     function draw() {
       if (!st) return
       const s = st, job = s.job, at = s.link, mid = job?.state === 'working'
@@ -238,7 +253,7 @@ export function githubDoor(host) {
       const lines = githubLines(s).filter(l => !at || !l.startsWith(`${at.repo},`))
       body.innerHTML = `<form class="gh-form" autocomplete="off">
         ${s.pieces.length > 1 ? toggle('Piece', [['game', 'Game'], ['app', 'App']], s.piece, 'piece') : ''}
-        ${at ? `<p class="gh-repo"><a href="${esc(at.url)}" target="_blank" rel="noopener">${esc(at.repo)}</a><span>${at.private ? 'Private' : 'Public'}</span>${at.branch ? `<span>Branch ${esc(at.branch)}</span>` : ''}${mid ? '' : '<button type="button" class="ui-btn ui-btn-ghost ui-btn-sm gh-unlink" data-unlink>Unlink</button>'}</p>` : ''}
+        ${at ? `<p class="gh-repo"><a href="${esc(at.url)}" target="_blank" rel="noopener">${esc(at.repo)}</a><span>${at.private ? 'Private' : 'Public'}</span>${at.branch ? `<span>Branch ${esc(at.branch)}</span>` : ''}${at.pr ? `<a href="${esc(at.pr)}" target="_blank" rel="noopener">Open a pull request</a>` : ''}${mid ? '' : '<button type="button" class="ui-btn ui-btn-ghost ui-btn-sm gh-unlink" data-unlink>Unlink</button>'}</p>` : ''}
         <ul class="gh-lines">${lines.map(l => `<li>${esc(l)}</li>`).join('')}</ul>
         ${mid ? working(job) : ''}
         ${!mid && !s.source ? `<label class="ui-field"><span class="ui-label">Repository</span><input class="ui-input" name="repo" value="${esc(typed.repo)}" placeholder="owner/name" maxlength="200" required></label>
@@ -251,8 +266,9 @@ export function githubDoor(host) {
           ${repos ? (repos.length ? `<div class="gh-pick" role="list" aria-label="Your repositories">${repos.slice(0, 300).map(r => `<button type="button" class="ui-btn ui-btn-outline ui-btn-sm" role="listitem" data-pick="${esc(r.repo)}">${esc(r.repo)}${r.empty ? ' · empty' : ''}</button>`).join('')}</div>` : '') : `<p class="gh-help" role="status" aria-busy="true">Looking at your repositories…</p>`}
           ${reposSaid ? `<p class="gh-help">${esc(reposSaid)}</p>` : ''}
           <p class="gh-help">This project is pushed there. That works when the repository is empty or already holds this project's history; a repository with other work is left as it is, and nothing is ever overwritten.</p>`}` : ''}
-        ${job?.state === 'done' && job.message ? `<p class="gh-done" role="status">${esc(job.message)}${job.url ? ` <a href="${esc(job.url)}" target="_blank" rel="noopener">${esc(String(job.url).replace(/^https:\/\//, ''))}</a>` : ''}</p>` : ''}
-        ${said || job?.state === 'failed' ? `<p class="bring-err" role="alert">${esc(said || job?.message || '')}</p>` : ''}
+        ${job?.state === 'done' && job.message ? `<p class="gh-done" role="status">${esc(job.message)}${job.url ? ` <a href="${esc(job.url)}" target="_blank" rel="noopener">${esc(String(job.url).replace(/^https:\/\//, ''))}</a>` : ''}${job.pr ? ` <a href="${esc(job.pr)}" target="_blank" rel="noopener">Open a pull request</a>` : ''}</p>` : ''}
+        ${!mid && job?.state === 'failed' && job.other ? otherWay(job.other) : ''}
+        ${said || (job?.state === 'failed' && !job.other) ? `<p class="bring-err" role="alert">${esc(said || job?.message || '')}</p>` : ''}
         <button type="submit" hidden></button>
       </form>`
       // the move a refusal offers leads: Pull after "has commits this project does not have"
@@ -273,6 +289,8 @@ export function githubDoor(host) {
       // what is typed narrows the list
       const typing = field('repo')
       if (typing && picks.length) typing.oninput = () => { const q = typing.value.trim().toLowerCase(); for (const b of picks) b.hidden = !!q && !String(b.dataset.pick).toLowerCase().includes(q) }
+      const other = job?.state === 'failed' ? job.other : null
+      for (const b of /** @type {NodeListOf<HTMLElement>} */ (form.querySelectorAll('[data-mode]'))) b.onclick = () => { if (other) go({ action: 'push', repo: other.repo, mode: b.dataset.mode }) }
       const unlink = /** @type {HTMLElement | null} */ (form.querySelector('[data-unlink]'))
       if (unlink) unlink.onclick = () => go({ action: 'unlink' })
       const move = (/** @type {string} */ k) => {

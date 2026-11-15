@@ -3,7 +3,10 @@
 //        changes not pushed, and (with check=1, one request to GitHub) new commits to pull
 //   POST /api/projects/<id>/github { action: 'push' | 'pull' | 'bring' | 'unlink', piece?, run?, repo?, public?, path?, kind? }
 //        push   the run's history to its repository; the first one makes it (private unless public: true) from
-//               `repo` as a name, or links `repo` as owner/name when that one is empty or already this project's
+//               `repo` as a name, or links `repo` as owner/name when that one is empty or already this project's.
+//               One that holds other work is refused with `other` ({ repo, branch, files, bytes, bring }) unless
+//               `mode` says what to do: 'branch' pushes to a new branch of it (with GitHub's page for a pull request),
+//               'merge' brings its files in first (the Bring-in rules) and pushes on top. Never a force push.
 //        pull   what is new in the linked repository (or the one it was brought in from), as the next version
 //        bring  a repository into this project, when it has no app or game source yet
 //        unlink forget which repository this piece goes to; nothing on GitHub or on disk changes
@@ -89,7 +92,7 @@ export function sourceRoutes({ runsDir, dataDir, projects, readEvents, record, b
       // where a new repository would be made: the organization builds go to (Settings › You › GitHub), else null
       owner: savedOwner(dataDir),
       suggest: repoName(src?.title || p.name),
-      link: link ? { repo: link.repo, url: hub.page(link.repo), private: link.private !== false, branch: link.branch || null, pushed: link.pushed || null, pulled: link.pulled || null, fits } : null,
+      link: link ? { repo: link.repo, url: hub.page(link.repo), private: link.private !== false, branch: link.branch || null, base: link.base || null, pr: link.base && link.branch ? `${hub.page(link.repo)}/compare/${encodeURIComponent(link.base)}...${encodeURIComponent(link.branch)}?expand=1` : null, pushed: link.pushed || null, pulled: link.pulled || null, fits } : null,
       origin: origin ? { repo: origin.repo, path: origin.path, url: hub.page(origin.repo), pulled: seen?.pulled || null } : null,
       ahead: !!(link && fits && local && (local.dirty || local.sha !== link.sha)), behind, unreachable,
       job: jobs.get(key) || null
@@ -102,7 +105,7 @@ export function sourceRoutes({ runsDir, dataDir, projects, readEvents, record, b
     jobs.set(key, j)
     const say = () => broadcast({ type: 'source:job', t: now(), key, did, state: j.state, step: j.step })
     j.done = Promise.resolve().then(() => work(text => { j.step = String(text); say() })).then(out => { Object.assign(j, { state: 'done', step: '' }, out) }, err => {
-      Object.assign(j, { state: 'failed', step: '', message: String(err.message || err).slice(0, 400), ...(err.pull ? { pull: true } : {}), ...(err.keys ? { keys: err.keys } : {}) })
+      Object.assign(j, { state: 'failed', step: '', message: String(err.message || err).slice(0, 400), ...(err.pull ? { pull: true } : {}), ...(err.keys ? { keys: err.keys } : {}), ...(err.other ? { other: err.other } : {}) })
     }).then(say)
     say()
     return j
@@ -141,15 +144,16 @@ export function sourceRoutes({ runsDir, dataDir, projects, readEvents, record, b
     if (await working(src.run)) throw fail('The crew is still working on it. Try again when they are done.', 409)
 
     if (action === 'push') {
-      const want = { ...readTarget(input.repo), public: input.public === true }
+      const want = { ...readTarget(input.repo), public: input.public === true, mode: ['branch', 'merge'].includes(input.mode) ? input.mode : undefined }
       const fits = !link?.sha || await hasCommit(dir, link.sha, hub)
       if (link && !fits && !want.repo && !want.name) throw fail(`This version does not continue ${link.repo}, so it cannot go there. Give it a repository of its own.`, 409)
       start(key, 'push', async step => {
         const out = await pushSource({ dir, link, want, title: src.title, hub, gh, step, ownerOf: async () => (await ownerFor(dataDir, gh)).owner,
-          onLink: l => rememberLink(dataDir, key, { repo: l.repo, private: l.private, branch: l.branch, made: l.made }) })
+          onLink: l => rememberLink(dataDir, key, { repo: l.repo, private: l.private, branch: l.branch, base: l.base || null, made: l.made }) })
         rememberLink(dataDir, key, { repo: out.repo, sha: out.sha, pushed: now() })
         if (!out.same) record(src.run, { type: 'source:push', t: now(), run: src.run, repo: out.repo, sha: out.sha, private: out.private })
-        return { repo: out.repo, url: out.url, private: out.private, message: out.same ? `Nothing new to push: ${out.repo} has it all` : `Pushed to ${out.repo}` }
+        const where = out.base ? `the branch ${out.branch} of ${out.repo}` : out.repo
+        return { repo: out.repo, url: out.url, private: out.private, pr: out.pr, message: out.same ? `Nothing new to push: ${where} has it all` : want.mode === 'merge' ? `Brought in ${out.repo}'s files and pushed on top` : `Pushed to ${where}` }
       })
       return state(ref, input)
     }
