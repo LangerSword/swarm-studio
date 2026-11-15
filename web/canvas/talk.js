@@ -61,7 +61,7 @@ export function talkStart({ text = '', kind = 'site', build, blank = false, said
 export const saidOf = chat => (chat?.turns || []).filter(t => t.who !== 'crew').map(t => ({ who: t.who === 'planner' ? 'hermia' : 'you', text: t.text, ...(t.cards?.length ? { cards: t.cards, turn: t.id } : {}) }))
 // what a tool Hermia used found (decision 0025 e): its cards under her message; a press answers as her next one
 const talkCards = (/** @type {HTMLElement} */ item, /** @type {any[]} */ cards, /** @type {string | null} */ turn) => chatCards(item, { cards, chat: talk.chat, turn, base: BASE, api, said: text => { talk.said.push({ who: 'hermia', text }); botMsg(text) } })
-export const talkEnd = () => { talk.on = false; talk.busy = false; talkDock(false); els.feed.querySelectorAll('.talk-acts').forEach(x => x.remove()) }
+export const talkEnd = () => { talk.on = false; talk.busy = false; talkDock(false); els.feed.querySelectorAll('.talk-acts, .fail-turn .chips').forEach(x => x.remove()) }
 export async function talkSay(text, brief = false) {
   // the turn before failed and this asks for it again: the same message is sent, nothing new is said
   const retry = talk.retry
@@ -74,7 +74,7 @@ export async function talkSay(text, brief = false) {
   const about = brief ? [] : links.take('layer')
   let took = null
   if (!brief) { talk.said.push({ who: 'you', text: about.length ? `${text}\n(About: ${about.map(c => c.name).join(', ')})` : text }); feed(null, text, 'you', [...about, ...media].map(m => m.name).join(', ')); took = talk.heard?.(text) }
-  els.feed.querySelectorAll('.talk-acts').forEach(x => x.remove())
+  els.feed.querySelectorAll('.talk-acts, .fail-turn .chips').forEach(x => x.remove())
   if (took && typeof took.then === 'function') {
     talk.busy = true
     const reply = await took.catch(() => null)
@@ -138,7 +138,7 @@ async function goSay({ said = '', pick = '', label = '', again = false }) {
   if (talk.busy || !talk.chat) return
   const text = again ? '' : said || label
   if (text) { talk.said.push({ who: 'you', text }); feed(null, text, 'you') }
-  els.feed.querySelectorAll('.talk-acts').forEach(x => x.remove())
+  els.feed.querySelectorAll('.talk-acts, .fail-turn .chips').forEach(x => x.remove())
   const wait = botMsg('…', true)
   talk.busy = true
   try {
@@ -187,15 +187,17 @@ commandOps.chat = c => openAsk(c.target)
 // re-plans it in place, and opens it; saying a change later ("make it 3d") reopens the spec.
 const talkPost = (path, body) => api(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) })
   .then(async r => { const j = await r.json().catch(() => ({})); if (!r.ok) throw Object.assign(new Error('no answer'), { reason: j.hermes ? { code: 'hermes', message: j.message, action: j.action } : j.reason || null }); return j })
-async function gameSay({ said = '', pick = '', label = '', again = false }) {
+// again: the same words once more after a failed turn (nothing is said twice); saved: that turn is in the chat
+// already (its model failed inside the turn), so the server takes it back before it asks again
+async function gameSay({ said = '', pick = '', label = '', again = false, saved = false }) {
   if (talk.busy) return
   const text = again ? '' : said || label
   if (text) { talk.said.push({ who: 'you', text }); feed(null, text, 'you') }
-  els.feed.querySelectorAll('.talk-acts').forEach(x => x.remove())
+  els.feed.querySelectorAll('.talk-acts, .fail-turn .chips').forEach(x => x.remove())
   const wait = botMsg('…', true)
   talk.busy = true
   try {
-    const j = talk.chat ? await talkPost(`/api/talk/${encodeURIComponent(talk.chat)}`, { said, pick }) : await talkPost('/api/talk', { kind: 'game', said })
+    const j = talk.chat ? await talkPost(`/api/talk/${encodeURIComponent(talk.chat)}`, { said, pick, ...(again && saved ? { again: true } : {}) }) : await talkPost('/api/talk', { kind: 'game', said })
     if (!talk.on) return
     talk.chat = j.chat.id
     talk.said.push({ who: 'hermia', text: j.turn.text + chatCardsLine(j.turn.cards) })
@@ -208,7 +210,7 @@ async function gameSay({ said = '', pick = '', label = '', again = false }) {
     if (j.turn.wait) gameWatch(j.turn.text)
     // the planner's model did not answer this turn (server/talk.mjs `failed`): the step above is the plan's own;
     // the reason is said beside it, with Try again for the same words
-    if (j.failed) { const retry = () => { talk.retry = null; gameSay({ said, pick, again: true }) }; talk.retry = retry; failSay(j.failed, { again: retry }) }
+    if (j.failed) { const retry = () => { talk.retry = null; gameSay({ said, pick, again: true, saved: true }) }; talk.retry = retry; failSay(j.failed, { again: retry }) }
   } catch (err) {
     if (talk.on) { const retry = () => { talk.retry = null; gameSay({ said, pick, again: true }) }; talk.retry = retry; failSay(err.reason, { again: retry }) }
   } finally { talk.busy = false; wait.remove() }

@@ -5,7 +5,9 @@
 //   POST /api/talk { kind, said }        -> { chat, turn }  a new chat and the planner's first turn
 //   GET  /api/talk/:id                   -> { chat, draft?, starts? }  draft: a game chat's plan as it stands;
 //                                           starts: a locked one's parts to work on next (startsOf)
-//   POST /api/talk/:id { said?, pick? }  -> { chat, turn, draft?, plan? }  pick is a chip's id ("art:2d", "talk",
+//   POST /api/talk/:id { said?, pick?, again? } -> { chat, turn, draft?, plan?, failed? }  failed: why the planner's model
+//                                           did not answer this turn ({code, message, action}); again: the same words
+//                                           after such a turn, which is taken back first. pick is a chip's id ("art:2d", "talk",
 //                                           "lock", "do:paint"); plan: the plan an action changed (the board shows it)
 //   POST /api/talk/:id/lock              -> the same as the pick "lock"
 //   POST /api/talk/:id/unlock { key? }   -> { chat }
@@ -59,6 +61,10 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
     // plan's own next step), so the failure is kept here and goes back beside the turn as `failed`, never in the chat file
     const ask = model()
     let failed = null
+    // Try again after a turn whose model failed: that turn (the person's words and the step said without the
+    // model) is taken back first, so the same words are in the chat once
+    const words = String(input.said || '').slice(0, 4000)
+    if (input.again === true && words && chat.turns.length >= 2 && chat.turns.at(-1).who === 'planner' && chat.turns.at(-2).who === 'person' && chat.turns.at(-2).text === words) chat.turns.splice(-2)
     const heard = ask && (async messages => { try { return await ask(messages) } catch (err) { failed = err; throw err } })
     const turn = await say(chat, { said: String(input.said || '').slice(0, 4000), pick: String(input.pick || '').slice(0, 120) }, { model: heard, env: env(), plan: planOf(chat), helpers: helpers() ? { kit: helpers(), ctx: { project: chat.project || null, run: chat.run || null, plan: chat.plan || null, chat: chat.id } } : null })
     return failed ? { chat, turn, failed: whyOf(failed) } : { chat, turn }

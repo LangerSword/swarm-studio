@@ -14,7 +14,7 @@
 // plain words and the one way on it names (Resume, or Try again), then a short list. A provider's raw text
 // (engine/stopreason.mjs says what that is) is never Fix's answer: it is the Log's.
 import { HONEST_RULE, CANNOT, honestly } from './honest.mjs'
-import { reasonFromFailure, isRaw } from './stopreason.mjs'
+import { reasonFromFailure, isRaw, QUOTED_RAW } from './stopreason.mjs'
 import { endWords } from '../web/replaytalk.js'
 
 const clean = (v, n = 300) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n)
@@ -249,7 +249,7 @@ export async function diagnose({ facts = {}, text = '', chat = null }) {
     // a model that keeps claiming it will fix things itself is not quoted: the facts are
     if (say === CANNOT) return plain()
     // a provider's raw text in the model's own answer is not passed on either
-    if (isRaw(say)) return plain()
+    if (QUOTED_RAW.test(say)) return plain()
     // only actions from the list, never one the model made up
     const picked = first.offer.map(id => actions.find(a => a.id === id)).filter(Boolean)
     // a build that did not finish keeps its way on, whatever the model offered

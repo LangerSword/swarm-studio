@@ -85,6 +85,14 @@ test('a talk the planner does not answer: the reason and the one thing to do, an
     plain(gj.failed.message, 'game: message')
     plain(gj.turn.text, 'game: the turn')
     assert.ok(!JSON.stringify(gj.chat).includes('no model here'), 'the failure is not written into the chat')
+    // Try again on that turn: the same words are asked again, and are in the chat once
+    model.ctl.mode = 'ok'
+    const g2 = await (await s.call(`/api/talk/${gj.chat.id}`, { said: 'a tiny platformer with one hero', again: true })).json()
+    assert.ok(!g2.failed, JSON.stringify(g2.failed))
+    assert.deepEqual(g2.chat.turns.map(t => t.who), ['person', 'planner'], 'one turn of the person\'s, one of the planner\'s')
+    // "again" with other words takes nothing back
+    const g3 = await (await s.call(`/api/talk/${gj.chat.id}`, { said: 'make it pixel art', again: true })).json()
+    assert.deepEqual(g3.chat.turns.map(t => t.who), ['person', 'planner', 'person', 'planner'])
     // an unknown chat is refused in words
     plain((await (await s.call('/api/talk/c-0000000000', { said: 'hello' })).json()).error, 'no such chat')
   } finally { s.stop(); model.close() }

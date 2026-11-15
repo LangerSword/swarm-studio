@@ -28,6 +28,9 @@ export const PILL = { person: 'stopped', replaced: 'stopped: replaced', hermes: 
 export const RAW = /HTTP \d{3}|\{"|"\}|\[object Object\]|\bundefined\b|\bNaN\b|\bE[A-Z]{4,}\b|\b\w*Error:|fetch failed|socket hang up|other side closed|\n\s+at /
 /** @param {unknown} text */
 export const isRaw = text => RAW.test(String(text ?? ''))
+// a provider's own text quoted in a sentence somebody else wrote (a model's answer in Fix mode, which may rightly
+// name ENOENT or a missing module): the narrow rule
+export const QUOTED_RAW = /HTTP \d{3}|\{"error"|ECONN|\[object Object\]/
 
 // What a run's controller was aborted with: 'person', 'replaced', or Hermes's {code: 'hermes_…', message, action}
 /** @param {any} r */

@@ -439,6 +439,9 @@ function extendSummary(e, secs) {
   return `${did || 'Nothing was added'} in ${secs}s${e.failed ? ` (${e.failed} failed)` : ''}. ${names.length ? `The navigation links the new pages; the ${kept}.` : `The ${kept}.`}`
 }
 
+// the hosted studio's own words for a build it refused or ended (its limits): written for the person
+/** @param {string} message */
+export const hostedErr = message => { if (hosted && message && !isRaw(message)) feed(null, message, 'err') }
 // the words each build was asked with, so a change that added nothing can be sent again as it was
 const askedOf = new Map()
 /** @param {string} run  @param {string} words */

@@ -2,10 +2,9 @@
 // web/canvas.js, split by area (web/canvas/README.md): engine events drawn on the canvas.
 import { cosmosHooks, S, els, buildOf } from './core.js'
 import { buildLeft } from '../replaytalk.js'
-import { reasonFromError, reasonFromFailure, isRaw } from '../stopreason.js'
+import { reasonFromError, reasonFromFailure } from '../stopreason.js'
 import { fresh, setTitle, navBrand, links } from './base.js'
-import { feed, botMsg, renderTheme, chatAgent, logSay, summarize, STOP_PILL, stoppedMsg, STOPPED, failSay, logErr, noteAsked } from './panels.js'
-import { hosted } from './hosted.js'
+import { feed, botMsg, renderTheme, chatAgent, logSay, summarize, STOP_PILL, stoppedMsg, STOPPED, failSay, logErr, noteAsked, hostedErr } from './panels.js'
 import { viewing, loadFiles, traceLive, rec } from './replay.js'
 import { addAgent, live, applyTheme, addFrame, addLayer, setTool, detectTool, gestureFor, spark, say, startGesture, banter } from './deck.js'
 import { renderAppLink, idleCard, appEvent } from './rooms.js'
@@ -219,10 +218,11 @@ export function on(e) {
       // and a model that is not set up. Why a build stopped or added nothing is said with its end (build:state).
       logErr(null, `${e.where}: ${e.message}`)
       const r = reasonFromError(e)
-      if (r.code === 'retry') { if (retrySaid !== S.run) { retrySaid = S.run; botMsg(r.message) } }
+      // (as it happens only: a build opened again is not trying anything)
+      if (r.code === 'retry') { if (live(e) && retrySaid !== S.run) { retrySaid = S.run; botMsg(r.message) } }
       else if (r.code === 'setup') failSay(r)
       // the hosted studio's own words (its limits) are written for the person: they stay in the chat
-      else if (hosted && !isRaw(e.message)) feed(null, e.message, 'err')
+      else hostedErr(e.message)
       break
     }
     case 'edit':
