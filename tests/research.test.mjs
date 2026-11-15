@@ -126,3 +126,109 @@ test('a real Studio: Research on a project with no Hermes says why and keeps not
   } finally { s.stop() }
 })
 
+
+test('a real Studio with a stand-in Hermes: a build that asks stops with what it found; the person removes one; the build uses only the rest', { timeout: 90000 }, async () => {
+  const { createServer } = await import('node:http')
+  const { startStudio } = await import('../scripts/studio-child.mjs')
+  const { rmSync, readFileSync, existsSync } = await import('node:fs')
+  const dir = mkdtempSync(join(tmpdir(), 'research-srv-'))
+  const env = { ...process.env, SWARM_TOKEN: 't', SWARM_DATA_DIR: join(dir, 'data'), SWARM_RUNS_DIR: join(dir, 'data', 'runs'), SWARM_OUTPUT_DIR: join(dir, 'out'), HERMES_HOME: join(dir, 'hermes'), SWARM_HERMES_RUNNING: '0' }
+  for (const k of Object.keys(env)) if (/_API_KEY$/.test(k) || /^SWARM_(PLANNER|WORKER|REVIEWER)_/.test(k)) delete env[k]
+  const { child, base } = await startStudio({ env })
+  const call = (path, body) => fetch(base + path, { method: body ? 'POST' : 'GET', headers: { 'x-swarm-token': 't', 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined })
+  // the stand-in bridge: /web answers as Hermes's web tools do; every model call is held (never answered)
+  const web = []
+  const bridge = createServer((req, res) => {
+    let b = ''
+    req.on('data', c => (b += c))
+    req.on('end', () => {
+      if (req.url.includes('/v1/')) return
+      if (req.url === '/web') {
+        const body = JSON.parse(b || '{}')
+        web.push(body)
+        const out = body.search
+          ? { ok: true, res: { data: { web: [{ title: 'Notion pricing', url: 'https://example.com/pricing', description: 'Four plans, the free one first.' }, { title: 'Plans compared', url: 'https://example.org/compare', description: 'A table of what each plan has.' }] } } }
+          : { ok: true, res: { results: body.urls.map(url => ({ url, title: url, content: `The page ${url}.` })) } }
+        return void res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(out))
+      }
+      res.writeHead(200, { 'content-type': 'application/json' }).end('{"image":false,"video":false}')
+    })
+  })
+  await new Promise(r => bridge.listen(0, '127.0.0.1', r))
+  try {
+    await call('/api/hermes/attach', { url: `http://127.0.0.1:${bridge.address().port}`, token: 'bridge-token-0123456789', pid: 4260, code: 1e10 })
+    const made = await (await call('/api/studio', { kind: 'site', idea: 'Cedar Cafe, a small cafe by the river' })).json()
+    const pid = made.project.id
+    // a plain build looks nothing up
+    let res = await call('/api/run', { project: pid, brief: 'A site for Cedar Cafe' })
+    assert.equal(res.status, 200, 'a Studio project builds')
+    assert.equal(web.length, 0, 'no /web call for a brief that does not ask')
+    // a brief that asks: the build stops with what was found, kept in References
+    res = await call('/api/run', { project: pid, brief: 'A site for Cedar Cafe. Look at how Notion does its pricing page' })
+    let j = await res.json()
+    assert.equal(res.status, 409)
+    assert.equal(j.error, 'research')
+    assert.deepEqual(j.findings.map(f => f.url).sort(), ['https://example.com/pricing', 'https://example.org/compare'])
+    assert.ok(web.some(c => c.search) && web.some(c => c.urls), 'it searched, then read the pages')
+    const found = (await (await call(`/api/projects/${pid}/refs`)).json()).refs.filter(r => r.source === 'research')
+    assert.equal(found.length, 2)
+    // the person removes one, and sends the build again
+    const gone = found.find(r => r.url === 'https://example.org/compare')
+    assert.equal((await call(`/api/projects/${pid}/refs/${gone.id}/remove`, {})).status, 200)
+    const calls = web.length
+    res = await call('/api/run', { project: pid, brief: 'A site for Cedar Cafe. Look at how Notion does its pricing page', researched: true })
+    j = await res.json()
+    assert.equal(res.status, 200, JSON.stringify(j))
+    assert.equal(web.length, calls, 'nothing is looked up again')
+    const used = JSON.parse(readFileSync(join(dir, 'data', 'runs', j.run, 'refs-used.json'), 'utf8'))
+    assert.deepEqual(used.filter(r => r.what.includes('what was looked up')).map(r => r.name), ['Notion pricing'], 'the build was given only the one kept')
+    assert.ok(existsSync(join(dir, 'data', 'runs', j.run)))
+    // outside a project: the build is sent again with the findings kept; anything that is not a web page is dropped,
+    // and they join the project the build starts, where the person can still remove them
+    const before = web.length
+    res = await call('/api/run', { brief: 'A tea room site for walkers', sure: true, researched: true, found: [{ url: 'https://example.net/menu', title: 'A tea menu', took: 'Six teas, each with a line about its taste.' }, { url: 'javascript:alert(1)', title: 'x', took: 'y' }, { url: 'https://example.net/empty', title: 'z', took: '' }] })
+    j = await res.json()
+    assert.equal(res.status, 200, JSON.stringify(j))
+    assert.equal(web.length, before, 'a build sent again looks nothing up')
+    const usedFile = join(dir, 'data', 'runs', j.run, 'refs-used.json')
+    for (let i = 0; i < 60 && !existsSync(usedFile); i++) await new Promise(r => setTimeout(r, 250))
+    const home = JSON.parse(readFileSync(usedFile, 'utf8'))
+    assert.deepEqual(home.map(r => r.name), ['A tea menu'])
+  } finally { bridge.close(); child.kill(); try { rmSync(dir, { recursive: true, force: true }) } catch {} }
+})
+
+test('the stop, the same in both Studios: what it says, the list, taking one out and building with the rest', async () => {
+  const { isResearchStop, stopText, stopItems, againBody, takeOut } = await import('../web/researchstop.js')
+  const findings = [{ url: 'https://www.example.com/pricing', title: 'Pricing', took: 'Four plans.' }, { url: 'https://example.org/compare', title: '', took: 'A table.' }]
+  const inProject = { error: 'research', ask: 'look at how X does pricing', project: 'p1', findings, refs: [{ id: 'r1aaaa', url: 'https://www.example.com/pricing' }, { id: 'r2bbbb', url: 'https://example.org/compare' }] }
+  assert.ok(isResearchStop(inProject)); assert.ok(!isResearchStop({ error: 'ask' })); assert.ok(!isResearchStop(null))
+  assert.equal(stopText(inProject), 'I looked up "look at how X does pricing" first and kept 2 pages. Take out any you don\'t want the crew to use, then build.')
+  const items = stopItems(inProject)
+  assert.deepEqual(items.map(i => [i.title, i.host, i.ref]), [['Pricing', 'example.com', 'r1aaaa'], ['example.org', 'example.org', 'r2bbbb']])
+  // in a project: taking one out removes it from References, and the build is sent again with researched only
+  const posted = []
+  await takeOut(inProject, items[1], async (path, body) => { posted.push([path, body]) })
+  assert.deepEqual(posted, [['/api/projects/p1/refs/r2bbbb/remove', {}]])
+  assert.deepEqual(againBody(inProject, [items[0]]), { researched: true })
+  // outside one: nothing to remove; the ones kept go with the build
+  const loose = { ...inProject, project: null, refs: undefined }
+  const looseItems = stopItems(loose)
+  await takeOut(loose, looseItems[0], async () => { throw new Error('nothing to remove outside a project') })
+  assert.deepEqual(againBody(loose, [looseItems[1]]), { researched: true, found: [findings[1]] })
+  assert.deepEqual(againBody(loose, []), { researched: true, found: [] })
+})
+
+test('the source: every client that starts a website build shows the research stop before treating a 409 as busy', async () => {
+  const { readFileSync } = await import('node:fs')
+  const read = p => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8')
+  for (const [file, stop, busy] of [
+    ['web/canvas/loop.js', 'isResearchStop(j)', '{ busy: true'],
+    ['ui/src/screens/deck/DeckChat.tsx', 'isResearchStop(j)', "note('err', 'The crew are still on the last change.')"],
+    ['ui/src/screens/projects/MakeBox.tsx', 'isResearchStop(e.body)', "toast('A build is running."],
+    ['ui/src/screens/studio/useStudio.ts', 'isResearchStop(j)', "'The crew are still on the last change.'"]
+  ]) {
+    const src = read(file)
+    assert.ok(src.indexOf(stop) > 0, `${file} shows the stop`)
+    assert.ok(src.indexOf(stop) < src.indexOf(busy), `${file}: the stop before busy`)
+  }
+})

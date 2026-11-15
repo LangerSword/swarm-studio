@@ -9,10 +9,10 @@ kind: standalone
 #   $HERMES_HOME/swarm-studio/image-tools/ with
 #   `npm ci --ignore-scripts`: nothing is compiled and no install script runs. SWARM_IMAGE_SERVICE=0 turns it off.
 # Hermes tools it calls (bridge.py, through ctx.dispatch_tool; no key of its own), only when the person asks:
-# - web_search and web_extract, for the planner's research step (engine/research.mjs): only when the person presses
-#   Research on a project; at most 3 searches and 4 pages each time, 60 s, public addresses
+# - web_search and web_extract, for the planner's research step (engine/research.mjs): only when the person's words
+#   ask to look something up or they press Research; at most 3 searches and 4 pages each time, 60 s, public addresses
 #   only (Hermes refuses private ones in web_extract; the studio checks each address too). What was taken is kept in
-#   the project's References with its link.
+#   the project's References with its link, and shown before a build uses it.
 requires_hermes: ">=0.23"
 provides_tools:
   - swarm_design
