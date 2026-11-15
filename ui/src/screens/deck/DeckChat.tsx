@@ -11,6 +11,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { routeMessage } from '@studio/route'
 import { ownerSay } from '@studio/github'
+import { isResearchStop, stopText, againBody, type Stop } from '@studio/researchstop'
+import { ResearchStop } from '../../studio/ResearchStop'
 import { Chat, type BuildRoute, type ChatCommand, type ChatGo, type ChatLine, type ChatTalk } from '../../chat'
 import { useNav } from '../../nav/NavProvider'
 import { crew } from './crew'
@@ -34,20 +36,23 @@ export function DeckChat({ model, picked, onCommand }: {
   const { view, go } = useNav()
   const [talk, setTalk] = useState<ChatTalk | null>(null)
   const [notes, setNotes] = useState<DeckLine[]>([])
+  // a build that looked something up first: what it found, shown before the crew uses it (decision 0025)
+  const [stop, setStop] = useState<{ stop: Stop, at: number, again: (more: object) => void } | null>(null)
   const note = (who: DeckLine['who'], text: string) => setNotes(n => [...n, { id: `note:${Date.now()}:${n.length}`, at: Date.now(), who, text }])
   const run = model.run
 
   // the build's lines, each crew line in its agent's shade; the build's news goes to the Log tab
   const toChat = (l: DeckLine): ChatLine => ({ ...l, ...(l.who === 'crew' && l.name ? { color: crew().color(l.name) } : {}), where: l.layers?.map(k => model.layers[k]?.role ?? k).join(', ') })
   const all = useMemo(() => [...model.lines, ...notes].sort((a, b) => a.at - b.at), [model.lines, notes])
-  const lines = all.filter(l => l.who !== 'sys').map(toChat)
+  const said = all.filter(l => l.who !== 'sys').map(toChat)
+  const lines: ChatLine[] = stop ? [...said, { id: `research:${stop.at}`, at: stop.at, who: 'hermia' as const, text: stopText(stop.stop), card: <ResearchStop stop={stop.stop} post={post} onBuild={kept => stop.again(againBody(stop.stop, kept))} /> }].sort((a, b) => a.at - b.at) : said
   const log = all.filter(l => l.who === 'sys' || l.who === 'err').map(toChat)
 
   // a build: this project's next version (from the open one), a new project, or this one from scratch
-  const build = useCallback(async ({ brief, agents, route, chat }: { brief: string, agents?: number, route: BuildRoute | 'extend', chat?: string | null }) => {
+  const build = useCallback(async ({ brief, agents, route, chat, more }: { brief: string, agents?: number, route: BuildRoute | 'extend', chat?: string | null, more?: object }) => {
     const r = await post('/api/run', {
       brief, ...(agents ? { agents } : {}), ...(view.project ? { project: view.project } : {}),
-      ...((route === 'extend' || route === 'add' || route === 'redo') && run ? { from: run } : {}), ...(route === 'redo' ? { redo: true } : {}), ...(chat ? { chat } : {})
+      ...((route === 'extend' || route === 'add' || route === 'redo') && run ? { from: run } : {}), ...(route === 'redo' ? { redo: true } : {}), ...(chat ? { chat } : {}), ...(more || {})
     }).catch(() => null)
     const j = await r?.json().catch(() => ({})) as { run?: string, error?: string, ask?: string, chat?: string | null, text?: string, message?: string, hermes?: boolean } | undefined
     if (r?.ok && j?.run) { setTalk(null); go({ type: 'started', run: j.run, project: view.project, room: 'deck' }); return }
@@ -57,6 +62,8 @@ export function DeckChat({ model, picked, onCommand }: {
       if (j.ask === 'talk' || !j.chat) return setTalk({ id: `deck:${Date.now()}`, kind: 'site', text: brief })
       return setTalk({ id: `ask:${j.chat}:${Date.now()}`, kind: 'site', chat: j.chat, said: [{ who: 'you', text: brief }, { who: 'hermia', text: j.text || '' }] })
     }
+    // it looked something up first: what it found waits in the chat, with Build (decision 0025)
+    if (r?.status === 409 && isResearchStop(j)) return setStop({ stop: j, at: Date.now(), again: m => void build({ brief, agents, route, chat, more: m }) })
     if (r?.status === 409) return note('err', 'The crew are still on the last change.')
     if (r?.status === 503 && j?.hermes) return note('err', j.message || j.error || 'Hermes is not answering.')
     note('err', `Couldn't start the build${r ? ` (${j?.error || r.status})` : ''}. Is the studio server running?`)

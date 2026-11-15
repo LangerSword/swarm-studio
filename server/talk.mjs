@@ -9,6 +9,7 @@
 //                                           "lock", "do:paint"); plan: the plan an action changed (the board shows it)
 //   POST /api/talk/:id/lock              -> the same as the pick "lock"
 //   POST /api/talk/:id/unlock { key? }   -> { chat }
+//   GET  /api/talk/plan/:planId          -> { chat, draft?, step? }  the plan's own chat (one is made for a plan with none)
 //
 // A game chat with a plan is one state with that plan (owner, 2026-11-14): its Lock is the Plan board's Lock (the
 // gate, at the price the board shows), and every option whose label is an action runs it through the board's own
@@ -179,6 +180,14 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
         const chat = chats.create({ kind: input.kind })
         json(res, 200, await turnOf(chat.id, input))
       }).catch(err => fail(res, err))
+      return true
+    }
+    // a plan's own chat, for the Plan board's dock (web/planchat.js): the one that points at it, or one made for it
+    const pm = url.pathname.match(/^\/api\/talk\/plan\/([^/]+)$/)
+    if (pm && req.method === 'GET') {
+      const plan = plans?.get?.(pm[1])
+      const chat = plan && chats.forPlan(plan)
+      json(res, chat ? 200 : 404, chat ? withStep(withDraft({ chat })) : { error: 'no such plan' })
       return true
     }
     const m = url.pathname.match(/^\/api\/talk\/([^/]+)(?:\/(lock|unlock))?$/)

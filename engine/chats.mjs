@@ -216,7 +216,18 @@ export function chatStore(arg) {
     return made
   }
 
-  return { dir, get, create, update, say, rename, setCategory, built, moveTo, settle, remove, listLoose, forProject, forMessage, cleanup, importPlans, locate }
+  // the chat a plan talks in (the Plan board's dock, web/planchat.js): the one that points at it, loose or in a
+  // project; a plan with none (a template remix, one from before chats, a built one) gets one, as importPlans makes
+  function forPlan(plan) {
+    if (!plan?.id) return null
+    let hit = listDir(dir).find(c => c.plan === plan.id)
+    if (!hit && existsSync(projectsDir)) for (const pid of readdirSync(projectsDir)) if ((hit = listDir(inProject(pid)).find(c => c.plan === plan.id))) break
+    if (hit) return get(hit.id)
+    const [made] = importPlans([{ ...plan, build: null }])
+    return made ? get(made) : null
+  }
+
+  return { dir, get, create, update, say, rename, setCategory, built, moveTo, settle, remove, listLoose, forProject, forMessage, cleanup, importPlans, forPlan, locate }
 }
 
 export const isDir = p => { try { return statSync(p).isDirectory() } catch { return false } }

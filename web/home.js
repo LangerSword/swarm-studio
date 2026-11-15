@@ -351,9 +351,15 @@ export function makeHome({ sw, C, root }) {
   foldersEl.onclick = e => { const b = e.target.closest('[data-folder]'); if (b && !b.querySelector('input')) go('folder', b.dataset.folder) }
   $('.hm-logo').onclick = () => go('recent')
 
+  async function openPlan(id) {
+    const list = await api('/api/chats').then(j => j.chats || []).catch(() => [])
+    const chat = list.find(c => c.kind === 'game' && c.plan === id)
+    return chat ? openChat(chat.id) : C.plan(id)
+  }
   function openProject(p, version = null) {
     if (!p) return
-    if (p.plan) return C.plan(p.id)
+    // a game plan opens beside its chat (spec 27), as it does from Chats: the chat is where it is shaped
+    if (p.plan) return openPlan(p.id)
     opened[p.id] = Date.now()
     // a Studio project with nothing built yet opens on its scaffold (spec 37)
     if (p.studio && !p.head) { store.set('home.opened', opened); return C.studio(p.id) }
@@ -488,7 +494,7 @@ export function makeHome({ sw, C, root }) {
       { k: 'trash', icon: 'trash', label: 'Delete', red: true, run: () => act('trash', ids) }
     ] : [
       { k: 'open', icon: 'ext', label: 'Open', run: () => open(id) },
-      ...(p.planId ? [{ k: 'plan', icon: 'layers', label: 'Open the plan', run: () => C.plan(p.planId) }] : []),
+      ...(p.planId ? [{ k: 'plan', icon: 'layers', label: 'Open the plan', run: () => openPlan(p.planId) }] : []),
       { k: 'rename', icon: 'type', label: 'Rename', run: () => rename(id) },
       { k: 'dup', icon: 'layers', label: 'Duplicate', run: () => act('duplicate', [id]) },
       { k: 'move', icon: 'folder', label: 'Move to', sub: b => subMenu(b, moveItems(ids)) },
@@ -751,7 +757,7 @@ export function makeHome({ sw, C, root }) {
       // Not started: Projects stays, with the words back in the box. Another build running is
       // shown on the deck on request; anything else has said why in the chat (Hermes, a talk, the question
       // before a new website: web/canvas/loop.js opens it, decision 0020)
-      if (!input.value && !made?.ask) input.value = text
+      if (!input.value && !made?.ask && !made?.research) input.value = text
       if (made?.busy) toast('<span>A build is running. Yours can start when it ends.</span>', made.run ? 'Watch it' : null, made.run ? () => C.started(made.run, { room: 'deck' }) : null)
       return
     }

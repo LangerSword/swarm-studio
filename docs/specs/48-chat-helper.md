@@ -90,6 +90,16 @@ passes in.
 - A press that kept something fires `swarm:refs` on the window; the Studio boards (`web/scaffold.js`,
   `ui/src/screens/studio/useStudio.ts`) reload their References.
 
+## The tools so far
+
+- `library_search` (every talk): the asset library, three pictures with their credit; a press keeps one.
+- `web_search`, `web_fetch`, `clone_site` (an app's talk; part c, #608): a web search, a page read, and a look at a
+  site to copy, through Hermes's `web_search` / `web_extract` and the guarded site walk, the same reads the app
+  engine's own tools use (`engine/enginetools.mjs` `webReads`). Public addresses only. `clone_site`'s picture is
+  written to `/img/<run>/clone-<hash>.jpg` before the card is shown; its press (`Clone it`, `{ do: 'clone', url,
+  run }`) starts one change to that run's app, which crawls the address with the engine's `web_crawl`. Before the
+  app is built there is no run, so the card is only to look at.
+
 ## Not yet
 
 - **Ask mode** (spec 46) offers no tools: it changes nothing and keeps no chat, so a card could not be pressed.

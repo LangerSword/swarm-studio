@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { KITS, type Kit, type KitCard, type KitCtx, type StoreItem, type Studio } from '../../legacy'
 import { useNav } from '../../nav/NavProvider'
+import { isResearchStop, stopText } from '@studio/researchstop'
 import { json, useFetch } from './source'
 
 export const STEP_NAME: Record<string, string> = { brand: 'Brand', references: 'What you have', assets: 'Assets', plan: 'Plan', proposal: 'Lock' }
@@ -66,12 +67,20 @@ export function useStudio(pid: string | null) {
   // chat here: the talk has not moved, so the line is shown as a toast)
   // `submit` is the current Studio's (web/canvas/hook.js) as a website's Build uses it: a build of this project,
   // resolving to the new run's id, or null with the reason said (Hermia's question first, the crew still busy, no Hermes)
+  // a build that looked something up first (decision 0025): what it found is in this project's References; the
+  // next Build, once the person has seen it there, builds with what is left
+  const looked = useRef(false)
   const sw = useMemo(() => {
     const say = (text: string) => fail(text)
     const submit = async (brief: string, _auto = false, project: string | null = null, from: string | null = null, opts: { chat?: string | null } = {}) => {
-      const r = await fetcher('/api/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ brief, ...(project ? { project } : {}), ...(from ? { from } : {}), ...(opts.chat ? { chat: opts.chat } : {}) }) }).catch(() => null)
+      const r = await fetcher('/api/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ brief, ...(project ? { project } : {}), ...(from ? { from } : {}), ...(opts.chat ? { chat: opts.chat } : {}), ...(looked.current ? { researched: true } : {}) }) }).catch(() => null)
       const j = await r?.json().catch(() => ({})) as { run?: string, error?: string, text?: string, message?: string } | undefined
-      if (r?.ok && j?.run) return j.run
+      if (r?.ok && j?.run) { looked.current = false; return j.run }
+      if (r?.status === 409 && isResearchStop(j)) {
+        looked.current = true
+        say(`${stopText(j)} They are in References: take out any there, then press Build again.`)
+        return null
+      }
       say(r?.status === 409 && j?.error === 'ask' ? j.text || 'Hermia has a question first: answer it in the chat.'
         : r?.status === 409 ? 'The crew are still on the last change.'
         : j?.message || j?.error || "Couldn't start the build. Is the studio server running?")

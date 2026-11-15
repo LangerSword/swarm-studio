@@ -21,6 +21,7 @@ import { talk, talkSay, readTalk, talkStart, talkAsk, openAsk } from './talk.js'
 import { links, refLines } from './base.js'
 import { carryStep, carryMoving } from './carry.js'
 import { hosted } from './hosted.js'
+import { isResearchStop, stopText, stopItems, againBody, takeOut } from '../researchstop.js'
 
 // ---------- loop
 
@@ -478,7 +479,7 @@ async function sendDock() {
   }
   setAuto(true)
   const media = links.take('ref')
-  const res = await api('/api/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ brief: refLines(brief, media), agents: Number(els.agentsSel.value), ...(to.project ? { project: to.project } : {}), ...(route === 'extend' || route === 'redo' ? { from: to.from } : {}), ...(route === 'redo' ? { redo: true } : {}), ...(to.pictures ? { pictures: to.pictures } : {}), ...(to.template ? { template: to.template } : {}), ...(to.chat ? { chat: to.chat } : {}) }) }).catch(() => null)
+  const res = await api('/api/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ brief: refLines(brief, media), agents: Number(els.agentsSel.value), ...(to.project ? { project: to.project } : {}), ...(route === 'extend' || route === 'redo' ? { from: to.from } : {}), ...(route === 'redo' ? { redo: true } : {}), ...(to.pictures ? { pictures: to.pictures } : {}), ...(to.template ? { template: to.template } : {}), ...(to.chat ? { chat: to.chat } : {}), ...(to.research || {}) }) }).catch(() => null)
   const j = res ? await res.clone().json().catch(() => ({})) : {}
   // a new website asks first (docs/decisions/0020-ask-before-build.md): the question waits in its chat, or "don't
   // build yet" opens the talk. Not an error, and not busy. Whoever sent it moves to the deck first (web/home.js)
@@ -494,6 +495,14 @@ async function sendDock() {
     }
     return void openAsk(j.chat)
   }
+  // it looked something up first (decision 0025): what it found is shown, with its source, before the crew uses it
+  if (res?.status === 409 && isResearchStop(j)) {
+    to.done?.({ research: true })
+    els.brief.value = ''
+    // from the Make box: the stop is in the Design deck's chat, so it opens there (as the question's chat does)
+    if (!to.from && !to.project) window.swarmCosmos?.go?.('station', 'canvas')
+    return void researchStop(j, kept => { nextRoute = { ...to, done: to.done && (() => {}), research: againBody(j, kept) }; els.brief.value = brief; els.form.requestSubmit() })
+  }
   to.done?.(res?.ok ? j.run || null : res?.status === 409 ? { busy: true, run: j.run || null } : null)
   if (!res?.ok) for (const m of media) links.add(m)
   if (res?.ok) { els.brief.value = ''; hosted?.refresh() }
@@ -503,4 +512,42 @@ async function sendDock() {
   else if (res?.status === 503 && j.hermes) hermesSays(j)
   else if (hosted && res) hosted.refuse(j)
   else feed(null, `Couldn't start the run${res ? ` (${res.status})` : ''}. Is the canvas server running?`, 'err')
+}
+
+// Hermia's line, each page it found with its link and what was taken, ✕ to take one out, and Build with what is left
+/** @param {any} j @param {(kept: any[]) => void} build */
+function researchStop(j, build) {
+  window.swarmCosmos?.chat?.(true)
+  const item = botMsg(stopText(j))
+  item.classList.add('research-stop')
+  let kept = stopItems(j)
+  const list = document.createElement('ul')
+  list.className = 'found'
+  const draw = () => {
+    list.replaceChildren(...kept.map(k => {
+      const li = document.createElement('li')
+      li.innerHTML = `<a target="_blank" rel="noopener noreferrer"></a><span class="took"></span><button class="out" aria-label="Take it out" title="Take it out">✕</button>`
+      const a = /** @type {HTMLAnchorElement} */ (li.querySelector('a'))
+      const took = /** @type {HTMLElement} */ (li.querySelector('.took'))
+      const out = /** @type {HTMLButtonElement} */ (li.querySelector('.out'))
+      a.href = k.url
+      a.textContent = `${k.title} · ${k.host}`
+      took.textContent = k.took
+      out.onclick = async () => {
+        await takeOut(j, k, (path, body) => api(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).catch(() => {})
+        kept = kept.filter(x => x !== k)
+        draw()
+      }
+      return li
+    }))
+    go.textContent = kept.length ? 'Build with these' : 'Build without them'
+  }
+  const acts = document.createElement('div')
+  acts.className = 'chips'
+  const go = document.createElement('button')
+  go.onclick = () => { acts.remove(); list.querySelectorAll('button').forEach(b => b.remove()); build(kept) }
+  acts.append(go)
+  draw()
+  item.append(list, acts)
+  return item
 }
