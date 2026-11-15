@@ -9,7 +9,8 @@
 //   planning   live, and nothing of this build's own is planned yet (W3; W6, a next version before its plan)
 //   building   live, with sections of its own planned (W4)
 //   done       ended, every section built (W7)
-//   unchanged  a next version that ended having added and changed nothing: the last version, as it was (W9)
+//   unchanged  a next version that ended having added and changed nothing: the last version, as it was (W9);
+//              `reason` says why when its planner failed or found nothing to add in the words
 //   partly     ended (run:done) with sections failed or left unbuilt, and at least one section standing (W8)
 //   failed     ended (run:done) with no section built at all (W8 "0 built", and an old build that planned nothing)
 //   stopped    the person pressed Stop (W10), or an old file's stop that names no cause
@@ -126,5 +127,11 @@ export function buildState(events = [], { live = false } = {}) {
   // why a build that ran to its end is not whole: the newest failed section's own message, in the stop
   // reason's words, said for a build that ended (never "Stopped: …") and naming the way on that `next` gives
   if (end?.type === 'run:done' && failed.length) reason = reasonFromFailure(failed.at(-1)?.why, { ended: true, resume: next === 'resume' })
+  // a build that ran to its end with nothing of its own made, or pages left bare, because its planner failed: the
+  // planner's newest error is why (a next version that "added nothing" for a reason is not one that had nothing to add)
+  if (end?.type === 'run:done' && !reason && (left || state === 'unchanged')) {
+    const err = events.findLast(e => e.type === 'error' && /^(planner|run)/.test(String(e.where || '')) && !/trying once more|replanning/i.test(String(e.message || '')))
+    if (err) reason = reasonFromFailure(err.message, { ended: true, resume: next === 'resume' })
+  }
   return { state, done, planned, kept, failed, reason, next }
 }
