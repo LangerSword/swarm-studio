@@ -6,6 +6,7 @@
 import { ic, cursor, CREW, painterOf } from './icons.js'
 import { makeBoard } from './board.js'
 import { planRefsHtml, planRefInsp, planRefWire } from './planrefs.js'
+import { planFitWatch } from './planfit.js'
 
 export function makePlan({ sw, C, root }) {
   const esc = sw.esc
@@ -16,6 +17,8 @@ export function makePlan({ sw, C, root }) {
   const bd = makeBoard({ root, cls: 'project plan', label: 'Plan', fit: [0.3, 1.25], on: () => P.on, selected: () => !!P.sel, clear: () => select(null) })
   const { world, insp } = bd
   const applyCam = bd.applyCam, frameAll = bd.frameAll, toast = bd.toast
+  // the whole plan fits again when the pane or the chat changes the stage, until the person moves the view (web/planfit.js)
+  const fitWatch = planFitWatch(bd, { framed: () => !!P.framed })
 
   // ---------- the top bar: Projects › name, and the one primary button (the price)
   const bar = document.querySelector('.topbar')
@@ -136,7 +139,7 @@ export function makePlan({ sw, C, root }) {
     applyCam()
     const firstKey = p.first && (p.art?.sprites?.length ? `sp:${p.first.name}` : `vw:${p.first.name}:front`)
     if (!P.draft && firstKey && P.checked !== `${p.id}:${p.first.src}` && !P.sel) { P.checked = `${p.id}:${p.first.src}`; P.sel = firstKey }
-    if (!P.framed && world.offsetWidth && !writing) { P.framed = true; frameAll(false) }
+    if (!P.framed && world.offsetWidth && !writing) { P.framed = true; frameAll(false); fitWatch.fitted() }
     renderInsp()
     // while the crew paint, look again every few seconds
     clearTimeout(P.poll)
