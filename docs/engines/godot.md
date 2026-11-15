@@ -30,7 +30,7 @@ job installs the cask and checks that the app is found with `PATH=/usr/bin:/bin`
 `SWARM_GODOT` and `GODOT` (plus `PATH`) in the server's environment (launcher.py `KEEP_ENV`; tests/test_manifest.py). The server checks once at start and the planner is told yes, no or unknown (server/server.mjs:1450-1457, engine/talkplan.mjs:282).
 
 **Not installed.** If the plan names Godot and none is found, the chat offers "Godot (install it first)" or "The
-browser for now" (engine/talkplan.mjs:207-208); the plan says to install Godot 4 (engine/planshape.mjs:365). At build
+browser for now" (engine/talkplan.mjs:218-219); the plan says to install Godot 4 (engine/planshape.mjs:365). At build
 time it falls back to the browser and says so in a step (engine/appjob.mjs:409-412). Swarm never downloads Godot (README.md:219).
 Once a game plan is locked, the chat's next step asks the same thing with two buttons, **Install Godot 4** and
 **Browser is fine** (engine/gamestep.mjs `nextStep`). Install Godot 4 checks the computer again (`godotCheck` in
