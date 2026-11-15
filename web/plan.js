@@ -6,7 +6,7 @@
 import { ic, cursor, CREW, painterOf } from './icons.js'
 import { makeBoard } from './board.js'
 import { planRefsHtml, planRefInsp, planRefWire } from './planrefs.js'
-import { planTileStop, planNextHtml, planTileChip, planTileNoPainter } from './plantiles.js'
+import { planTileStop, planNextHtml, planTileChip, planTileNoPainter, planTilePaints } from './plantiles.js'
 
 export function makePlan({ sw, C, root }) {
   const esc = sw.esc
@@ -321,7 +321,8 @@ export function makePlan({ sw, C, root }) {
   // no image model signed in (server/plans.mjs 503): every empty picture and the next step say so, with Set up
   const noPainter = err => planTileNoPainter(err) ? (P.noPainter = true) : false
   async function act(sub, body) {
-    try { P.plan = await post(url(sub), body); insp.innerHTML = ''; render() } catch (err) { if (!noPainter(err)) toast(err.message); insp.innerHTML = ''; render() }
+    // a press always answers: the toast now, and with no image model the board keeps saying so after it goes
+    try { P.plan = await post(url(sub), body); if (planTilePaints.has(sub)) P.noPainter = false; insp.innerHTML = ''; render() } catch (err) { noPainter(err); toast(err.message); insp.innerHTML = ''; render() }
   }
   function paintIt(what, btn) {
     btn.disabled = true
@@ -390,7 +391,7 @@ export function makePlan({ sw, C, root }) {
     }
   }
   async function build() {
-    try { take(await post(url('build'))) } catch (err) { if (noPainter(err)) render(); else toast(err.message) }
+    try { take(await post(url('build'))) } catch (err) { if (noPainter(err)) render(); toast(err.message) }
   }
 
   // ---------- select (the stage's gestures are the board's)

@@ -52,3 +52,6 @@ export function planTileChip(target, run) {
 
 /** No image model signed in: the plan routes' 503 (server/plans.mjs noPainter).  @param {{ status?: number, message?: string }} err */
 export const planTileNoPainter = err => err?.status === 503 && /image model/.test(String(err.message || ''))
+
+/** The plan routes that paint (server/plans.mjs PAINTS, less Build): one that answers means an image model is signed in again. */
+export const planTilePaints = new Set(['sheet', 'mocks', 'backdrops', 'closeups', 'view'])
