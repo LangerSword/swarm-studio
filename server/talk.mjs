@@ -23,7 +23,8 @@ import { starterSpec } from '../engine/starters.mjs'
 
 // model() -> (messages -> text) or null; env() -> { godot }; plans.fromTalk(input, planId) -> plan view;
 // plans.act(id, sub, input) -> plan view (a Plan board action); godotCheck() looks for Godot 4 again -> boolean
-export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plans = null, godotCheck = null }) {
+// helpers() -> the chat's tool kit (engine/helpers.mjs, decision 0025 e), or null
+export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plans = null, godotCheck = null, helpers = () => null }) {
   // a game talk that joins a project takes its plan's art references there (engine/planrefs.mjs)
   const chats = chatStore({ dataDir, onMove: (chat, pid) => { if (chat?.plan) plans?.carry?.(chat.plan, pid) } })
   const json = (res, code, data) => res.writeHead(code, { 'content-type': 'application/json' }).end(JSON.stringify(data))
@@ -42,7 +43,7 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
     return plan ? { ...out, step: nextStep(out.chat, plan, env()), starts: startsOf(plan) } : out
   }
   const turnOf = (id, input) => chats.update(id, async chat => {
-    const turn = await say(chat, { said: String(input.said || '').slice(0, 4000), pick: String(input.pick || '').slice(0, 120) }, { model: model(), env: env(), plan: planOf(chat) })
+    const turn = await say(chat, { said: String(input.said || '').slice(0, 4000), pick: String(input.pick || '').slice(0, 120) }, { model: model(), env: env(), plan: planOf(chat), helpers: helpers() ? { kit: helpers(), ctx: { project: chat.project || null, run: chat.run || null, plan: chat.plan || null, chat: chat.id } } : null })
     return { chat, turn }
   }).then(withDraft)
 

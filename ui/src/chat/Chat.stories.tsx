@@ -114,3 +114,21 @@ export const Hosted: Story = { args: { agentsMax: 8 } }
 // the three heights the handle drags to: low (the box and the last line), middle, high (the whole history)
 export const Middle: Story = { ...Reopened, parameters: { height: 1 } }
 export const High: Story = { ...InProject, parameters: { height: 2 } }
+
+// the chat as the helper (decision 0025 e, spec 48): asked for a pixel sword, Hermia shows what the asset library
+// found as three cards, each with where it came from; Keep this keeps one, and she says what was kept
+const SWORDS = [
+  { id: 'c1', title: 'pixel sword', source: 'your pack my_swords: Ana, CC0', note: 'weapons', pick: 'Keep this' },
+  { id: 'c2', title: 'iron sword', source: 'assetrizz pixel_32: assetrizz by mojomast, full grant from the author', note: 'weapons', pick: 'Keep this' },
+  { id: 'c3', title: 'flame sword', source: 'your pack my_swords: Ana, CC0', note: 'weapons', picked: 1 }
+]
+export const ToolCards: Story = {
+  args: {
+    api: fixture({ ...base, '/api/helper/pick': { text: 'Kept pixel sword with the project\'s References. Credit: Ana, CC0.' } }),
+    talk: { id: 't7', kind: 'site', chat: 'c-loose', said: [
+      { who: 'you', text: 'find me a pixel sword' },
+      { who: 'hermia', text: 'I\'ll look in the asset library. Here are 3 from the asset library. Press one to keep it with the project\'s References.', cards: SWORDS, turn: 't2' }
+    ] }
+  },
+  parameters: { height: 2 }
+}
