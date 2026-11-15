@@ -514,7 +514,9 @@ export function makeProject({ sw, C, root }) {
       x.kind === 'draft' && !x.pending && `<button class="btn" data-act="draft-accept">${ic('check', 15)}Accept</button>`,
       x.kind === 'draft' && !x.pending && `<button class="btn ghost" data-act="draft-dismiss">${ic('x', 15)}Dismiss</button>`,
       x.kind === 'ref' && `<button class="btn ghost" data-act="open">${ic('ext', 15)}Open</button>`,
-      x.kind === 'ref' && !hosted() && `<button class="btn ghost" data-act="ref-remove">${ic('trash', 15)}Remove</button>`
+      x.kind === 'ref' && !hosted() && `<button class="btn ghost" data-act="ref-remove">${ic('trash', 15)}Remove</button>`,
+      // narrow panes: the dock is under this sheet, so what the chat can change (a page, a picture) opens it from here
+      (x.kind === 'page' || x.kind === 'art') && `<button class="btn ghost pj-tochat" data-act="chat">${ic('msg', 15)}Chat</button>`
     ].filter(Boolean).join('')
     // Use for…: the crew get the reference and the part it is for, like a comment on that section
     const useFor = x.kind === 'ref' && !hosted() && P.board ? `<form class="pj-use" autocomplete="off"><input name="u" placeholder="Use for…" aria-label="Use for" maxlength="80" value="${esc(x.ref.use || '')}"><button class="btn" type="submit">Send</button></form>` : ''

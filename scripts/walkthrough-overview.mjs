@@ -5,7 +5,8 @@
 //
 // They run on one throwaway Studio of their own (kept on env.fs, which the runner and the flows end): a
 // scripted planner that reads a question as a talk and answers it from what the Studio told it, and a project
-// with a picture. The refusal step starts one with no Hermes.
+// with a picture. It has no image model, so a picture asked for is refused for real; the one step that shows a
+// picture taken stubs that answer and says so in its flow.
 import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { studio } from './walkthrough-fixtures.mjs'
@@ -112,6 +113,14 @@ async function pickSection(env, s, id) {
   await vis(page, '.pj-insp .pj-back')
 }
 
+const IMAGE = '**/api/runs/*/image'
+const WORDS = 'The kiln door open, sparks in the dark'
+async function pickPicture(env, s) {
+  await overviewOf(env, s, KILN)
+  await env.page.locator(`.pj-world .ab[data-key="${ART}"]`).first().click()
+  await vis(env.page, '.project .pj-insp:not([hidden])')
+}
+
 export const OVERVIEW_STEPS = [
   { id: 'o-ways-in', flow: OV, title: 'Every way into the Overview: an address, Projects, Back from a room; folded with ×, back with the dock’s Chat', run: async env => {
     const s = await withModel(env)
@@ -160,16 +169,18 @@ export const OVERVIEW_STEPS = [
     await send(env, 'Make the headline shorter')
     await saysTruth(env, await res, /Make the headline shorter/)
   }, settle: 800 },
-  { id: 'o-repaint', flow: OV, title: 'New words for a picture, asked in the chat with the picture selected: the chat says whether it is being painted', run: async env => {
+  { id: 'o-repaint', flow: `${OV} (stubbed: the server takes the picture; this Studio has no image model)`, title: 'New words for a picture, asked in the chat with the picture selected: the chat says it is being painted', run: async env => {
     const s = await withModel(env)
-    await overviewOf(env, s, KILN)
-    await env.page.locator(`.pj-world .ab[data-key="${ART}"]`).first().click()
-    await vis(env.page, '.project .pj-insp:not([hidden])')
+    await pickPicture(env, s)
+    // the one stubbed answer: POST …/image says yes, as a Studio with an image model does (server/server.mjs runImage)
+    await env.page.route(IMAGE, r => (r.request().method() === 'POST' ? r.fulfill({ status: 202, contentType: 'application/json', body: '{"ok":true,"provider":"stub"}' }) : r.continue()))
     const res = posted(env.page, /\/image$/)
-    await send(env, 'The kiln door open, sparks in the dark')
-    await saysTruth(env, await res, /Painting it again\./)
-    if (!/The kiln door open, sparks in the dark/.test(await feedText(env.page))) no('the chat does not show the words that were sent')
-  }, settle: 800 },
+    await send(env, WORDS)
+    const got = await res
+    if (!got?.ok()) no('the stubbed answer did not reach the page')
+    await saysTruth(env, got, /Painting it again\./)
+    if (!(await feedText(env.page)).includes(WORDS)) no('the chat does not show the words that were sent')
+  }, settle: 800, after: env => env.page.unroute(IMAGE) },
   { id: 'o-question', flow: OV, title: 'A question asked in the chat: the planner answers here, on the Overview, and nothing is built', run: async env => {
     const s = await withModel(env)
     await overviewOf(env, s, s.ids.site)
@@ -185,14 +196,15 @@ export const OVERVIEW_STEPS = [
     if (!/Which pages does this site have\?/.test(await feedText(env.page))) no('the chat does not show the question')
     await toEnd(env.page)
   }, settle: 800 },
-  { id: 'o-refused', flow: OV, title: 'A change the server refuses (no Hermes, a section picked): the chat says “Nothing happened” and why', run: async env => {
-    const s = await own(env, 'overview-off', { noHermes: true })
-    await pickSection(env, s, s.ids.site)
-    const res = posted(env.page, /\/comment$/)
-    await send(env, 'Make the headline shorter')
+  { id: 'o-refused', flow: OV, title: 'A request the server refuses (a picture asked for with no image model): the chat says “Nothing happened” and why', run: async env => {
+    const s = await withModel(env)
+    await pickPicture(env, s)
+    const res = posted(env.page, /\/image$/)
+    await send(env, WORDS)
     const got = await res
-    if (got?.ok()) no('this Studio has no Hermes and its server took the change')
+    if (got?.ok()) no('this Studio has no image model and its server took the picture')
     await saysTruth(env, got, /$^/)
+    if (!(await feedText(env.page)).includes(WORDS)) no('the chat does not show the words that were sent')
     if (!(await onOverview(env.page))) no('the refusal moved the person off the Overview')
   }, settle: 800 }
 ]
