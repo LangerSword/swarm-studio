@@ -12,7 +12,11 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { studio } from './walkthrough-fixtures.mjs'
-import { STEPS } from './walkthrough-steps.mjs'
+import { STEPS as SCREENS } from './walkthrough-steps.mjs'
+import { CHAT_STEPS } from './walkthrough-chat.mjs'
+
+// the chat states come last, so the screens keep their numbers
+const STEPS = [...SCREENS, ...CHAT_STEPS]
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? process.argv[i + 1] : d }
