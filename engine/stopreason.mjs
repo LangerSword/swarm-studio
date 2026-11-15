@@ -9,7 +9,11 @@
 export const STOPS = {
   person: 'Stopped by you.',
   replaced: 'Stopped: a newer build started.',
-  timeout: 'Stopped: the model took too long to answer.'
+  timeout: 'Stopped: the model took too long to answer.',
+  // no end was ever written: Swarm Studio stopped mid-build, or a newer build took over (nobody knows which).
+  // The server writes it when it starts (server/server.mjs closeStoppedBuilds); the same sentence a build with
+  // no end has always read (web/replaytalk.js endWords)
+  interrupted: 'This run stopped before it finished.'
 }
 export const PILL = { person: 'stopped', replaced: 'stopped: replaced', hermes: 'stopped: no Hermes', model: 'stopped: model', timeout: 'stopped: timed out' }
 

@@ -107,7 +107,7 @@ export function ProjectCard({ p, layout, selected, framed, stacked, trash, folde
         </div>
         <div className={`flex min-w-0 flex-col ${list ? 'flex-1' : 'mt-2.5 pr-10'}`}>
           <b className={`min-w-0 truncate font-display text-base leading-tight font-extrabold tracking-[.02em] uppercase ${renaming ? 'invisible' : ''}`}>{p.title}</b>
-          {p.state && <span className="truncate font-monospace text-xs text-muted">{p.state.kind} · {p.state.status}{p.state.host && <span> · {p.state.host}</span>}</span>}
+          {p.state && <span className="truncate font-monospace text-xs text-muted">{p.state.kind} · {p.state.status}{p.state.live && ' · Live'}{p.state.host && <span> · {p.state.host}</span>}</span>}
         </div>
         {list && (
           <span className="flex gap-4 font-monospace text-xs text-muted">

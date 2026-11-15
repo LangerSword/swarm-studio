@@ -37,10 +37,11 @@ const SAVED = {
   failed: [[start(), ...plan(), ...all(broke), done({ planned: 4, done: 0, failed: 4 })], 'failed', 'resume'],
   stopped: [[start(), ...plan(), ...half(), stopped({ planned: 4, done: 2, failed: 0 }, reasonFromAbort('person'))], 'stopped', 'resume'],
   halted: [[start(), ...plan(), ...half(), stopped({ planned: 4, done: 2, failed: 0 }, reasonFromFailure('the model took too long', { resume: true }))], 'halted', 'resume'],
-  unsure: [[start(), ...plan(), ...half()], 'unsure', 'resume'],
+  // no end in the file: the server closes it when it starts (run:stopped, reason `interrupted`), so it reads halted
+  unsure: [[start(), ...plan(), ...half()], 'halted', 'resume'],
   haltedAtStart: [[start(), ev('error', { where: 'planner', message: HTTP500 }), stopped(none, reasonFromFailure(HTTP500))], 'halted', 'again'],
   failedAtStart: [[start(), done({ ...none, pages: 0 })], 'failed', 'again'],
-  cutOffAtStart: [[start()], 'unsure', 'again'],
+  cutOffAtStart: [[start()], 'halted', 'again'],
   stoppedAtStart: [[start(), stopped(none, reasonFromAbort('person'))], 'stopped', null]
 }
 const idOf = i => `2026-11-01T10-00-${String(i).padStart(2, '0')}-000Z`
@@ -82,7 +83,16 @@ test('a saved build answers its one state, and the server takes the way forward 
       const res = await s.call(`/api/runs/${id}/state`)
       assert.equal(res.status, 200, name)
       const got = (await res.json()).state
-      assert.deepEqual(got, buildState(events), name)
+      // a build saved with no end was given one when the server started: the one event the server adds
+      const saved = await eventsOf(s, id)
+      const cut = !events.some(e => e.type === 'run:done' || e.type === 'run:stopped')
+      assert.equal(saved.length, events.length + (cut ? 1 : 0), `${name}: events in the file`)
+      if (cut) {
+        assert.equal(saved.at(-1).type, 'run:stopped', name)
+        assert.deepEqual(saved.at(-1).reason, { code: 'interrupted', message: 'This run stopped before it finished.', action: '' }, name)
+        assert.equal(buildState(events).state, 'unsure', `${name}: as it was saved`)
+      }
+      assert.deepEqual(got, buildState(saved), name)
       assert.deepEqual([got.state, got.next], [state, next], name)
       assert.deepEqual((await (await s.call(`/api/runs/${id}/board`)).json()).build, got, `${name}: the board`)
 
@@ -110,6 +120,15 @@ test('a saved build answers its one state, and the server takes the way forward 
         assert.equal(rj.from, id)
         const begun = await until(async () => (await eventsOf(s, rj.run)).find(e => e.type === 'run:start'))
         assert.ok(begun?.extend && begun.resume, `${name}: the resumed build keeps what is built`)
+        // the top bar's chip and the card's bar read the same state as the deck: a next version that has planned
+        // nothing is planning, with an empty bar, never full from the sections it was handed (hole B7)
+        const job = (await (await s.call('/api/work')).json()).jobs.find(j => j.run === rj.run)
+        const state = (await (await s.call(`/api/runs/${rj.run}/state`)).json()).state
+        assert.equal(state.done, 0, `${name}: none of its own sections built (the model is held)`)
+        if (name === 'partly') assert.ok(state.kept > 0, 'partly: sections were handed over, and the bar does not count them')
+        assert.deepEqual([job?.what, job?.stage, job?.pct], ['site', state.state === 'building' ? 'building pages' : 'planning', 0], `${name}: the chip`)
+        const card = (await (await s.call('/api/runs')).json()).find(r => r.id === rj.run)
+        assert.deepEqual([card?.live, card?.progress, card?.state?.status], [true, 0, 'Building'], `${name}: the card`)
         await s.call('/api/stop', { run: rj.run })
       } else if (next === 'again') assert.equal(resume.status, 400, `${name}: nothing to resume`)
       await new Promise(r => setTimeout(r, 150))

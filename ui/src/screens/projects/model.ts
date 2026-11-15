@@ -4,7 +4,8 @@
 
 export interface Theme { colors: string[], fonts?: { heading?: string, display?: string } }
 // site, empty: a website's own build state and whether no section stands (server/projects.mjs stateOf)
-export interface ProjectState { kind: string, status: string, host?: string | null, site?: string, empty?: boolean }
+// live: a version is online while the status is its newest build's own word ("Failed · Live · host")
+export interface ProjectState { kind: string, status: string, host?: string | null, live?: boolean, site?: string, empty?: boolean }
 export interface Version {
   id: string, title?: string, t?: number, updated?: number, cover?: string | null, theme?: Theme | null,
   kinds?: string[], state?: ProjectState | null, live?: boolean, work?: { what?: string, pct?: number } | null
@@ -30,8 +31,8 @@ export type Layout = 'grid' | 'list'
 
 export const SORTS: [Sort, string][] = [['edited', 'Last edited'], ['name', 'Name'], ['created', 'Created']]
 export const KINDS = ['Website', 'App', 'Game', 'Video']
-export const STATUSES = ['Draft', 'Building', 'Designed', 'App built', 'App failed', 'Game built', 'Game failed', 'Brought in', 'Live']
-export const STATUS_ICON: Record<string, string> = { Draft: 'pencil', Building: 'clock', Designed: 'frame', 'App built': 'code', 'App failed': 'x', 'Game built': 'game', 'Game failed': 'x', 'Brought in': 'download', Live: 'globe' }
+export const STATUSES = ['Draft', 'Building', 'Designed', 'Partly built', 'Failed', 'Stopped', 'App built', 'App failed', 'Game built', 'Game failed', 'Brought in', 'Live']
+export const STATUS_ICON: Record<string, string> = { Draft: 'pencil', Building: 'clock', Designed: 'frame', 'Partly built': 'frame', Failed: 'x', Stopped: 'x', 'App built': 'code', 'App failed': 'x', 'Game built': 'game', 'Game failed': 'x', 'Brought in': 'download', Live: 'globe' }
 export const KIND_ICON: Record<string, string> = { Website: 'site', App: 'code', Game: 'game', Video: 'film' }
 export const KIND = { site: 'site', app: 'code', game: 'game', film: 'film' } as Record<string, string>
 export const KIND_NAME = { site: 'Site', app: 'App', game: 'Game', film: 'Film' } as Record<string, string>
@@ -80,8 +81,10 @@ export const seenAt = (p: Project, opened: Record<string, number>) => Math.max(p
 export const passes = (filter: string) => (p: Project) => {
   if (!filter) return true
   const [t, v] = [filter.slice(0, 1), filter.slice(2)]
-  return t === 'k' ? p.state?.kind === v : p.state?.status === v
+  return t === 'k' ? p.state?.kind === v : hasStatus(p, v)
 }
+// Live: every project with a version online, whatever its newest build's word (state.live)
+const hasStatus = (p: Project, v: string) => p.state?.status === v || (v === 'Live' && !!p.state?.live)
 
 export function shown(ps: Project[], c: Choices, opened: Record<string, number>): Project[] {
   const seen = (p: Project) => seenAt(p, opened)
@@ -104,7 +107,7 @@ export const versionCards = (p: Project): Project[] => (p.versions || []).map((v
 
 // only the kinds and states the projects really have
 export const filterKinds = (ps: Project[]) => KINDS.filter(k => live(ps).some(p => p.state?.kind === k))
-export const filterStates = (ps: Project[]) => STATUSES.filter(v => live(ps).some(p => p.state?.status === v))
+export const filterStates = (ps: Project[]) => STATUSES.filter(v => live(ps).some(p => hasStatus(p, v)))
 
 // Assets: grouped by the project each came from, unfiled projects first, then each folder in the sidebar's order;
 // the sort orders the projects too (by name, by when made, else the server's order: newest piece first)

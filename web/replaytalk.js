@@ -98,6 +98,20 @@ export function endWords(b) {
 }
 
 /**
+ * What Publish says of a website build before it goes out, from the same state: nothing for a whole build; for
+ * one still building or not whole, its word and how much of it stands, since that is what goes live ("Partly
+ * built", "5 of 9 sections"); with no section built there is nothing to publish (`none`), and the reason.
+ * @param {BuildState | null | undefined} b
+ * @returns {{ none: boolean, state: string, text: string }}
+ */
+export function publishWords(b) {
+  if (!b || b.state === 'done' || b.state === 'unchanged') return { none: false, state: '', text: '' }
+  const { built, total } = sectionsOf(b)
+  if (!built) return { none: true, state: '', text: 'Nothing is built yet.' }
+  return { none: false, state: buildLive(b) ? 'Building' : buildStrip(b).text, text: `${built} of ${total} sections` }
+}
+
+/**
  * The App room's pill. Live: building, running, built… In a replay: Replay and how far, whatever the recording
  * is showing.
  * @param {{ replay?: boolean, at?: number, state?: string, url?: string | null, hasApp?: boolean, kind?: string }} o

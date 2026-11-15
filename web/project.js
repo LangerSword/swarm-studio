@@ -251,7 +251,10 @@ export function makeProject({ sw, C, root }) {
     const failed = x.plan.filter(l => l.failed).length, left = x.plan.filter(l => !l.done).length
     if (!left) return ''
     const n = failed || left
-    const resume = b.next === 'resume' && !hosted() ? `<button class="pt-again" data-resume="${esc(P.run || '')}">${ic('restore', 12)}Resume</button>` : ''
+    // one Resume for the build, on the first page with something left: every page keeps its own tag, and the
+    // button is not said again on each (they all did the same thing)
+    const first = P.board.pages?.find(p => p.plan?.some(l => !l.done))?.id === x.page
+    const resume = first && b.next === 'resume' && !hosted() ? `<button class="pt-again" data-resume="${esc(P.run || '')}">${ic('restore', 12)}Resume</button>` : ''
     return `<span class="pt-tag${resume ? ' act' : ''}"><b>${failed ? 'Failed' : 'Stopped'}</b>${n} section${n === 1 ? '' : 's'}${failed ? '' : ' left'}</span>${resume}`
   }
   // a piece still being made: a thin bar along its foot (it slides when the job cannot say how far)

@@ -7,7 +7,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { buildState, BUILD_STATES, isSiteBuild } from '../engine/buildstate.mjs'
 import { carryEvents } from '../engine/extend.mjs'
-import { reasonFromAbort, reasonFromFailure } from '../engine/stopreason.mjs'
+import { reasonFromAbort, reasonFromFailure, STOPS } from '../engine/stopreason.mjs'
 import { stateOf } from '../server/projects.mjs'
 import { cardOf, differences, oldStateOf } from '../scripts/build-state-diff.mjs'
 import { working } from '../ui/src/screens/projects/model.ts'
@@ -164,12 +164,43 @@ test('the Projects card says what the build state says', () => {
   }
 })
 
-test('a card that is Live, a game, an app or a film reads as before', () => {
+test('a live website whose newest build failed, stopped or is building says both (PU2)', () => {
+  const HOST = { github: 'https://example.github.io/cedar/' }
   const failedSite = cardOf(RUN, [start(), ...plan(), ...every(broke), done({ planned: 9, done: 0, failed: 9 })])
-  // published once: Live comes first, as before (PU2 in docs/ux/states/publish.md is not closed here)
-  const live = { ...failedSite, sites: { local: 'http://127.0.0.1:4400/cedar/' } }
-  assert.equal(stateOf(live).status, 'Live')
-  assert.equal(stateOf(live).empty, undefined)
+  const partSite = cardOf(RUN, [start(), ...plan(), ...half(), done({ planned: 9, done: 3, failed: 0 })])
+  const wholeSite = cardOf(RUN, [start(), ...plan(), ...every(built), done({ planned: 9, done: 9, failed: 0 })])
+  const cutSite = cardOf(RUN, [start(), ...plan(), ...half()])
+  const words = st => `${st.kind} · ${st.status}${st.live ? ' · Live' : ''}${st.host ? ` · ${st.host}` : ''}`
+  // the newest build is itself published
+  assert.equal(words(stateOf({ ...failedSite, sites: HOST })), 'Website · Failed · Live · example.github.io')
+  assert.equal(words(stateOf({ ...partSite, sites: HOST })), 'Website · Partly built · Live · example.github.io')
+  assert.equal(words(stateOf({ ...cutSite, sites: HOST })), 'Website · Stopped · Live · example.github.io')
+  // a whole build that is live reads Live, as before, and carries no second word
+  assert.deepEqual(stateOf({ ...wholeSite, sites: HOST }), { kind: 'Website', status: 'Live', host: 'example.github.io', site: 'done' })
+  // an older version is live, the newest failed or is building: the card is the newest build's, live at the older one's address
+  const v1 = { ...wholeSite, sites: HOST }
+  assert.equal(words(stateOf(failedSite, [v1, failedSite])), 'Website · Failed · Live · example.github.io')
+  const building = { ...partSite, live: true, buildState: buildState([start(), ...plan(), ...half()], { live: true }) }
+  assert.equal(words(stateOf(building, [v1, building])), 'Website · Building · Live · example.github.io')
+  // a card that is not live has no `live`
+  assert.equal(stateOf(failedSite).live, undefined)
+  // an empty live build is still an empty version (the stack's rule), and says Failed
+  assert.equal(stateOf({ ...failedSite, sites: HOST }).empty, true)
+})
+
+test('a build with no end, closed when the server starts, reads as halted with Resume', () => {
+  const stop = ev('run:stopped', { stopped: true, reason: { code: 'interrupted', message: STOPS.interrupted, action: '' } })
+  const cut = buildState([start(), ...plan(), ...half(), stop])
+  assert.deepEqual([cut.state, cut.next, cut.done, cut.planned], ['halted', 'resume', 3, 9])
+  assert.deepEqual(cut.reason, { code: 'interrupted', message: 'This run stopped before it finished.', action: '' })
+  // nothing planned: nothing to resume from, so Try again
+  assert.deepEqual([buildState([start(), stop]).state, buildState([start(), stop]).next], ['halted', 'again'])
+  // the card's word is the one a build with no end already had
+  assert.equal(stateOf(cardOf(RUN, [start(), ...plan(), ...half(), stop])).status, 'Stopped')
+})
+
+test('a game, an app or a film card reads as before', () => {
+  const failedSite = cardOf(RUN, [start(), ...plan(), ...every(broke), done({ planned: 9, done: 0, failed: 9 })])
   for (const card of [
     { kind: 'game', game: true, build: 'working', updated: 0 },
     { kind: 'game', game: true, build: 'failed' },
@@ -197,9 +228,11 @@ test('old against new: only a failed, stopped or unfinished website changes its 
   const diffs = differences(runs, projects)
   assert.ok(diffs.length > 0)
   assert.deepEqual(diffs.filter(d => !d.ok), [])
-  // whole builds, the app, the game and the Live cards are not in the list
-  for (const id of ['2026-11-01T10-00-00-000Z', '2026-11-02T10-00-00-000Z', '2026-11-02T11-00-00-000Z', '2026-11-02T12-00-00-000Z', '2026-11-02T13-00-00-000Z', '2026-11-02T14-00-00-000Z'])
+  // whole builds, the app, the game and the whole Live card are not in the list
+  for (const id of ['2026-11-01T10-00-00-000Z', '2026-11-02T10-00-00-000Z', '2026-11-02T11-00-00-000Z', '2026-11-02T12-00-00-000Z', '2026-11-02T13-00-00-000Z'])
     assert.equal(diffs.some(d => d.what === 'version' && d.run === id), false, id)
+  // PU2: a published build that failed read only "Live"; now it says both
+  assert.deepEqual(diffs.filter(d => d.what === 'version' && d.run === '2026-11-02T14-00-00-000Z').map(d => [d.was, d.now]), [['Website · Live', 'Website · Failed · Live']])
   // hole B2: the project's card read the older version's "Designed"; now it reads its newest build's own word
   assert.deepEqual(diffs.filter(d => d.what === 'card' && d.run === '2026-11-01T10-00-02-000Z').map(d => [d.was, d.now]), [['Website · Designed', 'Website · Failed']])
 })

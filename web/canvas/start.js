@@ -18,7 +18,7 @@ import { setAuto, pick, crewQuiet } from './deck.js'
 import { frameLoop, nextFrame } from './loop.js'
 import { game, workedJobs, benchPin, view, appv, appEls, setView, resetApp, deployApp } from './rooms.js'
 import { cw, wallNames, CW_TILES, radioOn, radio, heardIn } from './auto.js'
-import { pub, pubShow, pubButton, copyText, liveUrl, feedPop, publishMenu } from './publish.js'
+import { pub, pubShow, pubButton, pubSync, copyText, liveUrl, feedPop, publishMenu } from './publish.js'
 
 // ---------- start
 
@@ -310,6 +310,7 @@ els.publishBtn.onclick = async e => {
   pubMenu.hidden = false
   els.publishBtn.classList.add('on')
   closeable(pubMenu, closePub, { extra: [els.publishBtn] })
+  pubSync()
   const opt = pubMenu.querySelector('[data-pub="app"]'), why = opt.querySelector('.pub-why')
   const run = shownRun()
   opt.disabled = true

@@ -105,3 +105,42 @@ export async function ownerFor(dataDir, gh = ghCli) {
   if (!f.can) throw fail(`Builds go to ${org}, which can't be used: ${f.why}. Choose another in Settings › You › GitHub`, 403)
   return { login, owner: org }
 }
+
+// ---------- a published site whose repository moved (to an organization, or to another account)
+// A site's address is saved when it is published (the build's publish:done: its url and its repository). When
+// the repository is moved to another owner afterwards, GitHub Pages serves it at the new owner's address and the
+// saved one stops answering. GitHub still answers for the old name with the repository where it is now, so one
+// question tells: it is asked when the person opens Publish for that build (and a publish asks it anyway), never
+// when Projects is listed. What it finds is kept beside the owner in github.json,
+// { "sites": { "<build>": { "repo", "url", "from" } } }, and read with no network: `from` is the saved address
+// it stands in for, so a later publish, which saves its own address, is never overruled.
+
+/** Where a published site is now: { repo, url, moved }, or null when GitHub did not say (the saved one stands). */
+export async function siteNow({ repo, url }, gh = ghCli) {
+  if (!/^[\w.-]+\/[\w.-]+$/.test(String(repo || ''))) return null
+  const r = await gh(['api', `repos/${repo}`, '--jq', '.full_name'], { timeout: 15000 })
+  const full = r.ok ? String(r.out).trim() : ''
+  if (!/^[\w.-]+\/[\w.-]+$/.test(full)) return null
+  if (full.toLowerCase() === String(repo).toLowerCase()) return { repo: full, url, moved: false }
+  const p = await gh(['api', `repos/${full}/pages`, '--jq', '.html_url'], { timeout: 15000 })
+  const now = p.ok ? String(p.out).trim().replace(/\/?$/, '/') : ''
+  if (!/^https:\/\//.test(now)) return null
+  return { repo: full, url: now, moved: true }
+}
+
+/** The moved sites that were found, by build: { [build]: { repo, url, from } } */
+export function movedSites(dataDir) {
+  try { const m = JSON.parse(readFileSync(file(dataDir), 'utf8'))?.sites; return m && typeof m === 'object' ? m : {} } catch { return {} }
+}
+/** Keep where a build's site is now; `from` is the saved address it replaces. */
+export function saveMoved(dataDir, key, { repo, url, from }) {
+  let all = {}
+  try { all = JSON.parse(readFileSync(file(dataDir), 'utf8')) || {} } catch {}
+  all.sites = { ...(all.sites || {}), [key]: { repo, url, from } }
+  mkdirSync(dataDir, { recursive: true })
+  const tmp = `${file(dataDir)}.tmp`
+  writeFileSync(tmp, JSON.stringify(all, null, 1))
+  renameSync(tmp, file(dataDir))
+}
+/** A build's GitHub address as it is now: the moved one while the saved address is still the one it replaced. */
+export const currentSite = (moved, key, url) => (url && moved?.[key]?.from === url && moved[key].url ? moved[key].url : url)

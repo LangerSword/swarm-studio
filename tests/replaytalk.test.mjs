@@ -4,7 +4,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { REPLAY_WORD, REPLAY_SAYS, replayPct, statusWords, progressLine, appPill, replayAsk, buildStrip, buildProgress, buildLive, buildLeft, endWords } from '../web/replaytalk.js'
+import { REPLAY_WORD, REPLAY_SAYS, replayPct, statusWords, progressLine, appPill, replayAsk, buildStrip, buildProgress, buildLive, buildLeft, endWords, publishWords } from '../web/replaytalk.js'
 
 test('the mark reads Replay and how far along it is', () => {
   assert.equal(REPLAY_WORD, 'Replay')
@@ -160,4 +160,19 @@ test('what the chat says of a build with something left is made from the state, 
     const said = endWords(st(s, { done: 5, planned: 9, failed: fails(4), reason: MODEL, next: 'resume' }))
     assert.doesNotMatch(said, /All \d+ pages? (is|are) built|play the prototype|HTTP 500/, s)
   }
+})
+
+test('Publish says what goes live of a build that is not whole, from the same state', () => {
+  const st = (state, o = {}) => ({ state, done: 0, planned: 0, kept: 0, failed: [], reason: null, next: null, ...o })
+  // a whole build, or no state (an app, a game): nothing to say
+  for (const b of [null, undefined, st('done', { done: 9, planned: 9 }), st('unchanged', { kept: 9 })]) assert.deepEqual(publishWords(b), { none: false, state: '', text: '' })
+  // not whole: its word and how much stands, counted with what it was handed
+  assert.deepEqual(publishWords(st('partly', { done: 5, planned: 9 })), { none: false, state: 'Partly built', text: '5 of 9 sections' })
+  assert.deepEqual(publishWords(st('halted', { done: 2, planned: 6, kept: 3 })), { none: false, state: 'Stopped', text: '5 of 9 sections' })
+  assert.deepEqual(publishWords(st('unsure', { done: 3, planned: 9 })), { none: false, state: 'Stopped', text: '3 of 9 sections' })
+  // still building: what stands now is what would go out
+  assert.deepEqual(publishWords(st('building', { done: 1, planned: 4, kept: 9 })), { none: false, state: 'Building', text: '10 of 13 sections' })
+  assert.deepEqual(publishWords(st('planning', { kept: 9 })), { none: false, state: 'Building', text: '9 of 9 sections' })
+  // nothing built: nothing to publish, and the reason
+  for (const b of [st('planning'), st('building', { planned: 4 }), st('failed', { planned: 9 }), st('halted')]) assert.deepEqual(publishWords(b), { none: true, state: '', text: 'Nothing is built yet.' })
 })

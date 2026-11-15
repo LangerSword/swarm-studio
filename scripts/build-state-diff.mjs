@@ -1,6 +1,7 @@
 // The Projects card's words before and after the one build state (engine/buildstate.mjs), over every build in
 // a runs folder. It prints only the cards and versions whose words change, and exits 1 when a change is not a
-// website that failed, stopped or was left unfinished (a changed app, game, film or Live card is a regression).
+// website that failed, stopped or was left unfinished (a changed app, game or film card is a regression, and so
+// is a Live card whose newest build is whole; a Live website whose newest build failed or stopped now says both).
 //
 //   SWARM_RUNS_DIR=~/.hermes/swarm-studio/runs node scripts/build-state-diff.mjs
 //   node scripts/build-state-diff.mjs <runs folder>
@@ -75,7 +76,8 @@ export function cardOf(id, events, { video = false } = {}) {
   }
 }
 
-const words = s => (s ? `${s.kind} · ${s.status}` : '(no card)')
+// `live`: a version is online while the status is the newest build's own word ("Website · Failed · Live")
+const words = s => (s ? `${s.kind} · ${s.status}${s.live ? ' · Live' : ''}` : '(no card)')
 // A change is allowed when the card is a website's whose build is not whole: failed, stopped, partly built, or
 // with no end. `unchanged` is a next version that added nothing: it read Draft, and its sections are all there.
 const ALLOWED = new Set(['partly', 'failed', 'stopped', 'halted', 'replaced', 'unsure', 'unchanged'])

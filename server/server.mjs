@@ -16,7 +16,7 @@ import { hermesBridge, imageBody, videoBody } from '../engine/bridge.mjs'
 import { engineTools, webReads } from '../engine/enginetools.mjs'
 import { hermesLlm, roleModel } from '../engine/hermesllm.mjs'
 import { hermesHealth, HERMES_SAYS } from '../engine/hermeshealth.mjs'
-import { reasonFromAbort, reasonFromFailure } from '../engine/stopreason.mjs'
+import { reasonFromAbort, reasonFromFailure, STOPS } from '../engine/stopreason.mjs'
 import { basename, dirname, extname, join, normalize } from 'node:path'
 import { homedir, tmpdir, userInfo } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -34,7 +34,7 @@ import { seoAsk, lookAsk } from '../web/route.js'
 import { lookEdits, themeNow } from '../engine/lookask.mjs'
 import { standins as standinsMake } from '../engine/standins.mjs'
 import { githubLogin, publishGitHub, publishVercel, publishCloudflare } from '../engine/publish.mjs'
-import { connect, connections, credentials, PROVIDERS } from '../engine/connect.mjs'
+import { connect, connections, credentials, PROVIDERS, siteRepos } from '../engine/connect.mjs'
 import { MOTION_CSS, SNAPPY, swarmMotion, motionPreset } from '../engine/motion.mjs'
 import { speak, mix, VOICES, voiceToolsDir } from '../engine/sound.mjs'
 import { layoutSource, swarmLayout } from '../engine/layout.mjs'
@@ -72,7 +72,7 @@ import { chatMediaRoutes } from './chatmedia.mjs'
 import { autoplayRoutes } from './autoplay.mjs'
 import { bringInRoutes } from './bringin.mjs'
 import { sourceRoutes } from './sourcehub.mjs'
-import { savedOwner } from '../engine/ghowner.mjs'
+import { savedOwner, siteNow, movedSites, saveMoved, currentSite } from '../engine/ghowner.mjs'
 import { joinHistory } from '../engine/sourcehub.mjs'
 import { pictureMessages, linksIn, readPage, pageRead, withRefs, publicUrl } from '../engine/chatmedia.mjs'
 import { wantsResearch, researchBrief, research } from '../engine/research.mjs'
@@ -753,8 +753,14 @@ async function stopWork({ run, project } = {}) {
 let appsNow = null // the app jobs, once loaded, so this can stay synchronous
 // a Studio process that started a build: still running? (a killed one leaves its app:start behind)
 const appAlive = pid => { try { process.kill(pid, 0); return true } catch (e) { return e.code === 'EPERM' } }
+// how far a running website build is, 0..1, from its state: this build's own sections built of its own planned
+const siteProgress = b => (b.state === 'building' && b.planned ? Math.min(1, b.done / b.planned) : 0)
 function workOf(id) {
   if (current?.id === id && !current.done) {
+    // the website build's one state (engine/buildstate.mjs), the same the deck's strip reads: its own sections,
+    // never the ones a next version was handed (a full bar while the deck said "Planning what to add")
+    const b = current.state || buildState(current.events, { live: true })
+    if (b) return { what: 'site', stage: b.state === 'building' ? 'building pages' : 'planning', pct: siteProgress(b) }
     const plan = current.events.filter(e => e.type === 'layer:plan').length
     return { what: 'site', stage: plan ? 'building pages' : 'planning', pct: Math.min(1, current.events.filter(e => e.type === 'layer:done').length / Math.max(1, plan || 12)) }
   }
@@ -769,6 +775,27 @@ function workOf(id) {
   return null
 }
 const clipStage = s => String(s || '').replace(/\s+/g, ' ').trim().slice(0, 60) || null
+
+// A site whose repository moved to another owner is live at another address than the one its publish saved
+// (engine/ghowner.mjs). The moved addresses are read from the data folder, never asked of GitHub here.
+let movedSeen = { t: 0, map: {} }
+const movedNow = () => { if (Date.now() - movedSeen.t > 2000) movedSeen = { t: Date.now(), map: movedSites(dataDir) }; return movedSeen.map }
+const sitesNow = (id, sites) => (sites?.github && currentSite(movedNow(), id, sites.github) !== sites.github ? { ...sites, github: currentSite(movedNow(), id, sites.github) } : sites)
+// Asked when the person opens Publish for a build that is live on GitHub Pages: one question to GitHub for that
+// one build, at most every ten minutes. → true when the address changed
+const siteAsked = new Map()
+async function syncSite(id) {
+  if (Date.now() - (siteAsked.get(id) || 0) < 600000) return false
+  const last = (readEvents(id) || []).findLast(e => e.type === 'publish:done' && e.target === 'github' && e.url)
+  if (!last) return false
+  siteAsked.set(id, Date.now())
+  const repo = last.repo || siteRepos(dataDir)[id]
+  const now = await siteNow({ repo, url: last.url }).catch(() => null)
+  if (!now?.moved || now.url === currentSite(movedNow(), id, last.url)) return false
+  saveMoved(dataDir, id, { repo: now.repo, url: now.url, from: last.url })
+  movedSeen = { t: 0, map: {} }
+  return true
+}
 
 // A run's file card, from its events plus the person's meta. Cached by the
 // events file's size and time, so listing many runs stays quick.
@@ -858,12 +885,14 @@ function runCard(id) {
     // the 9:16 phone cut beside the wide one, when the run has it
     videoTall: existsSync(join(runsDir, id, 'video', SHAPES.tall.file)) ? `/video/${id}/${SHAPES.tall.file}` : null,
     live: current?.id === id && !current.done,
-    progress: current?.id === id && !current.done ? Math.min(1, (current.events.filter(e => e.type === 'layer:done').length) / Math.max(1, current.events.filter(e => e.type === 'layer:plan').length || 12)) : null,
+    sites: sitesNow(id, card.info.sites),
     work: workOf(id),
     buildState: current?.id === id && !current.done ? card.site.live : card.site.rest,
     // the cover: its hero picture, else a snapshot of its first page (saved by the canvas), else a film frame
     cover: card.info.cover || snapsOf().cover(id) || snapOf(id) || (existsSync(join(runsDir, id, 'video', 'p1.webp')) ? `/video/${id}/live/p1.webp` : null),
   }
+  // the card's bar: the same number as the top bar's chip (workOf), so the two never differ
+  out.progress = out.live ? out.work?.pct ?? null : null
   out.state = stateOf(out)
   return out
 }
@@ -4082,11 +4111,16 @@ ${researchBrief(seen)}`
     const id = runPublish[1]
     const reply = (code, data) => res.writeHead(code, { 'content-type': 'application/json' }).end(JSON.stringify(data))
     if (req.method !== 'POST') {
-      // what is live for this build, by host, from its saved events: it survives a restart
-      const events = readEvents(id) || [], live = {}
-      for (const e of events) if (e.type === 'publish:done' && e.url) live[e.target] = e.url
-      const last = events.filter(e => e.type === 'publish:done' || e.type === 'publish:failed').pop()
-      return reply(200, { ...(publishes.get(id) || (last ? { state: last.type === 'publish:failed' ? 'failed' : 'done', ...last } : { state: 'none' })), live })
+      // what is live for this build, by host, from its saved events: it survives a restart. A GitHub site whose
+      // repository moved answers with where it is now; ?sync=1 (the Publish menu, opened) asks GitHub first
+      const answer = () => {
+        const events = readEvents(id) || [], live = {}
+        for (const e of events) if (e.type === 'publish:done' && e.url) live[e.target] = e.url
+        const last = events.filter(e => e.type === 'publish:done' || e.type === 'publish:failed').pop()
+        reply(200, { ...(publishes.get(id) || (last ? { state: last.type === 'publish:failed' ? 'failed' : 'done', ...last } : { state: 'none' })), live: sitesNow(id, live) })
+      }
+      if (url.searchParams.get('sync') === '1') return void syncSite(id).catch(() => false).then(answer)
+      return answer()
     }
     let body = ''
     req.on('data', c => { body += c; if (body.length > 8e6) req.destroy() })
@@ -4904,6 +4938,27 @@ function closeStoppedVideos() {
   }
 }
 closeStoppedVideos()
+
+// A website build that was running when the server stopped (or that a newer build replaced, whose own stop is
+// dropped) has no end in its file, so nobody could say what happened to it (docs/ux/states/build.md W14, B6).
+// On start no build is live, so every website build with no end is closed here, once, with the stop it never
+// got: run:stopped and the reason code `interrupted`. The build state then reads it as halted, with Resume when
+// sections are kept and Try again when nothing is (engine/buildstate.mjs). Only the file's own lines are read.
+// Like the films above, this takes every unended build in the runs folder to be this server's.
+function closeStoppedBuilds() {
+  if (!existsSync(runsDir)) return
+  for (const id of readdirSync(runsDir).filter(x => RUN_ID.test(x))) {
+    let text
+    try { text = readFileSync(join(runsDir, id, 'events.jsonl'), 'utf8') } catch { continue }
+    if (!text.includes('"run:start"') || text.includes('"run:done"') || text.includes('"run:stopped"')) continue
+    const events = text.split('\n').filter(Boolean).flatMap(line => { try { return [JSON.parse(line)] } catch { return [] } })
+    if (buildState(events, { live: false })?.state !== 'unsure') continue
+    // a last line cut short by the stop is left as it is, on a line of its own
+    if (!text.endsWith('\n')) appendFileSync(join(runsDir, id, 'events.jsonl'), '\n')
+    record(id, { type: 'run:stopped', t: Date.now(), run: id, stopped: true, reason: { code: 'interrupted', message: STOPS.interrupted, action: '' } })
+  }
+}
+closeStoppedBuilds()
 
 server.listen(port, '127.0.0.1', () => {
   // --port 0: the port the system picked is the server's own from here on, for its Host check and for the

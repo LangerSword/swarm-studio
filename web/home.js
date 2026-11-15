@@ -18,8 +18,8 @@ const KIND_NAME = { site: 'Site', app: 'App', game: 'Game', film: 'Film' }
 const SORTS = [['edited', 'Last edited'], ['name', 'Name'], ['created', 'Created']]
 // the filter beside sort: what a build is, or how far it got (the server's own words in project.state)
 const KINDS = ['Website', 'App', 'Game', 'Video']
-const STATUSES = ['Draft', 'Building', 'Designed', 'App built', 'App failed', 'Game built', 'Game failed', 'Brought in', 'Live']
-const STATUS_ICON = { Draft: 'pencil', Building: 'clock', Designed: 'frame', 'App built': 'code', 'App failed': 'x', 'Game built': 'game', 'Game failed': 'x', 'Brought in': 'download', Live: 'globe' }
+const STATUSES = ['Draft', 'Building', 'Designed', 'Partly built', 'Failed', 'Stopped', 'App built', 'App failed', 'Game built', 'Game failed', 'Brought in', 'Live']
+const STATUS_ICON = { Draft: 'pencil', Building: 'clock', Designed: 'frame', 'Partly built': 'frame', Failed: 'x', Stopped: 'x', 'App built': 'code', 'App failed': 'x', 'Game built': 'game', 'Game failed': 'x', 'Brought in': 'download', Live: 'globe' }
 const KIND_ICON = { Website: 'site', App: 'code', Game: 'game', Video: 'film' }
 
 export function makeHome({ sw, C, root }) {
@@ -137,7 +137,8 @@ export function makeHome({ sw, C, root }) {
   const passes = p => {
     if (!H.filter) return true
     const [t, v] = [H.filter.slice(0, 1), H.filter.slice(2)]
-    return t === 'k' ? p.state?.kind === v : p.state?.status === v
+    // Live: every project with a version online, whatever its newest build's word (state.live)
+    return t === 'k' ? p.state?.kind === v : p.state?.status === v || (v === 'Live' && !!p.state?.live)
   }
   const filterName = () => H.filter.slice(2)
   const titleOf = () => H.stack ? (H.data.projects.find(p => p.id === H.stack)?.title || 'Versions') : H.view === 'folder' ? H.folder : { recent: 'Recent', all: 'All projects', chats: 'Chats', assets: 'Assets', trash: 'Trash' }[H.view]
@@ -189,7 +190,7 @@ export function makeHome({ sw, C, root }) {
   const crew = p => p.live ? `<div class="crew">${CREW.slice(0, 2 + (p.id.length % 3)).map(n => cursor(n)).join('')}</div>${p.progress == null && p.work ? `<div class="prog ind" role="progressbar" aria-label="Building ${WHAT[p.work.what] || ''}"><i></i></div>` : `<div class="prog" role="progressbar" aria-label="Building" aria-valuenow="${Math.round((p.progress ?? 0.1) * 100)}"><i style="width:${Math.max(6, Math.round((p.progress ?? 0.1) * 100))}%"></i></div>`}` : ''
   const WHAT = { site: 'the site', app: 'the app', game: 'the game', film: 'the film' }
   // what it is and how far it got, one quiet line: "App · Live · tidebreak-app.vercel.app"
-  const stateLine = p => p.state ? `<span class="st">${esc(p.state.kind)} · ${esc(p.state.status)}${p.state.host ? `<span class="h"> · ${esc(p.state.host)}</span>` : ''}</span>` : ''
+  const stateLine = p => p.state ? `<span class="st">${esc(p.state.kind)} · ${esc(p.state.status)}${p.state.live ? ' · Live' : ''}${p.state.host ? `<span class="h"> · ${esc(p.state.host)}</span>` : ''}</span>` : ''
   const ago = t => { const d = (Date.now() - t) / 1000; return d < 90 ? 'now' : d < 3600 ? `${Math.round(d / 60)}m` : d < 86400 ? `${Math.round(d / 3600)}h` : d < 86400 * 30 ? `${Math.round(d / 86400)}d` : new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) }
 
   // a card's own buttons, on its cover: Delete (to Trash) and Open, or in Trash, Restore and Delete forever
@@ -524,7 +525,7 @@ export function makeHome({ sw, C, root }) {
     const ps = live()
     const pick = f => () => { H.filter = H.filter === f ? '' : f; store.set('home.filter', H.filter); render() }
     const kinds = KINDS.filter(k => ps.some(p => p.state?.kind === k)).map(k => ({ k: `k:${k}`, icon: KIND_ICON[k], label: k, on: H.filter === `k:${k}`, run: pick(`k:${k}`) }))
-    const states = STATUSES.filter(v => ps.some(p => p.state?.status === v)).map(v => ({ k: `s:${v}`, icon: STATUS_ICON[v], label: v, on: H.filter === `s:${v}`, run: pick(`s:${v}`) }))
+    const states = STATUSES.filter(v => ps.some(p => p.state?.status === v || (v === 'Live' && p.state?.live))).map(v => ({ k: `s:${v}`, icon: STATUS_ICON[v], label: v, on: H.filter === `s:${v}`, run: pick(`s:${v}`) }))
     showMenu([{ k: 'all', icon: 'grid', label: 'Everything', on: !H.filter, run: pick('') }, '-', ...kinds, ...(states.length ? ['-', ...states] : [])], b)
   }
   bar.addEventListener('click', e => {
