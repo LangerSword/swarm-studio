@@ -10,7 +10,8 @@ export function cardValue(c: Card): string {
   if (c.id === 'cast') return `${(b.roster || []).length}`
   if (c.id === 'systems') return `${Object.values(b).filter(v => v === 'on').length}`
   const first = Object.values(b).find((v): v is string => typeof v === 'string' && !!v.trim())
-  return first ? first.split(/[,.]/)[0].slice(0, 28) : ''
+  // the whole first clause: the card clamps it to two lines with an ellipsis (PlanSections), never mid-word
+  return first ? first.split(/[,.]/)[0].trim() : ''
 }
 
 // the sheets and shots follow the plan's genre family (engine/planshape.mjs); the action RPG's by default

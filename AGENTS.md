@@ -13,8 +13,11 @@ drives it, what the person connects, the limits, and the sources for every claim
 - If the page doesn't cover it, say "not documented, unchecked", check the engine's own code or docs, and add
   what you found to the page with its source.
 - Never build something an engine already does. Swarm hands the engine the brief; it doesn't redo its work.
-- CI (`engine-docs`) fails a PR that changes an engine's glue code (the files on its page's `Glue:` line)
-  unless the PR updates that page or names it in the description ("Read docs/engines/dyad.md").
+- CI (`engine-docs`) fails a PR that changes an engine's glue code (what its page's `Glue:` line names)
+  unless the PR updates that page or names it in the description ("Read docs/engines/dyad.md"). A file several
+  engines share names a part (`server/server.mjs#meshy`): the lines between `// engine: meshy` and
+  `// end engine: meshy`, in as many blocks as it needs. Only a change whose lines fall inside a part owes its
+  page. Code you add for an engine to a shared file goes inside that engine's part, or in a new block of it.
 - A Claude Code hook (`.claude/settings.json`, `scripts/engine-docs-hook.mjs`) adds "read docs/engines/…"
   to any message that names an engine.
 
@@ -33,6 +36,8 @@ The real constraints that come with a dependency:
   the README's "What it does on your machine".
 - **Size and licence.** Mind the install size and the licence.
 - **Nothing new downloaded at build time.** A build may not fetch a new runtime download.
+
+When main's Mac check is red: `checks-macos` runs on a pull request only when it touches what can behave differently on a Mac (the list in `.github/workflows/checks.yml`, job `changes`), and always on every push to `main` and `release/**`. A red `checks-macos` on `main` is a Mac-only break the pull request didn't run: find the merge that brought it (the run's commit), open a fix PR that touches one of the listed files (so its own Mac check runs), and don't merge other PRs that touch those files until `main` is green again.
 
 Checks before a PR: `bash scripts/check.sh`; for code in `web/`, also `npm ci --prefix tools/dev` once, then
 `npm run --prefix tools/dev typecheck` (files that start with `// @ts-check`; a new web file starts with it) and

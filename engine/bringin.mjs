@@ -12,7 +12,7 @@ import { execFile } from './proc.mjs'
 // the limits on one project, said in the refusal
 export const CAPS = { bytes: 200 * 1024 * 1024, files: 20000 }
 // never copied: packages, git, build output, caches, and files that hold keys
-export const SKIP = /^(node_modules|\.git|dist|build|out|\.output|\.nitro|\.next|\.vite|\.vercel|\.dyad|\.turbo|\.cache|\.parcel-cache|\.godot|\.import|\.DS_Store|Thumbs\.db|\.swarm-built\.json|\.env|\.env\..+|\.npmrc)$/
+export const SKIP = /^(node_modules|\.git|dist|build|out|\.output|\.nitro|\.next|\.vite|\.vercel|\.dyad|\.turbo|\.cache|\.parcel-cache|\.godot|\.import|\.DS_Store|Thumbs\.db|\.swarm-built\.json|\.swarm-studio\.json|\.env|\.env\..+|\.npmrc)$/
 const KEPT = /^\.env\.(example|sample|template)$/
 export const skipped = name => SKIP.test(name) && !KEPT.test(name)
 
