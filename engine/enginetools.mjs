@@ -26,38 +26,54 @@ export function searchText(query, results = []) {
 // the SSE Dyad's web_search reads: the whole answer as one delta, then [DONE]
 export const sse = text => `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\ndata: [DONE]\n\n`
 
-export function engineTools({ web, walk, paint, check }) {
-  // one site walk at a time: each starts a browser
+// What the app engine's tools and the chat's (server/chattools.mjs) read, one way: a search, a page's text (a public
+// address only) and one picture of a page (the guarded walk, one at a time: each starts a browser). Reading only.
+export function webReads({ web, walk, check }) {
   let walking = Promise.resolve()
   const oneWalk = fn => { const p = walking.then(fn, fn); walking = p.catch(() => {}); return p }
-
-  async function pageText(url) {
-    const r = await web({ urls: [url] })
-    const got = r?.ok ? r.res?.results?.[0] : null
-    if (!got || got.error || !got.content) throw new Error(`could not read ${url}${got?.error ? `: ${got.error}` : r?.error ? `: ${r.error}` : ''}`)
-    return { url: got.url || url, title: got.title || '', markdown: String(got.content).slice(0, MAX_MARKDOWN) }
+  return {
+    async search(query, limit = 8) {
+      const r = await web({ search: query, limit })
+      if (!r?.ok) throw new Error(`the web search did not answer${r?.error ? `: ${r.error}` : ''}`)
+      return r.res?.data?.web || []
+    },
+    async pageText(url) {
+      await check(url)
+      const r = await web({ urls: [url] })
+      const got = r?.ok ? r.res?.results?.[0] : null
+      if (!got || got.error || !got.content) throw new Error(`could not read ${url}${got?.error ? `: ${got.error}` : r?.error ? `: ${r.error}` : ''}`)
+      return { url: got.url || url, title: got.title || '', markdown: String(got.content).slice(0, MAX_MARKDOWN) }
+    },
+    // the top of the page as a JPEG, or an error in the walk's own words (no browser here: what to install)
+    async pagePicture(url) {
+      await check(url)
+      const seen = await oneWalk(() => walk(url))
+      const shot = seen?.pages?.[0]?.shots?.[0]
+      if (!shot) throw new Error(seen?.note || 'the page could not be photographed')
+      return Buffer.from(shot)
+    }
   }
+}
+
+export function engineTools({ web, walk, paint, check }) {
+  const reads = webReads({ web, walk, check })
 
   const tools = {
     async 'POST /llm/v1/tools/web-search'(input) {
       const query = String(input.query || '').trim().slice(0, 500)
       if (!query) throw Object.assign(new Error('a search is needed'), { status: 400 })
-      const r = await web({ search: query, limit: 8 })
-      if (!r?.ok) throw new Error(`the web search did not answer${r?.error ? `: ${r.error}` : ''}`)
-      return { sse: sse(searchText(query, r.res?.data?.web || [])) }
+      return { sse: sse(searchText(query, await reads.search(query, 8))) }
     },
     async 'POST /llm/v1/tools/web-crawl'(input) {
       const url = String(input.url || '').trim()
       await check(url)
       if (input.markdownOnly) {
-        const p = await pageText(url)
+        const p = await reads.pageText(url)
         return { json: { rootUrl: url, markdown: p.markdown, pages: [{ url: p.url, markdown: p.markdown }] } }
       }
       // a clone: the page's words through Hermes, and one picture of it from the guarded walk
-      const [p, seen] = await Promise.all([pageText(url), oneWalk(() => walk(url))])
-      const shot = seen?.pages?.[0]?.shots?.[0]
-      if (!shot) throw new Error(seen?.note || 'the page could not be photographed')
-      return { json: { rootUrl: url, markdown: p.markdown, screenshot: `data:image/jpeg;base64,${Buffer.from(shot).toString('base64')}` } }
+      const [p, shot] = await Promise.all([reads.pageText(url), reads.pagePicture(url)])
+      return { json: { rootUrl: url, markdown: p.markdown, screenshot: `data:image/jpeg;base64,${shot.toString('base64')}` } }
     },
     async 'POST /llm/v1/images/generations'(input) {
       const prompt = String(input.prompt || '').trim().slice(0, 4000)
