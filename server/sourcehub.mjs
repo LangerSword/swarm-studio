@@ -1,11 +1,15 @@
 // A project's source on GitHub (docs/specs/45-intake.md, engine/sourcehub.mjs): the door inside a project.
 //   GET  /api/projects/<id>/github[?run=&piece=&check=1]  -> what is true: linked or not, pushed or pulled when,
 //        changes not pushed, and (with check=1, one request to GitHub) new commits to pull
-//   POST /api/projects/<id>/github { action: 'push' | 'pull' | 'bring', piece?, run?, repo?, public?, path?, kind? }
+//   POST /api/projects/<id>/github { action: 'push' | 'pull' | 'bring' | 'unlink', piece?, run?, repo?, public?, path?, kind? }
 //        push   the run's history to its repository; the first one makes it (private unless public: true) from
 //               `repo` as a name, or links `repo` as owner/name when that one is empty or already this project's
 //        pull   what is new in the linked repository (or the one it was brought in from), as the next version
 //        bring  a repository into this project, when it has no app or game source yet
+//        unlink forget which repository this piece goes to; nothing on GitHub or on disk changes
+//   GET  /api/github/repos              -> the repositories the person's gh login sees on their account and in their
+//        organizations, newest first: { login, repos: [{ repo, private, empty, updated }], errors } (the sheet's
+//        "An existing repository" list)
 //   GET  /api/github/owner             -> where builds go on GitHub: { login, owner (null: the person's account),
 //        orgs: [{ login, can, why }], error } (engine/ghowner.mjs; Settings › You › GitHub, "publish to <org>")
 //   POST /api/github/owner { owner }   -> choose it: null or the login is the person's account; an organization must
@@ -14,9 +18,9 @@
 // own gh login does it; no token is read or kept. The hosted studio has no such door (server/hosted.mjs: 403).
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { GITHUB, ghCli, ghLogin, pushSource, remoteHead, localHead, hasCommit, isBehind, changedUnder, repoName, readTarget, sourceLinks, rememberLink } from '../engine/sourcehub.mjs'
+import { GITHUB, ghCli, ghLogin, listRepos, pushSource, remoteHead, localHead, hasCommit, isBehind, changedUnder, repoName, readTarget, sourceLinks, rememberLink } from '../engine/sourcehub.mjs'
 import { parseRepo, cleanSub, KINDS } from '../engine/bringin.mjs'
-import { chooseOwner, ownerFor, ownerView, savedOwner } from '../engine/ghowner.mjs'
+import { chooseOwner, ghOrgs, ownerFor, ownerView, savedOwner } from '../engine/ghowner.mjs'
 
 const fail = (message, status = 400, more = {}) => Object.assign(new Error(message), { status, ...more })
 
@@ -85,7 +89,7 @@ export function sourceRoutes({ runsDir, dataDir, projects, readEvents, record, b
       // where a new repository would be made: the organization builds go to (Settings › You › GitHub), else null
       owner: savedOwner(dataDir),
       suggest: repoName(src?.title || p.name),
-      link: link ? { repo: link.repo, url: hub.page(link.repo), private: link.private !== false, pushed: link.pushed || null, pulled: link.pulled || null, fits } : null,
+      link: link ? { repo: link.repo, url: hub.page(link.repo), private: link.private !== false, branch: link.branch || null, pushed: link.pushed || null, pulled: link.pulled || null, fits } : null,
       origin: origin ? { repo: origin.repo, path: origin.path, url: hub.page(origin.repo), pulled: seen?.pulled || null } : null,
       ahead: !!(link && fits && local && (local.dirty || local.sha !== link.sha)), behind, unreachable,
       job: jobs.get(key) || null
@@ -110,6 +114,14 @@ export function sourceRoutes({ runsDir, dataDir, projects, readEvents, record, b
     if (jobs.get(key)?.state === 'working') return state(ref, input)
     const action = String(input.action || '')
     const link = sourceLinks(dataDir)[key] || null
+
+    // the project forgets where this piece goes: the repository and the files stay as they are
+    if (action === 'unlink') {
+      if (!link) throw fail('This project is not linked to a repository', 409)
+      rememberLink(dataDir, key, null)
+      jobs.delete(key)
+      return state(ref, input)
+    }
 
     if (action === 'bring') {
       if (src) throw fail('This project already has its source. Pull brings in what is new.', 409)
@@ -177,6 +189,7 @@ export function sourceRoutes({ runsDir, dataDir, projects, readEvents, record, b
 
   function handle(req, res, url) {
     if (url.pathname === '/api/github/owner') return ownerRoute(req, res)
+    if (url.pathname === '/api/github/repos') return reposRoute(req, res)
     const m = url.pathname.match(/^\/api\/projects\/([^/]+)\/github$/)
     if (!m) return false
     const say = err => json(res, err.status || 400, { error: String(err.message || err), ...(err.pull ? { pull: true } : {}), ...(err.keys ? { keys: err.keys } : {}) })
@@ -193,6 +206,19 @@ export function sourceRoutes({ runsDir, dataDir, projects, readEvents, record, b
       try { input = JSON.parse(body || '{}') } catch {}
       act(decodeURIComponent(m[1]), input && typeof input === 'object' ? input : {}).then(st => json(res, 200, view(st)), say)
     })
+    return true
+  }
+  // the repositories the person can link: their account's and their organizations' (any they belong to: linking needs
+  // no right to make repositories, and GitHub itself refuses a push the login may not make)
+  function reposRoute(req, res) {
+    if (req.method !== 'GET') return false
+    ;(async () => {
+      const me = await login()
+      if (!me) return json(res, 424, { error: 'GitHub CLI is not signed in: run gh auth login' })
+      const orgs = await ghOrgs(gh).then(o => o.orgs.map(x => x.login), () => [])
+      const got = await listRepos([me, ...orgs], gh)
+      json(res, 200, { login: me, ...got })
+    })().catch(err => json(res, err.status || 502, { error: String(err.message || err) }))
     return true
   }
   // where builds go on GitHub: the person's account or one of their organizations

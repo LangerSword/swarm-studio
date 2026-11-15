@@ -129,7 +129,8 @@ curl -sf http://127.0.0.1:$hport/studio/app/api/intake > "$tmp/reply"; has '"sho
 [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"repo":"a/b","kind":"game"}' http://127.0.0.1:$hport/studio/app/api/intake)" = 403 ] || { echo 'the hosted studio took an intake'; exit 1; }
 # and it has no GitHub door: no state, no push, no pull (the person's gh login is never the host's)
 [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$hport/api/projects/p1/github)" = 403 ] || { echo 'the hosted studio answered the GitHub door'; exit 1; }
-for act in push pull bring; do
+[ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$hport/api/github/repos)" = 403 ] || { echo 'the hosted studio listed GitHub repositories'; exit 1; }
+for act in push pull bring unlink; do
   code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"action":"'$act'","repo":"a/b"}' http://127.0.0.1:$hport/studio/app/api/projects/p1/github)
   [ "$code" = 403 ] || { echo "the hosted studio took a GitHub $act"; exit 1; }
 done
