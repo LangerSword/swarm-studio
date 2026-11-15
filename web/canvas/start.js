@@ -1,7 +1,7 @@
 // @ts-check
 // web/canvas.js, split by area (web/canvas/README.md): starting a build, resizable panels, crews, the Publish button, pictures in the Design panel.
 import { eventStream } from '../headerstream.js'
-import { BASE, BOOT, WALL, S, cosmosHooks, commandOps, els, store, Q, $, Crew, ARROW, TOOL, api } from './core.js'
+import { BASE, BOOT, WALL, S, cosmosHooks, commandOps, els, store, Q, $, Crew, ARROW, TOOL, api, setBuild } from './core.js'
 import { hermesResume, botMsg, resumeRun, renderToolbar, setText, feed, setHermesResume } from './panels.js'
 import { hosted } from './hosted.js'
 import { fresh } from './base.js'
@@ -53,6 +53,9 @@ function onEvent(m) {
     if (e.type === 'connector') return connectorEvent(e)
     // model calls wait for Hermes (engine/hermesllm.mjs): the build goes on once it is open
     if (e.type === 'hermes:waiting' || e.type === 'hermes:back') return hermesWait(e)
+    // the server's one state of a website build (engine/buildstate.mjs): kept by run, whichever build is open,
+    // and sent before the event that changed it, so an end event is said from it (core.js buildOf)
+    if (e.type === 'build:state') return setBuild(e.run, e.state)
     if (e.type === 'reset' || e.type === 'run:start') {
       setLiveId(e.run)
       // a talk before building keeps the canvas: a build started elsewhere waits in Projects

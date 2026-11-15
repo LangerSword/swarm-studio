@@ -241,6 +241,19 @@ export function makeProject({ sw, C, root }) {
       return `<i class="${first ? 'hero' : b.i % 2 ? 'odd' : ''}${b.l.done ? ' done' : ''}" style="top:${(b.top * 100).toFixed(2)}%;height:${(b.h * 100).toFixed(2)}%"${first ? hero : ''}><b></b></i>`
     }).join('')}</div>`
   }
+  // A page of a build that ended or stopped with sections failed or left (the board's `build`, the server's one
+  // state of it, engine/buildstate.mjs): its artboard says so, with the one way on, the way a picture that did
+  // not come does (painting(), "no picture · Try again"). Nothing while the build runs: those are still coming.
+  const LEFT = ['partly', 'failed', 'stopped', 'halted', 'replaced', 'unsure']
+  function leftTag(x) {
+    const b = P.board?.build
+    if (!b || P.board.live || !LEFT.includes(b.state) || !x.plan?.length) return ''
+    const failed = x.plan.filter(l => l.failed).length, left = x.plan.filter(l => !l.done).length
+    if (!left) return ''
+    const n = failed || left
+    const resume = b.next === 'resume' && !hosted() ? `<button class="pt-again" data-resume="${esc(P.run || '')}">${ic('restore', 12)}Resume</button>` : ''
+    return `<span class="pt-tag${resume ? ' act' : ''}"><b>${failed ? 'Failed' : 'Stopped'}</b>${n} section${n === 1 ? '' : 's'}${failed ? '' : ' left'}</span>${resume}`
+  }
   // a piece still being made: a thin bar along its foot (it slides when the job cannot say how far)
   const WORK = { site: 'the site', app: 'the app', game: 'the game', film: 'the film' }
   function workBar(w) {
@@ -262,7 +275,7 @@ export function makeProject({ sw, C, root }) {
     if (x.kind === 'draft') return draftBoard(x, sel, img)
     const rv = x.kind === 'page' ? reviewOf(x) : null
     const work = x.kind === 'art' && (x.pending || P.landed.has(x.key)) ? painting(x) : ''
-    return `<div class="ab ${x.kind}${x.kind === 'story' ? ` st-${x.shape}${x.pending || lane.writing() ? ' st-wait' : ''}` : x.pending ? ` pt-${x.pending.state}` : ''}${rv ? ` rv-${rv.state}` : ''}" data-key="${esc(x.key)}" tabindex="-1"${tall ? ` style="height:${pageH(tall)}px"` : ''}>${x.pending && !x.src && x.kind !== 'story' ? '' : img}${work}${extra}${x.kind === 'page' ? `<div class="lys">${outline(x)}</div>${rv ? reviewMarks(x, rv) : ''}<svg class="mk" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true">${markPaths(x.page)}</svg>` : ''}${sel}</div>`
+    return `<div class="ab ${x.kind}${x.kind === 'story' ? ` st-${x.shape}${x.pending || lane.writing() ? ' st-wait' : ''}` : x.pending ? ` pt-${x.pending.state}` : ''}${rv ? ` rv-${rv.state}` : ''}" data-key="${esc(x.key)}" tabindex="-1"${tall ? ` style="height:${pageH(tall)}px"` : ''}>${x.pending && !x.src && x.kind !== 'story' ? '' : img}${work}${extra}${x.kind === 'page' ? `<div class="lys">${outline(x)}</div>${rv ? reviewMarks(x, rv) : ''}<svg class="mk" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true">${markPaths(x.page)}</svg>${leftTag(x)}` : ''}${sel}</div>`
   }
   // ---------- Scribble (spec 29): marks on a page's artboard, kept as fractions of the page
   // a page's artboard shows at most 9 widths of it: y on the artboard = y on the page × this
@@ -1701,6 +1714,20 @@ export function makeProject({ sw, C, root }) {
     if ((e.key === 'Delete' || e.key === 'Backspace') && P.sel?.startsWith('up:')) { const x = find(P.sel); if (x) { e.preventDefault(); fileOp({ op: 'delete', name: x.name }).then(() => select(null)) } }
   }, true)
   addEventListener('resize', () => { if (P.on) crewAtWork() })
+  // a build with sections failed or left: Resume builds what is left and keeps the rest (the same Resume as the
+  // Design deck's chat, POST /api/runs/<id>/resume); the new version is the one shown
+  world.addEventListener('click', async e => {
+    const b = e.target.closest('[data-resume]')
+    if (!b) return
+    e.stopPropagation()
+    b.disabled = true
+    const r = await sw.api(`/api/runs/${encodeURIComponent(b.dataset.resume)}/resume`, { method: 'POST' }).catch(() => null)
+    const j = r ? await r.json().catch(() => ({})) : {}
+    // no Hermes to answer the model: the chat says so and what to do
+    if (r?.status === 503 && j.hermes && sw.hermesSays) { C.go('station', 'canvas'); C.chat(true); return void sw.hermesSays(j) }
+    if (!r?.ok || !j.run) { toast('The build could not resume'); return load() }
+    C.started(j.run, { project: P.pid, room: 'overview' })
+  }, true)
   // a picture that did not come: paint it again from the same words
   world.addEventListener('click', e => {
     const b = e.target.closest('[data-again]')

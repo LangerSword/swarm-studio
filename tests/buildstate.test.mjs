@@ -53,13 +53,13 @@ const CASES = [
   ['stopped by the person, a section caught half way', [start(), ...plan(), ...half(), ev('layer:failed', { page: 'menu', layer: 'hero', agent: 'a1', message: 'stopped' }), stopped({ planned: 9, done: 3, failed: 0 }, reasonFromAbort('person'))], false, { state: 'stopped', done: 3, planned: 9, kept: 0, failed: 0, next: 'resume', word: 'Stopped' }],
   ['an old file: stopped, no cause named', [start(), ...plan(), ...half(), stopped({ planned: 9, done: 3, failed: 0 })], false, { state: 'stopped', done: 3, planned: 9, kept: 0, failed: 0, next: 'resume', reason: null, word: 'Stopped' }],
   ['stopped for a cause, sections planned (W11)', [start(), ...plan(), ...half(), stopped({ planned: 9, done: 3, failed: 0 }, reasonFromFailure('the model took too long'))], false, { state: 'halted', done: 3, planned: 9, kept: 0, failed: 0, next: 'resume', reason: 'timeout', word: 'Stopped' }],
-  ['stopped for a cause, nothing planned (W12)', [start(), ev('error', { where: 'planner', message: 'the site plan came back empty, trying once more' }), ev('error', { where: 'planner', message: HTTP500 }), stopped({ planned: 0, done: 0, failed: 0, pages: 0 }, reasonFromFailure(HTTP500))], false, { state: 'halted', done: 0, planned: 0, kept: 0, failed: 0, next: null, reason: 'model', word: 'Stopped', empty: true }],
+  ['stopped for a cause, nothing planned (W12)', [start(), ev('error', { where: 'planner', message: 'the site plan came back empty, trying once more' }), ev('error', { where: 'planner', message: HTTP500 }), stopped({ planned: 0, done: 0, failed: 0, pages: 0 }, reasonFromFailure(HTTP500))], false, { state: 'halted', done: 0, planned: 0, kept: 0, failed: 0, next: 'again', reason: 'model', word: 'Stopped', empty: true }],
   ['no end event, live, nothing planned (W3)', [start()], true, { state: 'planning', done: 0, planned: 0, kept: 0, failed: 0, next: null }],
   ['no end event, live, sections planned (W4)', [start(), ...plan(), ...half()], true, { state: 'building', done: 3, planned: 9, kept: 0, failed: 0, next: null }],
   ['no end event, not live (W13, W14)', [start(), ...plan(), ...half()], false, { state: 'unsure', done: 3, planned: 9, kept: 0, failed: 0, next: 'resume', reason: null, word: 'Stopped' }],
-  ['no end event, not live, nothing planned', [start()], false, { state: 'unsure', done: 0, planned: 0, kept: 0, failed: 0, next: null, word: 'Stopped', empty: true }],
+  ['no end event, not live, nothing planned', [start()], false, { state: 'unsure', done: 0, planned: 0, kept: 0, failed: 0, next: 'again', word: 'Stopped', empty: true }],
   ['replaced, if its stop reached the file', [start(), ...plan(), ...half(), stopped({ planned: 9, done: 3, failed: 0 }, reasonFromAbort('replaced'))], false, { state: 'replaced', done: 3, planned: 9, kept: 0, failed: 0, next: 'resume', reason: 'replaced', word: 'Stopped' }],
-  ['an old build that ended with nothing', [start(), done({ planned: 0, done: 0, failed: 0, pages: 0 })], false, { state: 'failed', done: 0, planned: 0, kept: 0, failed: 0, next: null, reason: null, word: 'Failed', empty: true }],
+  ['an old build that ended with nothing', [start(), done({ planned: 0, done: 0, failed: 0, pages: 0 })], false, { state: 'failed', done: 0, planned: 0, kept: 0, failed: 0, next: 'again', reason: null, word: 'Failed', empty: true }],
   ['a page the planner never gave a section', [start(), ...plan(), ev('page', { id: 'press', title: 'Press', purpose: '', index: 3 }), ev('error', { where: 'planner:press', message: HTTP500 }), ...every(built), done({ planned: 9, done: 9, failed: 0 })], false, { state: 'partly', done: 9, planned: 9, kept: 0, failed: 0, next: 'resume', word: 'Partly built' }]
 ]
 
@@ -98,8 +98,46 @@ test('Resume is named only when the server would take it and something is left',
   assert.equal(buildState([start(), ev('layer:plan', { page: 'home', id: 'hero', role: 'hero' }), stopped({ planned: 1, done: 0, failed: 0 }, reasonFromAbort('person'))]).next, null)
   // stopped with every section built and every page planned: nothing to resume
   assert.equal(buildState([start(), ...plan(), ...every(built), stopped({ planned: 9, done: 9, failed: 0 }, reasonFromAbort('person'))]).next, null)
-  // Try again is never named yet: a bare brief is refused by ask-before-build (409 ask)
-  for (const [, events, live] of CASES) assert.ok([null, 'resume'].includes(buildState(events, { live }).next))
+})
+
+test('Try again is named when a build failed, was halted or was cut off with nothing to resume from', () => {
+  const none = { planned: 0, done: 0, failed: 0, pages: 0 }
+  // the planner failed before any page (W12), an old build that ended with nothing, a build cut off while planning
+  assert.equal(buildState([start(), ev('error', { where: 'planner', message: HTTP500 }), stopped(none, reasonFromFailure(HTTP500))]).next, 'again')
+  assert.equal(buildState([start(), done(none)]).next, 'again')
+  assert.equal(buildState([start()]).next, 'again')
+  // sections planned with no theme: nothing to resume from, so the same words again
+  assert.equal(buildState([start(), ev('layer:plan', { page: 'home', id: 'hero', role: 'hero' }), stopped({ ...none, planned: 1 }, reasonFromFailure(HTTP500))]).next, 'again')
+  // never while it is live, never for a stop by the person or an old stop that names no cause, never with no words to build from
+  assert.equal(buildState([start()], { live: true }).next, null)
+  assert.equal(buildState([start(), stopped(none, reasonFromAbort('person'))]).next, null)
+  assert.equal(buildState([start(), stopped(none)]).next, null)
+  assert.equal(buildState([start({ brief: '' }), stopped(none, reasonFromFailure(HTTP500))]).next, null)
+  // and never where Resume is the way on: one way forward
+  for (const [name, events, live] of CASES) {
+    const s = buildState(events, { live })
+    assert.ok([null, 'resume', 'again'].includes(s.next), name)
+    if (s.next === 'again') assert.ok(['failed', 'halted', 'unsure'].includes(s.state), name)
+    if (s.next === 'resume') assert.ok(s.done + s.kept > 0 || s.planned > 0, name)
+  }
+})
+
+test('the reason of a build that ran to its end says what happened, and names the way on', () => {
+  // partly built: nothing "Stopped", and the action is Resume, the button the state gives
+  const partly = buildState([start(), ...plan(), ...five(), done({ planned: 9, done: 5, failed: 4 })])
+  assert.equal(partly.reason.message, "The model didn't answer (no model here).")
+  assert.equal(partly.reason.action, 'Resume, or pick another model in `hermes model`.')
+  assert.equal(partly.next, 'resume')
+  const slow = buildState([start(), ...plan(), ...every(built).slice(2), ...broke('home', 'hero', 'the model took too long')], { live: false })
+  assert.equal(slow.state, 'unsure')
+  const late = buildState([start(), ...plan(), ...every(built).slice(2), ...broke('home', 'hero', 'the model took too long'), done({ planned: 9, done: 8, failed: 1 })])
+  assert.equal(late.reason.message, 'The model took too long to answer.')
+  assert.match(late.reason.action, /^Resume; /)
+  // a stop keeps its own words, as the server wrote them
+  assert.equal(reasonFromFailure(HTTP500).message, "Stopped: the model didn't answer (no model here).")
+  assert.equal(reasonFromFailure(HTTP500).action, 'Try again, or pick another model in `hermes model`.')
+  assert.equal(reasonFromFailure('timed out').message, 'Stopped: the model took too long to answer.')
+  assert.equal(reasonFromFailure('HTTP 429 {}', { resume: true }).action, 'Wait a minute, then resume.')
 })
 
 test('an app, a game and a project brought in have no website state', () => {

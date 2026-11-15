@@ -83,9 +83,10 @@ body.cosmos-project .topbar { background: var(--void); backdrop-filter: none; }
 .ab .sk i b { position: absolute; left: 10%; top: 18%; width: 42%; height: 6px; max-height: 18%; border-radius: 99px; background: color-mix(in srgb, var(--sk-fg) 22%, transparent); }
 .ab .sk i.hero b { width: 58%; height: 9px; top: 30%; background: color-mix(in srgb, var(--sk-fg) 40%, transparent); }
 .ab .sk i[style*="background-image"] b { display: none; }
-.ab .sk.over i { animation: sk-wait 1.6s ease-in-out infinite alternate; }
+/* only while the build runs: a section that failed or was left is not coming, so it does not pulse (body.pj-live) */
+.pj-live .ab .sk.over i { animation: sk-wait 1.6s ease-in-out infinite alternate; }
 @keyframes sk-wait { from { opacity: .92; } to { opacity: .7; } }
-@media (prefers-reduced-motion: reduce) { .ab .sk.over i { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .pj-live .ab .sk.over i { animation: none; } }
 /* a board's cards on their way (.wait-in, web/pet.js works on them): their shape, nothing to click */
 .ab.wait-in { pointer-events: none; background: color-mix(in srgb, var(--text) 5%, transparent); animation: sk-wait 1.6s ease-in-out infinite alternate; }
 @media (prefers-reduced-motion: reduce) { .ab.wait-in { animation: none; } }
@@ -251,16 +252,17 @@ body.cosmos-project .topbar { background: var(--void); backdrop-filter: none; }
 .ab.art .pt .sk > * { stroke-dasharray: 260; stroke-dashoffset: 260; animation: pt-draw 7s var(--ease) forwards; animation-delay: var(--ago, 0s); }
 .ab.art .pt .sk > *:nth-child(2) { animation-duration: 9s; } .ab.art .pt .sk > *:nth-child(3) { animation-duration: 11s; }
 @keyframes pt-draw { to { stroke-dashoffset: 0; } }
-.ab.art .pt-tag { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; padding: 5px 6px 13px; color: var(--text); font: 500 8.5px/1.25 var(--mono); background: color-mix(in srgb, var(--void) 84%, transparent); }
-.ab.art .pt-tag b { display: block; font: 700 9px var(--label); letter-spacing: .08em; text-transform: uppercase; }
+.ab.art .pt-tag, .ab.page > .pt-tag { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; padding: 5px 6px 13px; color: var(--text); font: 500 8.5px/1.25 var(--mono); background: color-mix(in srgb, var(--void) 84%, transparent); }
+.ab.art .pt-tag b, .ab.page > .pt-tag b { display: block; font: 700 9px var(--label); letter-spacing: .08em; text-transform: uppercase; }
 .ab.art .pt-bar { position: absolute; left: 6px; right: 6px; bottom: 6px; z-index: 3; height: 3px; border-radius: 3px; overflow: hidden; background: color-mix(in srgb, var(--text) 22%, transparent); }
 .ab.art .pt-bar > i { position: relative; display: block; height: 100%; background: var(--text); border-radius: 3px; transition: width 1.8s linear; overflow: hidden; }
 /* buffering: a brighter run along the bar */
 .ab.art .pt-bar > i::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--void) 45%, transparent), transparent); background-size: 50% 100%; background-repeat: no-repeat; animation: pt-buf 1.3s linear infinite; }
 @keyframes pt-buf { from { background-position: -60% 0; } to { background-position: 160% 0; } }
 .ab.art.pt-failed .pt::after { display: none; }
-.ab.art .pt-again { position: absolute; left: 6px; bottom: 6px; z-index: 3; display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; border: 0; border-radius: 5px; background: var(--text); color: var(--void); font: 700 9px var(--label); letter-spacing: .06em; text-transform: uppercase; cursor: pointer; }
-.ab.art.pt-failed .pt-tag { padding-bottom: 32px; }
+.ab.art .pt-again, .ab.page > .pt-again { position: absolute; left: 6px; bottom: 6px; z-index: 3; display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; border: 0; border-radius: 5px; background: var(--text); color: var(--void); font: 700 9px var(--label); letter-spacing: .06em; text-transform: uppercase; cursor: pointer; }
+.ab.art.pt-failed .pt-tag, .ab.page > .pt-tag.act { padding-bottom: 32px; }
+/* a page whose sections failed or were left (web/project.js leftTag) wears the same tag and button */
 /* painted again: the old picture shows through */
 .ab.art .pt.over { background: color-mix(in srgb, var(--void) 35%, transparent); }
 /* the real picture lands: it fades in over what stood in for it */

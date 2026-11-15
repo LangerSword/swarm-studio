@@ -3,6 +3,7 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import * as art from '../engine/artdirect.mjs'
+import { buildState } from '../engine/buildstate.mjs'
 
 const snapAt = (runsDir, id) => { try { return `/img/${id}/snap.jpg?v=${Math.round(statSync(join(runsDir, id, 'img', 'snap.jpg')).mtimeMs)}` } catch { return null } }
 
@@ -42,6 +43,10 @@ export function runBoard(id, events, runsDir, live = false, thumb = () => null) 
     }
     if (e.type === 'layer:done' && e.page) for (const l of plan.get(e.page) || []) if (l.id === e.layer) l.done = true
   }
+  // the build's one state (engine/buildstate.mjs; null for an app or a game), and each section it lists as failed:
+  // the Overview says a page's sections failed instead of drawing them as still coming
+  const build = buildState(events, { live })
+  for (const f of build?.failed || []) for (const l of plan.get(f.page) || []) if (l.id === f.layer) l.failed = true
   for (const p of pages) p.plan = plan.get(p.id) || []
   const video = events.findLast(e => e.type === 'video:done')
   // tall: the 9:16 phone cut of the same film, when the run made one
@@ -97,7 +102,7 @@ export function runBoard(id, events, runsDir, live = false, thumb = () => null) 
   return {
     id, title: start.title || pages[0]?.title || '', kind: start.kind || 'site', live: live,
     brief: String(start.brief || '').split('\n\nThe owner uploaded these pictures.')[0].split('\n\nFor this version: ')[0].slice(0, 4000),
-    pages, art: pics, films, style,
+    pages, art: pics, films, style, build,
     theme: th?.vars ? { colors: ['--background', '--primary', '--accent', '--foreground'].map(k => th.vars[k]).filter(Boolean), fonts: th.fonts || null } : null,
     // a game's cover: its own picture, else its title screen from the play test
     game: isGame ? { title: (typeof spec === 'object' && spec?.title) || start.title || 'Game', pitch: (typeof spec === 'object' && String(spec?.pitch || '').slice(0, 200)) || '', cover: pics[0]?.src || snapAt(runsDir, id) } : null,

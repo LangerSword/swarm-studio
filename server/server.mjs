@@ -526,6 +526,23 @@ function broadcast(event) {
 }
 
 const LATE_PICTURE = new Set(['image', 'image:failed', 'image:sent-back'])
+// The one state of a website build (engine/buildstate.mjs), as every screen reads it: null for an app, a game
+// or a project brought in. The page never works it out itself (it may not import the engine): the Design deck
+// gets it on the stream while the build runs (`build:state`, below) and with a saved build
+// (GET /api/runs/<id>/state); the Overview with its board (server/board.mjs).
+const siteState = (id, events) => buildState(events, { live: current?.id === id && !current.done })
+// the events that can change it: it is sent again only when it did, just before the event that changed it,
+// so the page already holds the state an end event (run:done, run:stopped) is said from. Never recorded:
+// it is read from the events, not one of them.
+const STATE_EVENTS = new Set(['run:start', 'layer:plan', 'layer:done', 'layer:failed', 'run:done', 'run:stopped'])
+function sayState(run) {
+  const state = buildState(run.events, { live: true })
+  const key = JSON.stringify(state)
+  if (key === run.stateKey) return
+  run.stateKey = key
+  run.state = state
+  broadcast({ type: 'build:state', run: run.id, state })
+}
 function startRun({ brief, agents, base = null, ask = '', resume = false, project = null, piece = null, pageType = '', pictures = '', brand = null, template = '' }) {
   current?.controller.abort('replaced')
   const id = new Date().toISOString().replace(/[:.]/g, '-')
@@ -566,6 +583,7 @@ function startRun({ brief, agents, base = null, ask = '', resume = false, projec
     // run:start says whether the pictures will be painted: the deck tags a stand-in "real picture coming" only then
     const event = { type, t: Date.now(), run: id, ...data, ...(type === 'run:start' ? { paint: !!run.paint } : {}) }
     run.events.push(event)
+    if (STATE_EVENTS.has(type)) sayState(run)
     if (type === 'agent:assign') run.working.add(data.agent)
     if (type === 'layer:done' || type === 'layer:failed') run.working.delete(data.agent)
     if (type === 'run:done') run.result = data
@@ -624,7 +642,8 @@ function startRun({ brief, agents, base = null, ask = '', resume = false, projec
       const message = String(err.message || err)
       emit('error', { where: 'run', message })
       images?.drop('the build stopped before its pictures')
-      emit('run:stopped', { stopped: true, ms: 0, planned: 0, done: 0, failed: 0, pages: 0, reason: reasonFromFailure(message, { viaHermes: viaHermes('planner') }) })
+      // with sections kept, the way on is Resume, and the reason's action says so
+      emit('run:stopped', { stopped: true, ms: 0, planned: 0, done: 0, failed: 0, pages: 0, reason: reasonFromFailure(message, { viaHermes: viaHermes('planner'), resume: !!extendBase(run.events) }) })
     })
   return run
 }
@@ -3227,6 +3246,8 @@ const server = createServer((req, res) => {
     res.write(': hello\n\n')
     // Late joiners replay the current run so the canvas can always rebuild itself.
     // A finished run skips the streaming deltas: each layer:done carries its final HTML.
+    // The build's state first (sayState): the page holds it before the end event it is said from.
+    if (current?.stateKey) res.write(`data: ${JSON.stringify({ type: 'build:state', run: current.id, state: siteState(current.id, current.events) })}\n\n`)
     for (const e of current?.events || []) {
       if (current.done && e.type.endsWith(':delta')) continue
       res.write(`data: ${JSON.stringify(e)}\n\n`)
@@ -3762,6 +3783,39 @@ ${researchBrief(seen)}`
       const pid = projects.projectOf(id)
       const run = startRun({ brief: base.brief, base, resume: true, ask: '' })
       if (pid) projects.claim(run.id, pid)
+      broadcast({ type: 'reset', run: run.id })
+      json(200, { run: run.id, from: id })
+    })
+  }
+  // The one state of a website build, for the Design deck opening a saved build: { run, state } (state: null
+  // for an app, a game or a project brought in)
+  const runState = url.pathname.match(/^\/api\/runs\/([\w-]{1,64})\/state$/)
+  if (runState && req.method === 'GET') {
+    const id = runState[1], events = readEvents(id)
+    if (!events) return json(404, { error: 'no such build' })
+    return json(200, { run: id, state: siteState(id, events) })
+  }
+  // Try again: a website build that failed, was halted or was cut off with nothing to resume from is built
+  // afresh from its own words, in its project. Only where the build state names it (`next: 'again'`), and the
+  // words are the build's own, never the request's: it is the build the person already said yes to, so nothing
+  // is asked again (docs/decisions/0020-ask-before-build.md), and no other build can be started this way.
+  const runAgain = url.pathname.match(/^\/api\/runs\/([\w-]{1,64})\/again$/)
+  if (runAgain && req.method === 'POST') {
+    const id = runAgain[1], events = readEvents(id)
+    if (!events) return json(404, { error: 'no such build' })
+    if (current?.id === id && !current.done) return json(409, { error: 'busy', run: id })
+    const state = siteState(id, events)
+    if (state?.next !== 'again') return json(400, { error: state?.next === 'resume' ? 'this build has sections to keep: resume it instead' : 'nothing to try again here' })
+    const brief = String(events.find(e => e.type === 'run:start')?.brief || '').trim()
+    return void hermesGate().then(gate => {
+      if (gate) return json(503, gate)
+      const pid = projects.projectOf(id)
+      const run = startRun({ brief })
+      if (pid) {
+        projects.claim(run.id, pid)
+        // the references the first try read are the ones in these words
+        try { copyFileSync(join(runsDir, id, 'refs-used.json'), join(runsDir, run.id, 'refs-used.json')) } catch {}
+      }
       broadcast({ type: 'reset', run: run.id })
       json(200, { run: run.id, from: id })
     })

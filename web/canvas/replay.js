@@ -1,8 +1,8 @@
 // @ts-check
 // web/canvas.js, split by area (web/canvas/README.md): saved runs (files) and traces, replay.
-import { REPLAY_WORD, REPLAY_SAYS, replayAsk, appPill } from '../replaytalk.js'
-import { api, S, els, ico, setReplayId, Q, WALL, $, replayId, BOOT } from './core.js'
-import { feed, botMsg, setText, push, stoppedMsg } from './panels.js'
+import { REPLAY_WORD, REPLAY_SAYS, replayAsk, appPill, buildLive, buildLeft } from '../replaytalk.js'
+import { api, S, els, ico, setReplayId, Q, WALL, $, replayId, BOOT, setBuild } from './core.js'
+import { feed, botMsg, setText, push, stoppedMsg, leftMsg } from './panels.js'
 import { esc } from './design.js'
 import { talkEnd } from './talk.js'
 import { connect } from './start.js'
@@ -193,6 +193,8 @@ export function fileInfo(f) {
 }
 
 let openSeq = 0
+// the server's one state of a saved website build (engine/buildstate.mjs); null when there is none to read
+const buildRead = id => api(`/api/runs/${encodeURIComponent(id)}/state`).then(r => (r.ok ? r.json() : null)).then(j => j?.state || null).catch(() => null)
 // the builds this page just started (showRun, started): one of them can be read before its end is written
 export const startedRuns = new Set()
 export async function openRun(id) {
@@ -204,11 +206,23 @@ export async function openRun(id) {
     viewing = null
     connect()
   } else {
-    const res = await api(`/api/runs/${encodeURIComponent(id)}/events`).catch(() => null)
+    // with its events, the server's one state of the build (null: not a website build, or the hosted studio)
+    const [res, build] = await Promise.all([api(`/api/runs/${encodeURIComponent(id)}/events`).catch(() => null), buildRead(id)])
     if (!res?.ok) return
     const events = await res.json()
     // another build was opened while this one loaded: the newer one stands
     if (seq !== openSeq) return
+    setBuild(id, build)
+    // a build the server is still running (opened by its address, or after a reload) is followed on the stream
+    // like any live build: it is not a saved file, has no end time and is never called old
+    if (buildLive(build)) {
+      liveId = id
+      viewing = null
+      connect()
+      setAuto(true)
+      if (navOf()) followPlayer(navOf().view)
+      return
+    }
     viewing = id
     fresh(id)
     for (const e of events) {
@@ -228,6 +242,10 @@ export async function openRun(id) {
     const ended = events.some(e => e.type === 'run:done' || e.type === 'run:stopped')
     if (!ended && startedRuns.delete(id)) { setTimeout(() => { if (seq === openSeq) openRun(id) }, 1500); return }
     if (S.kind === 'game') setView('app')
+    // a website build that stopped or was cut off with something left says so again, with its way on (Resume, or
+    // Try again), whoever stopped it; one that ran to its end with sections failed said it as its end was read
+    // (web/canvas/panels.js summarize)
+    else if (buildLeft(build)) { if (build.state !== 'partly' && build.state !== 'failed') leftMsg(build) }
     else if (stop) stoppedMsg(stop)
     else if (!events.some(e => e.type === 'layer:done' && e.html)) botMsg('This file was saved before Swarm Studio kept finished sections, so only its plan is shown.')
     // an App room the address named (a reload, Back, a link) was entered before its build was here: it reads the app now
@@ -275,6 +293,9 @@ export async function replayRun(id, speed = 8) {
   if (!res?.ok) { if (replayAsked) endReplay(); return botMsg('That run could not be loaded.') }
   if (seq !== replaySeq) return
   const events = withTyping((await res.json()).filter(e => e.type !== 'cmd'))
+  // what the recording's last line says is the build's own state too (a failed build is not replayed as built)
+  setBuild(id, await buildRead(id))
+  if (seq !== replaySeq) return
   let clock = 0, prev = events[0]?.t || 0, total = 0
   for (const e of events) { total += gapOf(e, prev, speed); prev = e.t || prev }
   prev = events[0]?.t || 0
