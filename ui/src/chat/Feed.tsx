@@ -135,6 +135,7 @@ function Line({ t, acts, onHover }: { t: Turn, acts?: FeedActs, onHover?: (el: H
         {t.working && t.text === '…'
           ? <span aria-hidden className="mt-2 flex flex-col gap-[7px]"><i className="block h-[9px] w-[86%] rounded-full bg-[color-mix(in_srgb,var(--text)_9%,transparent)] motion-safe:animate-pulse" /><i className="block h-[9px] w-[54%] rounded-full bg-[color-mix(in_srgb,var(--text)_9%,transparent)] motion-safe:animate-pulse" /></span>
           : <span className={`txt mt-1 block whitespace-pre-wrap ${t.working ? 'text-muted motion-safe:animate-pulse' : ''}`}>{t.text}</span>}
+        {'card' in t && t.card}
         {acts && <Brief t={t} a={acts} />}
         {acts && <Step t={t} a={acts} />}
       </div>
