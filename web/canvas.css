@@ -2060,6 +2060,15 @@ body.view-video .video-pop .vmin { display: none; }
 .feed .item.talk-brief textarea:focus { outline: none; border-color: var(--accent); }
 /* a game talk's open question (spec 27): one option a row, its trade-off the second line */
 .feed .talk-opts { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+/* what a tool Hermia used found (web/chatcards.js, decision 0025 e): three cards at most, each with its source */
+.feed .chat-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; margin-top: 8px; }
+.feed .chat-card { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); }
+.feed .chat-card.picked { border-color: var(--text); }
+.feed .chat-card img { width: 100%; aspect-ratio: 1; object-fit: contain; border-radius: 6px; background: var(--panel); image-rendering: pixelated; }
+.feed .chat-card b { font: 600 12px/1.3 var(--body); overflow-wrap: anywhere; }
+.feed .chat-card small, .feed .chat-card i { font: 400 11px/1.3 var(--body); font-style: normal; color: var(--muted); overflow-wrap: anywhere; }
+.feed .chat-card button { margin-top: 4px; }
+.feed .chat-card .chat-card-done { margin-top: 4px; font: 600 11px var(--body); color: var(--text); }
 .feed .talk-opts button { display: block; width: 100%; text-align: left; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); font: 600 13px/1.3 var(--body); cursor: pointer; }
 .feed .talk-opts button:hover, .feed .talk-opts button:focus-visible { border-color: var(--accent); outline: none; }
 .feed .talk-sheet { position: relative; margin-top: 8px; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); cursor: pointer; }

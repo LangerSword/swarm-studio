@@ -9,6 +9,7 @@
 //                                           "lock", "do:paint"); plan: the plan an action changed (the board shows it)
 //   POST /api/talk/:id/lock              -> the same as the pick "lock"
 //   POST /api/talk/:id/unlock { key? }   -> { chat }
+//   GET  /api/talk/plan/:planId          -> { chat, draft?, step? }  the plan's own chat (one is made for a plan with none)
 //
 // A game chat with a plan is one state with that plan (owner, 2026-11-14): its Lock is the Plan board's Lock (the
 // gate, at the price the board shows), and every option whose label is an action runs it through the board's own
@@ -23,7 +24,8 @@ import { starterSpec } from '../engine/starters.mjs'
 
 // model() -> (messages -> text) or null; env() -> { godot }; plans.fromTalk(input, planId) -> plan view;
 // plans.act(id, sub, input) -> plan view (a Plan board action); godotCheck() looks for Godot 4 again -> boolean
-export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plans = null, godotCheck = null }) {
+// helpers() -> the chat's tool kit (engine/helpers.mjs, decision 0025 e), or null
+export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plans = null, godotCheck = null, helpers = () => null }) {
   // a game talk that joins a project takes its plan's art references there (engine/planrefs.mjs)
   const chats = chatStore({ dataDir, onMove: (chat, pid) => { if (chat?.plan) plans?.carry?.(chat.plan, pid) } })
   const json = (res, code, data) => res.writeHead(code, { 'content-type': 'application/json' }).end(JSON.stringify(data))
@@ -42,7 +44,7 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
     return plan ? { ...out, step: nextStep(out.chat, plan, env()), starts: startsOf(plan) } : out
   }
   const turnOf = (id, input) => chats.update(id, async chat => {
-    const turn = await say(chat, { said: String(input.said || '').slice(0, 4000), pick: String(input.pick || '').slice(0, 120) }, { model: model(), env: env(), plan: planOf(chat) })
+    const turn = await say(chat, { said: String(input.said || '').slice(0, 4000), pick: String(input.pick || '').slice(0, 120) }, { model: model(), env: env(), plan: planOf(chat), helpers: helpers() ? { kit: helpers(), ctx: { project: chat.project || null, run: chat.run || null, plan: chat.plan || null, chat: chat.id } } : null })
     return { chat, turn }
   }).then(withDraft)
 
@@ -178,6 +180,14 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
         const chat = chats.create({ kind: input.kind })
         json(res, 200, await turnOf(chat.id, input))
       }).catch(err => fail(res, err))
+      return true
+    }
+    // a plan's own chat, for the Plan board's dock (web/planchat.js): the one that points at it, or one made for it
+    const pm = url.pathname.match(/^\/api\/talk\/plan\/([^/]+)$/)
+    if (pm && req.method === 'GET') {
+      const plan = plans?.get?.(pm[1])
+      const chat = plan && chats.forPlan(plan)
+      json(res, chat ? 200 : 404, chat ? withStep(withDraft({ chat })) : { error: 'no such plan' })
       return true
     }
     const m = url.pathname.match(/^\/api\/talk\/([^/]+)(?:\/(lock|unlock))?$/)

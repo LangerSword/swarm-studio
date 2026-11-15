@@ -5,6 +5,7 @@ import { makeHome } from './home.js'
 import { makeProject } from './project.js'
 import { makeWork } from './work.js'
 import { makePlan } from './plan.js'
+import { planChatOpen } from './planchat.js'
 import { makeBrand } from './brand.js'
 import { makeScaffold } from './scaffold.js'
 import { makeNav, toAddress } from './nav.js'
@@ -168,6 +169,8 @@ function draw(planId) {
     C.homeView.hide()
     C.projectView.hide()
     C.planView.show(planId || plan || C.planView.id, { fresh: !!C.planFresh })
+    // its chat docked at the bottom, on its own talk (decision 0015; web/planchat.js)
+    planChatOpen(planId || plan || C.planView.id, { chat: C.chat, api: sw.api, talk: sw.talk })
     C.planFresh = false
   } else if (room === 'home') {
     body.classList.remove('cosmos-chat')

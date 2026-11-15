@@ -108,7 +108,8 @@ export function chatStore(arg) {
   function turnOf(t, chat) {
     const turn = { id: `t${chat.turns.length + 1}`, who: whoOf(t.who), at: now(), text: String(t.text || '').slice(0, 8000), refs: [], marks: [], layers: [] }
     if (turn.who === 'planner') Object.assign(turn, { made: [], reads: [] })
-    for (const k of ['options', 'refs', 'marks', 'layers', 'made', 'reads']) if (Array.isArray(t[k]) && t[k].length) turn[k] = t[k]
+    // cards: what a helper tool found (engine/helpers.mjs), each with its action, kept here so a pick is looked up on the turn
+    for (const k of ['options', 'refs', 'marks', 'layers', 'made', 'reads', 'cards']) if (Array.isArray(t[k]) && t[k].length) turn[k] = t[k]
     return turn
   }
   // add a turn; a person's first words also name a chat nobody named yet
@@ -215,7 +216,18 @@ export function chatStore(arg) {
     return made
   }
 
-  return { dir, get, create, update, say, rename, setCategory, built, moveTo, settle, remove, listLoose, forProject, forMessage, cleanup, importPlans, locate }
+  // the chat a plan talks in (the Plan board's dock, web/planchat.js): the one that points at it, loose or in a
+  // project; a plan with none (a template remix, one from before chats, a built one) gets one, as importPlans makes
+  function forPlan(plan) {
+    if (!plan?.id) return null
+    let hit = listDir(dir).find(c => c.plan === plan.id)
+    if (!hit && existsSync(projectsDir)) for (const pid of readdirSync(projectsDir)) if ((hit = listDir(inProject(pid)).find(c => c.plan === plan.id))) break
+    if (hit) return get(hit.id)
+    const [made] = importPlans([{ ...plan, build: null }])
+    return made ? get(made) : null
+  }
+
+  return { dir, get, create, update, say, rename, setCategory, built, moveTo, settle, remove, listLoose, forProject, forMessage, cleanup, importPlans, forPlan, locate }
 }
 
 export const isDir = p => { try { return statSync(p).isDirectory() } catch { return false } }
