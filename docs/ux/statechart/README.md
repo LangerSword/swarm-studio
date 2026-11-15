@@ -11,6 +11,12 @@ and the moves between them. It is a design, not the app: the live navigation is 
   code. The config is one literal object (no helpers, no spreads, guards and actions named in `setup`), so a static
   import reads all of it.
 - **To check it:** `node --test tests/statechart.test.mjs` (also part of `bash scripts/check.sh`).
+- **To walk it:** `node scripts/nav-reach.mjs` (after `npm ci --prefix tools/dev`) walks this chart and the live
+  one with `xstate/graph` and lists the states with no way in, the dead ends, the states only the top-level moves
+  leave, and the events nothing takes. What it finds must be what [reach-baseline.json](reach-baseline.json)
+  accepts; CI runs it with the property tests. Today: every state of both charts is reached and none is a dead
+  end; in the live chart Projects, a draft and the Plan board have no move of their own (the top-level moves
+  leave them).
 
 ## What the test holds it to
 
