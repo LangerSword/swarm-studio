@@ -33,26 +33,54 @@ export function addPlanRef(plan, dir, { name, buf, now = Date.now() }) {
   plan.refs = [...(plan.refs || []), r]
   return r
 }
+// pasted on the board (issue #607): words as a note { kind: 'note', text }, a link as { kind: 'link', url, source },
+// neither with a file. A link is kept as its address and its site, never fetched by the Studio (decision 0025:
+// anything online goes through Hermes's own tools or a connector the person granted).
+const room = plan => { if (planRefs(plan).length >= PLAN_REF_MAX) throw fail(`a plan keeps ${PLAN_REF_MAX} art references at most; remove one first`) }
+const newRef = (plan, r, now) => {
+  const ref = { id: `ar${randomBytes(4).toString('hex')}`, file: null, src: null, asIs: false, added: now, removed: null, carried: [], ...r }
+  plan.refs = [...(plan.refs || []), ref]
+  return ref
+}
+export const PLAN_NOTE_MAX = 4000
+export function addPlanNote(plan, { text, now = Date.now() }) {
+  const t = String(text ?? '').replace(/\r\n?/g, '\n').trim().slice(0, PLAN_NOTE_MAX)
+  if (!t) throw fail('no words')
+  room(plan)
+  return newRef(plan, { kind: 'note', name: clip(t.split('\n')[0], 60), text: t }, now)
+}
+// only http(s), and no login in it
+export function addPlanLink(plan, { url, now = Date.now() }) {
+  let u
+  try { u = new URL(String(url ?? '').trim()) } catch { throw fail('a link: http or https') }
+  if (!/^https?:$/.test(u.protocol) || u.username || u.password || String(url).length > 2000) throw fail('a link: http or https')
+  room(plan)
+  const source = u.hostname.replace(/^www\./, '')
+  return newRef(plan, { kind: 'link', name: clip(source + (u.pathname === '/' ? '' : u.pathname), 80), url: u.href, source }, now)
+}
 const find = (plan, id) => {
   const r = REF_ID.test(String(id || '')) && (plan.refs || []).find(x => x.id === id)
   if (!r) throw fail('no such reference', 404)
   return r
 }
 export function removePlanRef(plan, id, now = Date.now()) { const r = find(plan, id); r.removed = now; return r }
-// "Use as is": placed as it is in the game, never redrawn; false puts it back to a look to match
-export function planRefAsIs(plan, id, asIs = true) { const r = find(plan, id); r.asIs = !!asIs; return r }
+// "Use as is": placed as it is in the game, never redrawn; false puts it back to a look to match. Pictures only.
+export function planRefAsIs(plan, id, asIs = true) { const r = find(plan, id); if (r.kind && asIs) throw fail('only a picture is used as is'); r.asIs = !!asIs; return r }
 
 // the files the painter is given with the picked sheets (engine/planart.mjs sheetRefs)
-export const planRefFiles = (plan, dir) => planRefs(plan).map(r => join(dir, r.file)).filter(f => existsSync(f))
+export const planRefFiles = (plan, dir) => planRefs(plan).filter(r => r.file).map(r => join(dir, r.file)).filter(f => existsSync(f))
 
 // the game brief's lines (engine/planart.mjs gameBrief)
 export function planRefLines(plan) {
   const live = planRefs(plan)
   if (!live.length) return ''
-  const look = live.filter(r => !r.asIs), given = live.filter(r => r.asIs)
+  const pics = live.filter(r => !r.kind), look = pics.filter(r => !r.asIs), given = pics.filter(r => r.asIs)
+  const notes = live.filter(r => r.kind === 'note'), links = live.filter(r => r.kind === 'link')
   return [
     look.length ? `The owner's art references: match their look in every picture and sprite:\n${look.map(r => `- ${r.name}: ${r.src}`).join('\n')}` : '',
-    given.length ? `The owner's pictures to place as they are (never redrawn):\n${given.map(r => `- ${r.name}: ${r.src}`).join('\n')}` : ''
+    given.length ? `The owner's pictures to place as they are (never redrawn):\n${given.map(r => `- ${r.name}: ${r.src}`).join('\n')}` : '',
+    notes.length ? `The owner's notes:\n${notes.map(r => `- ${r.text.replace(/\n+/g, ' ')}`).join('\n')}` : '',
+    links.length ? `The owner's links (from ${[...new Set(links.map(r => r.source))].join(', ')}):\n${links.map(r => `- ${r.url}`).join('\n')}` : ''
   ].filter(Boolean).join('\n')
 }
 
@@ -62,9 +90,12 @@ export function carryPlanRefs(plan, dir, pid, to) {
   let n = 0
   for (const r of planRefs(plan)) {
     if ((r.carried || []).includes(pid)) continue
-    const f = join(dir, r.file)
-    if (!existsSync(f)) continue
-    try { to(pid, { name: r.name, buf: readFileSync(f), asIs: !!r.asIs }) } catch { continue }
+    // a note or a link goes as a text reference: its words, or its address
+    const text = r.kind === 'note' ? r.text : r.kind === 'link' ? r.url : null
+    const f = text == null ? join(dir, r.file) : null
+    if (f && !existsSync(f)) continue
+    const sent = text == null ? { name: r.name, buf: readFileSync(f), asIs: !!r.asIs } : { name: `${r.name.replace(/[\\/:*?"<>|]+/g, '-')}.txt`, buf: Buffer.from(text), asIs: false }
+    try { to(pid, sent) } catch { continue }
     r.carried = [...(r.carried || []), pid]
     n++
   }

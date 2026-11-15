@@ -8,7 +8,7 @@ import http from 'node:http'
 import { mkdtempSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { addPlanRef, removePlanRef, planRefAsIs, planRefs, planRefLines, carryPlanRefs, PLAN_REF_MAX } from '../engine/planrefs.mjs'
+import { addPlanRef, addPlanNote, addPlanLink, removePlanRef, planRefAsIs, planRefs, planRefLines, carryPlanRefs, PLAN_REF_MAX } from '../engine/planrefs.mjs'
 import { lockStyle, gameBrief } from '../engine/planart.mjs'
 import { replan } from '../engine/plan.mjs'
 import { planRoutes } from '../server/plans.mjs'
@@ -99,4 +99,43 @@ test('the studio page carries the Plan board\'s art references before the board,
   assert.ok(list.indexOf('refdrop.js') >= 0 && list.indexOf('refdrop.js') < list.indexOf('planrefs.js') && list.indexOf('planrefs.js') < list.indexOf('plan.js'))
   const src = readFileSync(join(root, 'web', 'planrefs.js'), 'utf8')
   for (const m of src.matchAll(/^(?:export )?(?:const|let|function) (\w+)/gm)) assert.match(m[1], /planRef/i, m[1])
+})
+
+// issue #607: a paste on the Plan board, words or a link, joins the references with its source
+test('pasted words are a note and a pasted link a link with its site; neither is fetched or used as is', () => {
+  const plan = { id: 'p-0123456789', refs: [] }
+  const link = addPlanLink(plan, { url: 'https://www.itch.io/game/rank-juggler?x=1' })
+  assert.deepEqual([link.kind, link.source, link.name, link.file], ['link', 'itch.io', 'itch.io/game/rank-juggler', null])
+  const note = addPlanNote(plan, { text: 'Bosses telegraph\r\nthree hits before a grab' })
+  assert.deepEqual([note.kind, note.name, note.text], ['note', 'Bosses telegraph', 'Bosses telegraph\nthree hits before a grab'])
+  for (const url of ['file:///etc/passwd', 'javascript:alert(1)', 'http://me:secret@example.com/', 'not a link', 'https://x.com/' + 'a'.repeat(2001)]) assert.throws(() => addPlanLink(plan, { url }), /http or https/, url)
+  assert.throws(() => addPlanNote(plan, { text: '   ' }), /no words/)
+  assert.throws(() => planRefAsIs(plan, link.id, true), /only a picture/)
+  const lines = planRefLines(plan)
+  assert.match(lines, /The owner's notes:\n- Bosses telegraph three hits before a grab/)
+  assert.match(lines, /The owner's links \(from itch\.io\):\n- https:\/\/www\.itch\.io\/game\/rank-juggler\?x=1/)
+  // into a project they go as text references: the words, or the address
+  const sent = []
+  assert.equal(carryPlanRefs(plan, '.', 'pj1', (pid, x) => sent.push([x.name, String(x.buf), x.asIs])), 2)
+  assert.deepEqual(sent, [['itch.io-game-rank-juggler.txt', link.url, false], ['Bosses telegraph.txt', note.text, false]])
+})
+
+test('routes: a paste is posted to the references as text/plain (a note) or text/uri-list (a link)', async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'planrefs-paste-'))
+  const plans = planRoutes({ dataDir })
+  const srv = http.createServer((req, res) => { if (!plans(req, res, new URL(req.url, 'http://x'))) res.writeHead(404).end() })
+  await new Promise(r => srv.listen(0, '127.0.0.1', r))
+  const u = `http://127.0.0.1:${srv.address().port}`
+  try {
+    const plan = await fetch(`${u}/api/plans`, { method: 'POST', body: JSON.stringify({ idea: 'a forest brawler' }) }).then(r => r.json())
+    const post = (type, body) => fetch(`${u}/api/plans/${plan.id}/refs?source=paste`, { method: 'POST', headers: { 'content-type': type }, body }).then(async r => ({ status: r.status, j: await r.json() }))
+    const l = await post('text/uri-list', '# from the clipboard\r\nhttps://itch.io/game/x\r\n')
+    assert.equal(l.status, 200)
+    assert.deepEqual([l.j.ref.kind, l.j.ref.source], ['link', 'itch.io'])
+    const n = await post('text/plain; charset=utf-8', 'three heroines, one city')
+    assert.deepEqual([n.j.ref.kind, n.j.ref.text], ['note', 'three heroines, one city'])
+    assert.equal((await post('text/uri-list', 'file:///etc/passwd')).status, 400)
+    assert.equal(n.j.refs.length, 2)
+    assert.match(n.j.plan.refs.map(r => r.kind).join(','), /link,note/)
+  } finally { srv.close() }
 })
