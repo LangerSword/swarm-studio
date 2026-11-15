@@ -13,6 +13,7 @@ import { randomBytes, timingSafeEqual, createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync, appendFileSync, existsSync, readdirSync, statSync, copyFileSync, createReadStream, mkdtempSync, rmSync, openSync, readSync, closeSync } from 'node:fs'
 import { execFile, hermesEnv, pick, respawnSelf } from '../engine/proc.mjs'
 import { hermesBridge, imageBody, videoBody } from '../engine/bridge.mjs'
+import { engineTools } from '../engine/enginetools.mjs'
 import { hermesLlm, roleModel } from '../engine/hermesllm.mjs'
 import { hermesHealth, HERMES_SAYS } from '../engine/hermeshealth.mjs'
 import { reasonFromAbort, reasonFromFailure } from '../engine/stopreason.mjs'
@@ -72,7 +73,7 @@ import { bringInRoutes } from './bringin.mjs'
 import { sourceRoutes } from './sourcehub.mjs'
 import { savedOwner } from '../engine/ghowner.mjs'
 import { joinHistory } from '../engine/sourcehub.mjs'
-import { pictureMessages, linksIn, readPage, pageRead, withRefs } from '../engine/chatmedia.mjs'
+import { pictureMessages, linksIn, readPage, pageRead, withRefs, publicUrl } from '../engine/chatmedia.mjs'
 import { research } from '../engine/research.mjs'
 import { refStore } from '../engine/refs.mjs'
 import { workshopRoutes } from './workshops.mjs'
@@ -137,7 +138,17 @@ const hermesGone = why => {
   const said = why.code === 'hermes_closed' ? HERMES_SAYS.gone : why
   current.controller.abort({ ...said, code: 'hermes' })
 }
-const llm = hermesLlm({ bridge: hermes, port: () => port, broadcast: e => broadcast(e), health, onGone: hermesGone, graceMs: Number(process.env.SWARM_HERMES_GRACE_MS) || 20000 })
+// the app engine's web search, page reading, site clone and pictures, on the same gateway (engine/enginetools.mjs):
+// through Hermes's web tools, the guarded site walk and the studio's own painting, never a key of their own
+const llm = hermesLlm({
+  bridge: hermes, port: () => port, broadcast: e => broadcast(e), health, onGone: hermesGone, graceMs: Number(process.env.SWARM_HERMES_GRACE_MS) || 20000,
+  tools: engineTools({
+    web: body => hermes.call('/web', body, 90000),
+    walk: async url => (await import('../engine/sitelook.mjs')).walkSite(url, { dataDir, pages: 1, shots: 1 }),
+    paint: ({ prompt }) => planPaint({ prompt, aspect: 'landscape' }),
+    check: url => publicUrl(url)
+  })
+})
 const envRole = (role, fallback = DEFAULT_MODEL) => {
   const apiKey = process.env[`SWARM_${role}_API_KEY`] || process.env.SWARM_API_KEY || process.env.SWARM_STUDIO_API_KEY || ''
   if (!apiKey) return { ...llm.provider(), model: role.toLowerCase() }

@@ -15,7 +15,7 @@ import { cursor, CREW } from './icons.js'
  * @property {string} project @property {string} name @property {string} piece @property {string[]} pieces
  * @property {string | null} run @property {boolean} source @property {string | null} login @property {string} suggest
  * @property {string | null} [owner] the organization a new repository goes to (null: the person's account)
- * @property {{ repo: string, url: string, private: boolean, pushed: number | null, pulled: number | null, fits: boolean } | null} link
+ * @property {{ repo: string, url: string, private: boolean, branch?: string | null, pushed: number | null, pulled: number | null, fits: boolean } | null} link
  * @property {{ repo: string, path: string, url: string, pulled: number | null } | null} origin
  * @property {boolean} ahead @property {boolean | null} behind @property {string | null} unreachable
  * @property {{ did: string, state: string, step: string, message: string, url?: string, repo?: string, pull?: boolean, run?: string } | null} job
@@ -188,6 +188,26 @@ export function githubDoor(host) {
     /** @type {GitHubState | null} */
     let st = null
     let piece = '', kind = 'game', busy = false, said = ''
+    // where an unlinked project goes: a new repository, or one that exists (picked from the person's, or typed)
+    let way = 'new'
+    /** @type {{ repo: string, private: boolean, empty: boolean }[] | null} */
+    let repos = null
+    let reposSaid = ''
+    let reposAsked = false
+    const loadRepos = async () => {
+      if (reposAsked) return
+      reposAsked = true
+      /** @type {{ repo: string, private: boolean, empty: boolean }[]} */
+      let got = []
+      try {
+        const r = await host.api('/api/github/repos')
+        const j = await r.json().catch(() => ({}))
+        if (!r.ok) reposSaid = String(j.error || 'GitHub did not list your repositories')
+        else { got = Array.isArray(j.repos) ? j.repos : []; reposSaid = got.length ? '' : 'No repositories on your account or in your organizations' }
+      } catch { reposSaid = 'GitHub did not list your repositories' }
+      repos = got
+      if (!d.closed) draw()
+    }
     // what was typed stays in the fields when the sheet is drawn again (a refusal leaves it there to mend)
     const typed = { repo: '', path: '' }
     const body = /** @type {HTMLElement} */ (d.body)
@@ -218,14 +238,19 @@ export function githubDoor(host) {
       const lines = githubLines(s).filter(l => !at || !l.startsWith(`${at.repo},`))
       body.innerHTML = `<form class="gh-form" autocomplete="off">
         ${s.pieces.length > 1 ? toggle('Piece', [['game', 'Game'], ['app', 'App']], s.piece, 'piece') : ''}
-        ${at ? `<p class="gh-repo"><a href="${esc(at.url)}" target="_blank" rel="noopener">${esc(at.repo)}</a><span>${at.private ? 'Private' : 'Public'}</span></p>` : ''}
+        ${at ? `<p class="gh-repo"><a href="${esc(at.url)}" target="_blank" rel="noopener">${esc(at.repo)}</a><span>${at.private ? 'Private' : 'Public'}</span>${at.branch ? `<span>Branch ${esc(at.branch)}</span>` : ''}${mid ? '' : '<button type="button" class="ui-btn ui-btn-ghost ui-btn-sm gh-unlink" data-unlink>Unlink</button>'}</p>` : ''}
         <ul class="gh-lines">${lines.map(l => `<li>${esc(l)}</li>`).join('')}</ul>
         ${mid ? working(job) : ''}
         ${!mid && !s.source ? `<label class="ui-field"><span class="ui-label">Repository</span><input class="ui-input" name="repo" value="${esc(typed.repo)}" placeholder="owner/name" maxlength="200" required></label>
           <label class="ui-field"><span class="ui-label">Subfolder</span><input class="ui-input" name="path" value="${esc(typed.path)}" placeholder="games/ares" maxlength="300"></label>
           ${toggle('Kind', [['game', 'Game'], ['app', 'App']], kind, 'kind')}` : ''}
-        ${!mid && needsName ? `<label class="ui-field"><span class="ui-label">Repository</span><input class="ui-input" name="repo" value="${esc(typed.repo || s.suggest)}" placeholder="name or owner/name" maxlength="200" required></label>
-          ${toggle('Who can see it', [['private', 'Private'], ['public', 'Public']], 'private', 'see')}` : ''}
+        ${!mid && needsName ? `${toggle('Where it goes', [['new', 'New repository'], ['existing', 'An existing repository']], way, 'way')}
+          ${way === 'new' ? `<label class="ui-field"><span class="ui-label">Name</span><input class="ui-input" name="repo" value="${esc(typed.repo || s.suggest)}" placeholder="name" maxlength="100" required></label>
+          ${toggle('Who can see it', [['private', 'Private'], ['public', 'Public']], 'private', 'see')}` : `<label class="ui-field"><span class="ui-label">Repository</span><input class="ui-input" name="repo" value="${esc(typed.repo)}" placeholder="owner/name or its address" maxlength="200" required list="gh-repos"></label>
+          <datalist id="gh-repos">${(repos || []).map(r => `<option value="${esc(r.repo)}">${r.private ? 'private' : 'public'}${r.empty ? ', empty' : ''}</option>`).join('')}</datalist>
+          ${repos ? (repos.length ? `<div class="gh-pick" role="list" aria-label="Your repositories">${repos.slice(0, 300).map(r => `<button type="button" class="ui-btn ui-btn-outline ui-btn-sm" role="listitem" data-pick="${esc(r.repo)}">${esc(r.repo)}${r.empty ? ' · empty' : ''}</button>`).join('')}</div>` : '') : `<p class="gh-help" role="status" aria-busy="true">Looking at your repositories…</p>`}
+          ${reposSaid ? `<p class="gh-help">${esc(reposSaid)}</p>` : ''}
+          <p class="gh-help">This project is pushed there. That works when the repository is empty or already holds this project's history; a repository with other work is left as it is, and nothing is ever overwritten.</p>`}` : ''}
         ${job?.state === 'done' && job.message ? `<p class="gh-done" role="status">${esc(job.message)}${job.url ? ` <a href="${esc(job.url)}" target="_blank" rel="noopener">${esc(String(job.url).replace(/^https:\/\//, ''))}</a>` : ''}</p>` : ''}
         ${said || job?.state === 'failed' ? `<p class="bring-err" role="alert">${esc(said || job?.message || '')}</p>` : ''}
         <button type="submit" hidden></button>
@@ -241,10 +266,21 @@ export function githubDoor(host) {
         for (const x of b.parentElement?.children || []) x.setAttribute('aria-checked', String(x === b))
         if (b.dataset.kind) kind = b.dataset.kind
         if (b.dataset.piece && b.dataset.piece !== s.piece) { piece = b.dataset.piece; load() }
+        if (b.dataset.way && b.dataset.way !== way) { way = b.dataset.way; typed.repo = ''; said = ''; if (way === 'existing') loadRepos(); draw() }
       }
+      const picks = /** @type {NodeListOf<HTMLElement>} */ (form.querySelectorAll('[data-pick]'))
+      for (const b of picks) b.onclick = () => { const f = field('repo'); if (f) { f.value = b.dataset.pick || ''; f.focus() } }
+      // what is typed narrows the list
+      const typing = field('repo')
+      if (typing && picks.length) typing.oninput = () => { const q = typing.value.trim().toLowerCase(); for (const b of picks) b.hidden = !!q && !String(b.dataset.pick).toLowerCase().includes(q) }
+      const unlink = /** @type {HTMLElement | null} */ (form.querySelector('[data-unlink]'))
+      if (unlink) unlink.onclick = () => go({ action: 'unlink' })
       const move = (/** @type {string} */ k) => {
         const repo = field('repo')
         if (k !== 'pull' && repo && !repo.value.trim()) return repo.focus()
+        // a new repository is a name; one with an owner names a repository that exists
+        if (k === 'push' && repo && way === 'new' && repo.value.includes('/')) { said = 'That names a repository that exists: pick An existing repository.'; return draw() }
+        if (k === 'push' && repo && way === 'existing' && !repo.value.includes('/')) { said = 'Give the repository as owner/name, or pick one.'; return draw() }
         Object.assign(typed, { repo: repo?.value.trim() || '', path: field('path')?.value.trim() || '' })
         if (k === 'bring') return go({ action: 'bring', repo: repo?.value.trim(), path: field('path')?.value.trim() || '', kind })
         if (k === 'pull') return go({ action: 'pull' })

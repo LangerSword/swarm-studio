@@ -113,6 +113,29 @@ async function repoFacts(slug, gh = ghCli) {
   try { got = JSON.parse(r.out) } catch {}
   return { private: got[0] === true, mine: String(got[1] || '').includes(MARK) }
 }
+/** The repositories the person's gh login can see under each of `owners` (their login, their organizations), the
+ * newest first, for the sheet's "An existing repository" list. One owner GitHub would not list is said in `errors`
+ * and the others still come back. → { repos: [{ repo, private, empty, updated }], errors: [words] } */
+export async function listRepos(owners, gh = ghCli) {
+  const repos = [], errors = []
+  for (const owner of [...new Set(owners.filter(o => /^[A-Za-z0-9-]{1,39}$/.test(String(o || ''))))]) {
+    const r = await gh(['repo', 'list', owner, '--limit', '200', '--json', 'nameWithOwner,isPrivate,isEmpty,updatedAt'])
+    if (!r.ok) {
+      if (/ENOENT/.test(r.err)) throw fail('The GitHub CLI (gh) is not installed on this computer', 424)
+      errors.push(`${owner}: ${said(r.err) || 'GitHub did not list it'}`)
+      continue
+    }
+    let got = []
+    try { got = JSON.parse(r.out) } catch {}
+    for (const x of Array.isArray(got) ? got : []) {
+      if (typeof x?.nameWithOwner !== 'string' || !/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(x.nameWithOwner)) continue
+      repos.push({ repo: x.nameWithOwner, private: x.isPrivate === true, empty: x.isEmpty === true, updated: Date.parse(x.updatedAt) || 0 })
+    }
+  }
+  repos.sort((a, b) => b.updated - a.updated || a.repo.localeCompare(b.repo))
+  return { repos, errors }
+}
+
 /** Did anything under `path` change between two commits of the repository? → true, false, or null (GitHub
  * would not say: more than it lists, or no answer) */
 export async function changedUnder(slug, from, to, path, gh = ghCli) {

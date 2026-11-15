@@ -48,6 +48,24 @@ What exists today *(our wording)*:
   - pick a library picture for a build's slot;
   - add a link or a file to a project's References.
 
+### Added 2026-11-15: (e) the chat is the helper
+
+The owner, the same day: **"and a chat as helper."**
+
+*(our wording)* The chat is the helper for all of this, on every screen and in every mode, a game's included. The
+person asks Hermia in the chat for anything the tools above do, and she does it there:
+
+- "find me a pixel sword": she searches the asset library and shows a few to pick from;
+- "look up how X does its pricing page": she runs the research step (a) and shows what it found;
+- a pasted link or picture: she asks once, "like this, or use as is?";
+- "use this for the boss": she puts a picture in that slot;
+- "bring in characters like these": she opens the character choices (b).
+
+She shows what she found as a few cards to pick from, three at most, each saying where it came from. Nothing that
+writes, spends or publishes happens until the person presses or says yes. It is the same planner with these tools
+available to it, not a second assistant. One shared piece, how the planner calls a tool and returns cards to the
+chat in both Studios, is built once and documented for the parts that plug into it.
+
 ## Standing rules
 
 These hold for every part:
@@ -62,8 +80,8 @@ These hold for every part:
 
 ## Consequences
 
-- One issue log per part: (a) #606, (b) #607, (c) #608, (d) #609. Each part is built by its own session in
-  small PRs.
+- One issue log per part: (a) #606, (b) #607, (c) #608, (d) #609, (e) #617. Each part is built by its own
+  session in small PRs; (a) to (d) each make their tool callable from the chat through (e)'s interface.
 - (c) depends on (a)'s search and fetch routes. (b) and (d) share the asset library and References routes.
 - docs/engines/hermes-and-connections.md lists each new use of `POST /web`, `ctx.call_mcp` and the agent tools,
   and docs/engines/dyad.md drops the "do not work in Swarm today" line once (c) lands.
