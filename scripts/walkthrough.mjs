@@ -16,9 +16,10 @@ import { STEPS as SCREENS } from './walkthrough-steps.mjs'
 import { CHAT_STEPS } from './walkthrough-chat.mjs'
 import { MORE_STEPS } from './walkthrough-more.mjs'
 import { FLOW_STEPS } from './walkthrough-flows.mjs'
+import { TRUTH_STEPS } from './walkthrough-truth.mjs'
 
 // the newer sets come after the first screens, so those keep their numbers
-const STEPS = [...SCREENS, ...CHAT_STEPS, ...MORE_STEPS, ...FLOW_STEPS]
+const STEPS = [...SCREENS, ...CHAT_STEPS, ...MORE_STEPS, ...FLOW_STEPS, ...TRUTH_STEPS]
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? process.argv[i + 1] : d }

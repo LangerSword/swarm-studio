@@ -5,7 +5,7 @@
 //   POST /api/talk { kind, said }        -> { chat, turn }  a new chat and the planner's first turn
 //   GET  /api/talk/:id                   -> { chat, draft?, starts? }  draft: a game chat's plan as it stands;
 //                                           starts: a locked one's parts to work on next (startsOf)
-//   POST /api/talk/:id { said?, pick? }  -> { chat, turn, draft?, plan? }  pick is a chip's id ("art:2d", "talk",
+//   POST /api/talk/:id { said?, pick?, brief? }  -> { chat, turn, draft?, plan? }  pick is a chip's id ("art:2d", "talk",
 //                                           "lock", "do:paint"); plan: the plan an action changed (the board shows it)
 //   POST /api/talk/:id/lock              -> the same as the pick "lock"
 //   POST /api/talk/:id/unlock { key? }   -> { chat }
@@ -21,11 +21,13 @@ import { say, lock, unlock, planInput, draftOf, startsOf, wordsDecide, openQuest
 import { nextStep, planFacts, goWords, readPicks, pieces, lockLabel } from '../engine/gamestep.mjs'
 import { planView } from '../engine/plan.mjs'
 import { starterSpec } from '../engine/starters.mjs'
+import { pendingAsk } from '../engine/askfirst.mjs'
 
 // model() -> (messages -> text) or null; env() -> { godot }; plans.fromTalk(input, planId) -> plan view;
 // plans.act(id, sub, input) -> plan view (a Plan board action); godotCheck() looks for Godot 4 again -> boolean
 // helpers() -> the chat's tool kit (engine/helpers.mjs, decision 0025 e), or null
-export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plans = null, godotCheck = null, helpers = () => null }) {
+// facts(chat) -> what is true of a website's or an app's build (engine/chatstep.mjs chatFacts), or null
+export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plans = null, godotCheck = null, helpers = () => null, facts = null }) {
   // a game talk that joins a project takes its plan's art references there (engine/planrefs.mjs)
   const chats = chatStore({ dataDir, onMove: (chat, pid) => { if (chat?.plan) plans?.carry?.(chat.plan, pid) } })
   const json = (res, code, data) => res.writeHead(code, { 'content-type': 'application/json' }).end(JSON.stringify(data))
@@ -44,7 +46,9 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
     return plan ? { ...out, step: nextStep(out.chat, plan, env()), starts: startsOf(plan) } : out
   }
   const turnOf = (id, input) => chats.update(id, async chat => {
-    const turn = await say(chat, { said: String(input.said || '').slice(0, 4000), pick: String(input.pick || '').slice(0, 120) }, { model: model(), env: env(), plan: planOf(chat), helpers: helpers() ? { kit: helpers(), ctx: { project: chat.project || null, run: chat.run || null, plan: chat.plan || null, chat: chat.id } } : null })
+    // the brief as the person left it in its box, when a pick on the brief answers the question before a build
+    if (chat.kind !== 'game' && typeof input.brief === 'string' && input.brief.trim() && String(input.pick || '').startsWith('go:') && pendingAsk(chat)) chat.ask = { ...(chat.ask || {}), brief: input.brief.trim().slice(0, 8000), at: Date.now() }
+    const turn = await say(chat, { said: String(input.said || '').slice(0, 4000), pick: String(input.pick || '').slice(0, 120) }, { model: model(), env: env(), plan: planOf(chat), facts: chat.kind !== 'game' && facts ? await facts(chat) : null, helpers: helpers() ? { kit: helpers(), ctx: { project: chat.project || null, run: chat.run || null, plan: chat.plan || null, chat: chat.id } } : null })
     return { chat, turn }
   }).then(withDraft)
 

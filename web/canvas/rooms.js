@@ -2,7 +2,7 @@
 // web/canvas.js, split by area (web/canvas/README.md): the views and rooms: Canvas, Video, App, the big game, the app advisor, game mode, cast, art, the bench.
 import { download } from '../headerstream.js'
 import { dataStore } from '../data.js'
-import { noAppYet, goOnAsk, neverDrew, sliceSay, sliceWords } from './wander.js'
+import { noAppYet, goOnAsk, buildAsk, neverDrew, sliceSay, sliceWords } from './wander.js'
 import { stageNow, stagePick, stageAsk, stageNone, stageSwitch, playFail, mapDoor } from './stage.js'
 import { autoplayRoom } from './autoplay.js'
 import { mapAsk, mapNone } from './mapask.js'
@@ -784,7 +784,12 @@ export async function appAsk(ask, extra = {}) {
   if (fixedIn()) return botMsg('This one was brought in as plain files. It plays here and its code is in Code; the crew cannot change it yet.')
   if (appv.intake && !ask) return
   // the chat works for a stopped build too: "go on", "continue", "resume" pick it up again; anything else gets a true answer
-  if (ask && !appv.hasApp) { if (!goOnAsk(ask, appv)) return botMsg(noAppYet(appv)); ask = '' }
+  // and "build the app" typed is the room's Build the app button (web/canvas/wander.js buildAsk); the words show first
+  if (ask && !appv.hasApp) {
+    if (buildAsk(ask, appv)) { feed(null, ask, 'you'); return buildApp() }
+    if (!goOnAsk(ask, appv)) { feed(null, ask, 'you'); return botMsg(noAppYet(appv)) }
+    ask = ''
+  }
   const sections = [...S.layers.values()].filter(l => l.status === 'done' && l.text?.trim()).map(l => ({ key: l.key, html: l.text }))
   try {
     const st = await appApi('', { ask, sections, ...extra })

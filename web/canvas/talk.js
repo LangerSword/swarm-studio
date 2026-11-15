@@ -3,10 +3,10 @@
 import { els, api, $, ico, commandOps, BASE } from './core.js'
 import { viewing, setViewing } from './replay.js'
 import { fresh, links } from './base.js'
-import { botMsg, feed } from './panels.js'
+import { botMsg, feed, hermesSays } from './panels.js'
 import { esc } from './design.js'
 import { nextRoute, slashPop, slashMatches, slashAt, renderSlash, pickSlash, setNextRoute, setSlashAt } from './loop.js'
-import { runNow, shownRun } from './film.js'
+import { runNow, shownRun, showRun } from './film.js'
 import { paintSend } from '../chatmode.js'
 import { chatCards, chatCardsLine } from '../chatcards.js'
 
@@ -50,9 +50,66 @@ export function talkStart({ text = '', kind = 'site', build, blank = false, said
   if (kind === 'game' && chat) return gameResume(last)
   // a website's chat with its skip question open: the question's answers come back, not Build
   if (kind === 'site' && chat && last && said.at(-1)?.who === 'hermia') return siteResume(last)
-  // an old chat reopened: its words are back, and the dock goes on from them
-  if (last && said.at(-1)?.who === 'hermia') talkActs(last)
+  // an old chat reopened: its words are back, and the dock goes on from them, with the real next step
+  if (last && said.at(-1)?.who === 'hermia') stepNow(last)
+  // a new chat is never blank: Hermia's first line and the real first step, from the build's state (not while the
+  // Studio's own question leads, `heard`)
+  else if (!said.length && !heard && kind !== 'game') stepNow(null)
   els.brief.focus({ preventScroll: true })
+}
+// ---------- the real next step of a website's or an app's chat (engine/chatstep.mjs, the game chat's is
+// engine/gamestep.mjs): what is true comes from the build's one state on the server, and every button under
+// Hermia's answer runs what its label says, as the button of the same name elsewhere does. A typed "resume",
+// "try again", "build the app" or "build it" is the same press (the server reads it: `act`). An action that fails
+// says "Nothing happened: <why>" and offers the step again.
+// the room the chat is in: the App room's chat is an app's, whatever kind the talk was opened as
+const roomNow = () => (/** @type {any} */ (window).swarm?.view === 'app' ? 'app' : undefined)
+const stepBody = () => ({ kind: talk.kind, ...(roomNow() ? { room: roomNow() } : {}), ...(talk.chat ? { chat: talk.chat } : {}), ...(talk.from ? { from: talk.from } : {}) })
+/** @param {HTMLElement | null} item Hermia's last message, or null for a chat where nothing was said yet */
+async function stepNow(item) {
+  const chat = talk.chat
+  const j = await api('/api/discuss/step', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...stepBody(), talked: !!item }) }).then(r => (r.ok ? r.json() : null)).catch(() => null)
+  if (!talk.on || talk.chat !== chat || talk.busy || els.feed.querySelector('.talk-acts')) return
+  if (item) return j?.step ? stepActs(item, j.step) : talkActs(item)
+  // nothing was said since: the first line still belongs at the top of an empty chat
+  if (j?.first && !talk.said.length) stepActs(botMsg(j.first), j.step)
+}
+/** @param {HTMLElement} item  @param {{ options?: { id: string, label: string }[], run?: string | null }} step */
+function stepActs(item, step) {
+  const opts = step?.options || []
+  if (!item || !opts.length) return
+  const acts = document.createElement('div')
+  acts.className = 'chips talk-acts'
+  acts.innerHTML = opts.map((o, i) => `<button type="button" data-pick="${esc(o.id)}"${i ? '' : ' class="primary"'}>${esc(o.label)}</button>`).join('')
+  acts.onclick = e => {
+    // @ts-ignore
+    const b = e.target.closest('[data-pick]')
+    const o = b && opts.find(x => x.id === b.dataset.pick)
+    if (o && !talk.busy) stepRun(o.id, step, o.label)
+  }
+  item.append(acts)
+}
+/** @param {string} id  @param {{ options?: { id: string, label: string }[], run?: string | null }} step  @param {string} [label] the pressed button's (typed words are already in the chat) */
+async function stepRun(id, step, label = '') {
+  // Build writes the brief from the talk; nothing starts until the brief's own answer
+  if (id === 'do:brief') return talkSay('', true)
+  els.feed.querySelectorAll('.talk-acts').forEach(x => x.remove())
+  // Build the app: the App room's own button (web/canvas/rooms.js appAsk reads the words as that press)
+  if (id === 'do:app') { talkEnd(); return commandOps.app?.({ ask: label || 'Build the app' }) }
+  if (label) { talk.said.push({ who: 'you', text: label }); feed(null, label, 'you') }
+  const run = step?.run || talk.from || shownRun()
+  const way = id === 'do:resume' ? 'resume' : id === 'do:again' ? 'again' : ''
+  const wait = botMsg('…', true)
+  talk.busy = true
+  const res = way && run ? await api(`/api/runs/${encodeURIComponent(run)}/${way}`, { method: 'POST' }).catch(() => null) : null
+  const j = res ? await res.json().catch(() => ({})) : {}
+  talk.busy = false
+  wait.remove()
+  if (!talk.on) return
+  if (res?.status === 503 && j.hermes) return void hermesSays(j)
+  if (!res?.ok) return stepActs(botMsg(`Nothing happened: ${String(j.error || (res ? `the Studio answered ${res.status}` : 'the Studio did not answer')).replace(/\.$/, '')}.`), step)
+  talkEnd()
+  showRun(j.run, { started: true })
 }
 // a chat from the store, as the talk keeps it: the person is 'you', the planner 'hermia'
 export const saidOf = chat => (chat?.turns || []).filter(t => t.who !== 'crew').map(t => ({ who: t.who === 'planner' ? 'hermia' : 'you', text: t.text, ...(t.cards?.length ? { cards: t.cards, turn: t.id } : {}) }))
@@ -65,8 +122,8 @@ export async function talkSay(text, brief = false) {
   const media = brief ? [] : links.take('ref')
   // layers dragged in (the Studio scaffold's Layers, web/layers.js): the planner is told what the turn is about
   const about = brief ? [] : links.take('layer')
-  let took = null
-  if (!brief) { talk.said.push({ who: 'you', text: about.length ? `${text}\n(About: ${about.map(c => c.name).join(', ')})` : text }); feed(null, text, 'you', [...about, ...media].map(m => m.name).join(', ')); took = talk.heard?.(text) }
+  let took = null, mine = null
+  if (!brief) { talk.said.push({ who: 'you', text: about.length ? `${text}\n(About: ${about.map(c => c.name).join(', ')})` : text }); mine = feed(null, text, 'you', [...about, ...media].map(m => m.name).join(', ')); took = talk.heard?.(text) }
   els.feed.querySelectorAll('.talk-acts').forEach(x => x.remove())
   if (took && typeof took.then === 'function') {
     talk.busy = true
@@ -77,18 +134,23 @@ export async function talkSay(text, brief = false) {
   }
   const wait = botMsg(brief ? 'Writing the brief…' : '…', true)
   talk.busy = true
-  const res = await api('/api/discuss', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ said: talk.said, kind: talk.kind, brief, ...(media.length ? { refs: media.map(m => m.key) } : {}), ...(talk.chat ? { chat: talk.chat } : talk.from ? { from: talk.from } : {}) }) }).catch(() => null)
+  const res = await api('/api/discuss', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ said: talk.said, kind: talk.kind, brief, ...(roomNow() ? { room: roomNow() } : {}), ...(media.length ? { refs: media.map(m => m.key) } : {}), ...(talk.chat ? { chat: talk.chat } : {}), ...(talk.from ? { from: talk.from } : {}) }) }).catch(() => null)
   const j = res ? await res.json().catch(() => ({})) : {}
   if (j.chat && talk.on) talk.chat = j.chat
   talk.busy = false
   wait.remove()
   if (!talk.on) return
   if (!res?.ok) return talkActs(botMsg(j.error || 'Hermia did not answer. Say it again.'))
-  if (j.brief) return talkBrief(j.brief, j.route)
+  if (j.brief) return talkBrief(j.brief, j.route, '', false, j.options)
+  // the typed words were the step's action ("resume", "build the app"): it runs, as its button does
+  // (the App room shows the words itself when it takes them)
+  if (j.act === 'do:app') { mine?.remove(); return stepRun(j.act, j.step, text) }
+  if (j.act) return stepRun(j.act, j.step)
   talk.said.push({ who: 'hermia', text: j.heard || j.reply })
   const msg = botMsg(j.reply)
   if (j.cards?.length) talkCards(msg, j.cards, j.turn || null)
-  talkActs(msg)
+  if (j.step) stepActs(msg, j.step)
+  else talkActs(msg)
 }
 // ---------- the skip question before a website's build (docs/decisions/0020-ask-before-build.md, engine/askfirst.mjs):
 // Skip all, Step by step, or Pick steps to skip, the recommended one first. A pick or typed words answer it through
@@ -100,7 +162,7 @@ async function siteResume(last) {
   if (!talk.on) return
   const turn = j?.chat?.turns?.at(-1)
   if (!j?.chat?.go && turn?.who === 'planner' && isAsk(turn)) { talk.ask = true; return askActs(last, turn) }
-  talkActs(last)
+  stepNow(last)
   els.brief.focus({ preventScroll: true })
 }
 function askActs(item, turn) {
@@ -117,7 +179,8 @@ function askActs(item, turn) {
   }
   item.append(acts)
 }
-async function goSay({ said = '', pick = '', label = '' }) {
+// brief: the brief as it stands in its box, when the pick was made on the brief itself
+async function goSay({ said = '', pick = '', label = '', brief = '' }) {
   if (talk.busy || !talk.chat) return
   const text = said || label
   if (text) { talk.said.push({ who: 'you', text }); feed(null, text, 'you') }
@@ -125,7 +188,7 @@ async function goSay({ said = '', pick = '', label = '' }) {
   const wait = botMsg('…', true)
   talk.busy = true
   try {
-    const j = await talkPost(`/api/talk/${encodeURIComponent(talk.chat)}`, { said, pick })
+    const j = await talkPost(`/api/talk/${encodeURIComponent(talk.chat)}`, { said, pick, ...(brief ? { brief } : {}) })
     if (!talk.on) return
     const turn = j.turn || {}
     talk.said.push({ who: 'hermia', text: turn.text })
@@ -281,18 +344,31 @@ function talkActs(item) {
 // project (Build), a different product (New project, with Add here for when it is not), or this one
 // from scratch (Start over: new pages and look, the old version stays in the project).
 // sheet: open the brand sheet at once (asked for from the Make box's brief)
-function talkBrief(text, route = '', what = '', sheet = false) {
+// options: a new website's brief carries the question before a build (decision 0020) as its own answers, the
+// recommended one first: pressing one on the brief builds, or opens the walk, with no second question
+function talkBrief(text, route = '', what = '', sheet = false, options = null) {
   const item = botMsg(what || 'The brief')
   item.classList.add('talk-brief')
   const inProject = !!talk.from
-  const acts = inProject && route === 'new' ? '<button class="primary" data-go="new">New project</button><button data-go="add">Add here</button>'
+  const asks = !inProject && Array.isArray(options) && options.some(o => String(o.id).startsWith('go:')) ? options : null
+  const acts = asks ? '' : inProject && route === 'new' ? '<button class="primary" data-go="new">New project</button><button data-go="add">Add here</button>'
     : inProject && route === 'redo' ? '<button class="primary" data-go="redo">Start over</button><button data-go="add">Add here</button>'
       : '<button class="primary" data-go="add">Build</button>'
   // a website or app can settle its story, palette and type first (spec 31); Build works without it
   const sheetHtml = talk.kind === 'site' || talk.kind === 'app' ? '<button data-brand>Brand sheet</button>' : ''
-  item.insertAdjacentHTML('beforeend', `<textarea aria-label="The brief" rows="6" maxlength="4000"></textarea><div class="chips talk-acts">${acts}${sheetHtml}<button data-more>Keep talking</button></div>`)
+  const asksHtml = asks ? `<div class="talk-acts talk-opts">${asks.map(o => `<button type="button" data-pick="${esc(o.id)}">${esc(o.label)}${o.why ? `<small>${esc(o.why)}</small>` : ''}</button>`).join('')}</div>` : ''
+  item.insertAdjacentHTML('beforeend', `<textarea aria-label="The brief" rows="6" maxlength="4000"></textarea>${asksHtml}<div class="chips talk-acts">${acts}${sheetHtml}<button data-more>Keep talking</button></div>`)
   const box = item.querySelector('textarea')
   box.value = text
+  // @ts-ignore
+  item.querySelectorAll('[data-pick]').forEach(b => { b.onclick = () => {
+    const t = box.value.trim()
+    // @ts-ignore
+    const o = asks?.find(x => x.id === b.dataset.pick)
+    if (!t || !o || talk.busy) return
+    box.disabled = true
+    goSay({ pick: o.id, label: o.label, brief: t })
+  } })
   // @ts-ignore
   item.querySelectorAll('[data-go]').forEach(b => { b.onclick = () => {
     const t = box.value.trim()
@@ -307,7 +383,7 @@ function talkBrief(text, route = '', what = '', sheet = false) {
     go?.(t, chat)
   } })
   // @ts-ignore
-  item.querySelector('[data-more]').onclick = () => { item.querySelector('.talk-acts').remove(); els.brief.focus() }
+  item.querySelector('[data-more]').onclick = () => { item.querySelectorAll('.talk-acts').forEach(x => x.remove()); els.brief.focus() }
   const sheetBtn = item.querySelector('[data-brand]')
   // @ts-ignore
   if (sheetBtn) sheetBtn.onclick = () => {

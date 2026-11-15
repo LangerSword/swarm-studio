@@ -43,6 +43,7 @@ import { canvasPage as sharedCanvasPage, webVersion as pageVersion, playBoot } f
 import { nextPage, nextVendor } from './next.mjs'
 import { makeProjects, stateOf, gameProgress } from './projects.mjs'
 import { buildState } from '../engine/buildstate.mjs'
+import { chatFacts, factsText, firstLine, nextStep, truthTurn } from '../engine/chatstep.mjs'
 import { CHAT_ID } from '../engine/chats.mjs'
 import { askTurn, askedOf, askOptions, ASK_TEXT } from '../engine/askfirst.mjs'
 import { wordsRead } from '../engine/talkplan.mjs'
@@ -1801,6 +1802,8 @@ const plans = planRoutes({
 // A locked game chat makes its plan through the Plan board's routes above.
 const talks = talkRoutes({
   dataDir, plans, helpers: () => helpers, env: () => ({ godot: godotHere }), godotCheck,
+  // a website's or an app's saved talk is told what is true of its build (chatTruth, engine/chatstep.mjs)
+  facts: chat => chatTruth({ pid: chat.project || null, run: chat.run || null, kind: chat.kind === 'app' ? 'app' : 'site', chat }),
   model: () => models.planner.apiKey && modelFor('planner') ? async messages => (await streamChat(provider('planner'), {
     trace: { kind: 'talk' }, model: modelFor('planner'), maxTokens: 700, temperature: 0.3, signal: AbortSignal.timeout(60000),
     extra: { reasoning_effort: 'none', reasoning: { enabled: false } }, messages
@@ -2155,23 +2158,48 @@ async function askBeforeBuild({ chatId, typed, pid }) {
 }
 // What a project's talk is told is there (engine/talkplan.mjs): its name, the pages its newest site
 // version has, the look, and what is running now. Empty outside a project.
-function projectState(pid) {
+// facts: what is true of the build the chat is about (chatTruth below); with them the planner is told the build's
+// one state (engine/chatstep.mjs factsText), never a count of pages that reads as "built" whatever happened
+function projectState(pid, facts = null) {
   const p = pid && projects.get(pid)
-  if (!p) return ''
+  if (!p) return facts && (facts.site || facts.app) ? factsText(facts) : ''
   const lines = [`Project: "${String(p.title || p.name || 'untitled').slice(0, 80)}".`]
   const site = (p.versions || []).find(v => (readEvents(v.id) || []).some(e => e.type === 'page'))
   const ev = site ? readEvents(site.id) : null
   if (ev) {
     const pages = [...new Map(ev.filter(e => e.type === 'page').map(e => [e.id, e.title])).values()]
-    lines.push(`Built: ${pages.length} page${pages.length === 1 ? '' : 's'} (${pages.slice(0, 12).join('; ')}).`)
+    lines.push(facts ? factsText(facts) : `Built: ${pages.length} page${pages.length === 1 ? '' : 's'} (${pages.slice(0, 12).join('; ')}).`)
     const th = ev.findLast(e => e.type === 'theme')
     if (th?.vars) lines.push(`Its look: "${th.name || 'theme'}", background ${th.vars['--background']}, text ${th.vars['--foreground']}, main colour ${th.vars['--primary']}${th.fonts?.heading ? `, headings in ${th.fonts.heading}` : ''}.`)
     const brief = ev.find(e => e.type === 'run:start')?.brief
     if (brief) lines.push(`It was made from: ${String(brief).split('\n')[0].slice(0, 300)}`)
-  } else lines.push('No pages are built yet.')
+  } else lines.push(facts ? factsText(facts) : 'No pages are built yet.')
   const work = (p.versions || []).map(v => workOf(v.id)).filter(Boolean)
   lines.push(work.length ? `Running now: ${work.map(w => `${w.what} (${w.stage || 'working'})`).join(', ')}.` : 'Nothing is running now.')
   return lines.join('\n')
+}
+// What is true of the build a chat is about, for engine/chatstep.mjs: the website build's one state (siteState:
+// the open build when the chat names one, else the project's newest website build), its pages, the app's state
+// when the chat is the App room's or the build has an app, and where it is live. Reads only.
+async function chatTruth({ pid = null, run = null, kind = 'site', chat = null } = {}) {
+  const p = pid && projects.get(pid)
+  const ids = [...(run ? [run] : []), ...((p?.versions || []).map(v => v.id))]
+  let build = null, id = null, events = null
+  for (const v of ids) {
+    const ev = readEvents(v)
+    const b = ev ? siteState(v, ev) : null
+    if (b) { build = b; id = v; events = ev; break }
+  }
+  events ||= run ? readEvents(run) : null
+  id ||= run
+  const pages = events ? [...new Map(events.filter(e => e.type === 'page').map(e => [e.id, String(e.title || e.id)])).values()] : []
+  let app = null
+  if (id && (kind === 'app' || events?.some(e => typeof e.type === 'string' && e.type.startsWith('app:')))) {
+    try { app = (await apps()).state(id) } catch {}
+    app ||= { state: 'idle', hasApp: false, steps: [] }
+  }
+  const published = events?.findLast(e => (e.type === 'publish:done' && e.url && e.target !== 'local') || (e.type === 'app:deployed' && e.url && !e.pending))?.url || null
+  return chatFacts({ kind, run: id, build, pages, app, published, locked: chat?.state === 'locked' })
 }
 // Guided game making (engine/workshop.mjs): the spec walked one step at a time, with pictures
 const workshops = workshopRoutes({
@@ -3484,6 +3512,17 @@ ${researchBrief(seen)}`
   // POST /api/discuss/read { text, kind, answerTo? } -> { intent, by }
   // POST /api/discuss { said: [{ who: 'you' | 'hermia', text }], kind, brief? } -> { reply } | { brief }
   // These stay until the web side moves onto /api/talk (server/talk.mjs), which saves the chat.
+  // POST /api/discuss/step { kind, room?, from?, chat?, talked? } -> { first, step }: a website's or an app's chat
+  // before a turn (a new chat, or one opened again): Hermia's first line and the real next step, from the build's
+  // one state (engine/chatstep.mjs). No model is asked and nothing is saved.
+  if (url.pathname === '/api/discuss/step' && req.method === 'POST') {
+    return readJson(1e4, async input => {
+      const run = typeof input.from === 'string' && RUN_ID.test(input.from) ? input.from : null
+      const chat = typeof input.chat === 'string' && CHAT_ID.test(input.chat) ? chats.get(input.chat) : null
+      const facts = await chatTruth({ pid: chat?.project || (run ? projects.projectOf(run) : null), run, kind: input.room === 'app' || input.kind === 'app' ? 'app' : 'site', chat })
+      json(200, { first: firstLine(facts), step: nextStep(facts, { talked: input.talked === true }) })
+    })
+  }
   if ((url.pathname === '/api/discuss/read' || url.pathname === '/api/discuss') && req.method === 'POST') {
     const model = modelFor('planner')
     const chat = (maxTokens, ms) => model && models.planner.apiKey ? async messages => (await streamChat(provider('planner'), {
@@ -3507,8 +3546,11 @@ ${researchBrief(seen)}`
         if (input.ask === true) {
           const [{ answerOnly }, { factLines }, facts] = await Promise.all([import('../engine/ask.mjs'), import('../engine/doctor.mjs'), studioFacts(inRun, { light: true }).catch(() => null)])
           const plan = typeof input.chat === 'string' && CHAT_ID.test(input.chat) ? String(chats.get(input.chat)?.spec?.brief || '').slice(0, 1500) : ''
-          const project = [projectState(inPid), plan ? `The plan agreed so far in the chat:\n${plan}` : ''].filter(Boolean).join('\n\n')
-          return json(200, await answerOnly({ said, kind, chat: talk, project, studio: facts ? factLines(facts).join('\n').slice(0, 2400) : '' }))
+          // a question about how far things are is answered by the build's one state; any other answer is checked against it
+          const truth = await chatTruth({ pid: inPid, run: inRun, kind: input.room === 'app' || kind === 'app' ? 'app' : 'site' })
+          const project = [projectState(inPid, truth), plan ? `The plan agreed so far in the chat:\n${plan}` : ''].filter(Boolean).join('\n\n')
+          const answer = await truthTurn({ text: String(said.at(-1)?.text || ''), facts: truth, ask: true, plan: () => answerOnly({ said, kind, chat: talk, project, studio: facts ? factLines(facts).join('\n').slice(0, 2400) : '' }) })
+          return json(200, { reply: answer.reply })
         }
         // media (spec 29): the pictures attached to this turn, and its links read as pages; the planner is
         // told how each one was read, and the ones from earlier turns stay in view
@@ -3541,7 +3583,18 @@ ${researchBrief(seen)}`
             try { walkLook(lp, refs.addLink(lp, { url: r.url, use: note, source: 'chat', from })) } catch (err) { console.warn('look:', err.message) }
           }
         }
-        const out = await (input.brief ? d.writeBrief : d.discuss)({ said: told, kind, chat: talk, project: projectState(inPid || (chats.get(input.chat)?.project ?? null)), helpers: input.brief ? null : helpers })
+        // The planner is told what is true (engine/chatstep.mjs), its answer is checked against it, and the turn ends
+        // with the real next step. A typed "resume", "try again" or "build the app" is that step's action: the
+        // planner is not asked, and the page runs it as the button does. "build it" writes the brief.
+        const talkChat = typeof input.chat === 'string' && CHAT_ID.test(input.chat) ? chats.get(input.chat) : null
+        const talkPid = inPid || (talkChat?.project ?? null)
+        const truth = await chatTruth({ pid: talkPid, run: inRun, kind: input.room === 'app' || kind === 'app' ? 'app' : 'site', chat: talkChat })
+        const project = projectState(talkPid, truth)
+        let out = await truthTurn({
+          text: !input.brief && last && last.who !== 'hermia' ? String(last.text || '') : '', facts: truth,
+          plan: () => (input.brief ? d.writeBrief : d.discuss)({ said: told, kind, chat: talk, project, helpers: input.brief ? null : helpers })
+        })
+        if (out.act === 'do:brief') out = { ...(await d.writeBrief({ said: told, kind, chat: talk, project })), step: out.step }
         // a tool the planner asked for (decision 0025 e): it only reads; its cards are kept on the planner's turn below,
         // and a press runs their action from there (/api/helper/pick)
         let cards = []
@@ -3563,6 +3616,21 @@ ${researchBrief(seen)}`
           if (out.reply) await chats.say(id, { who: 'planner', text: out.reply, ...(cards.length ? { cards } : {}) })
           if (cards.length) { const t = chats.get(id)?.turns?.at(-1); if (t?.cards) { out.cards = cardsView(t.cards); out.turn = t.id } }
           if (out.brief) await chats.update(id, c => { c.spec = { brief: String(out.brief).slice(0, 8000), open: [], art: [], engine: null, time: null, cost: null, lockedAt: null, ...(c.spec || {}), ...{ brief: String(out.brief).slice(0, 8000) } } })
+          // A new website's brief is where the question before a build is answered (decision 0020): the brief is
+          // kept as Hermia's turn with the question's three answers, the recommended one first, so pressing one
+          // on the brief builds (or opens the walk) with no second question, and the brief is still there when
+          // the chat is opened again. Inside a project a build is its next version, which asks nothing.
+          if (out.brief && kind === 'site' && !pid && !chats.get(id)?.project) {
+            const turn = await chats.update(id, c => {
+              c.turns ||= []
+              delete c.go
+              c.ask = { brief: String(out.brief).slice(0, 8000), at: Date.now() }
+              const q = { ...askTurn(`t${c.turns.length + 1}`, c.turns.filter(t => t.who === 'person').map(t => t.text).concat(String(out.brief)).join('\n')), text: String(out.brief).slice(0, 8000), brief: true }
+              c.turns.push(q)
+              return q
+            })
+            out.options = turn.options
+          }
         } catch (err) { console.warn('chat:', err.message) }
         // cards not saved (the chat could not be written) are shown to look at, never to press
         if (cards.length && !out.cards) out.cards = cardsView(cards).map(({ pick, ...c }) => c)
