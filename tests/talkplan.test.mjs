@@ -94,7 +94,8 @@ test('the web side: Make box, answers, the brief step and both docks go through 
   // the brief's buttons: Build (or, inside a project, New project / Start over with Add here), then Keep talking
   assert.match(canvas, /<button class="primary" data-go="add">Build<\/button>/)
   assert.match(canvas, /\$\{acts\}\$\{sheetHtml\}<button data-more>Keep talking<\/button>/)
-  assert.match(project, /const read = [^\n]*sw\.readTalk\(text\)\n\s*if \(read === 'build'\) return send\(text\)/)
+  // typed in the chat on the Overview (its one text box): read first, and only a build goes on as the next version
+  assert.match(project, /const read = [^\n]*sw\.readTalk\(text\)\n\s*if \(read === 'build'\) return \{ project: pid, from, /)
 })
 
 test('hermes swarm, /swarm auto and swarm_design refuse a talk-first brief', () => {

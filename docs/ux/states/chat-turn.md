@@ -62,11 +62,16 @@ The App room and the Game room have no chat box of their own: both use the chat'
 
 ### Website chat, table 2: around the chat
 
+Since 2026-11-15 the Overview has no bar of its own (owner: "chat always here instead"): its one text box is this
+chat's, open beside the Overview (`web/project.js` `say`, `web/canvas/loop.js` `sendDock`). In the tables and
+contradictions below, "Overview's bar" reads "typed in the chat while the Overview is the room", and the bar's own
+words (`web/route.js:30`, "Tell the crew…" / "Change the app…") are gone: the box keeps the chat's placeholder.
+
 | State | Progress line and status strip | The chat's Log | Top bar | Deck behind the chat | Overview's bar | Chats lists (Projects, and the deck's Chats button) | Kept after a reload |
 |---|---|---|---|---|---|---|---|
 | S1 | No progress line. Strip: "Ready" (`web/replaytalk.js:23`) | nothing (`web/canvas/base.js:71`) | "Untitled" (`web/canvas/base.js:96`) | Empty canvas; the layer list says "Pages appear here once the planner names them." (`web/canvas/panels.js:75`) (shot f-web-empty) | not on screen | nothing: no chat exists yet | nothing |
-| S2 | as S1 | nothing | as S1 | as S1 | Its own box: "Tell the crew…" (`web/project.js:76`) | nothing | nothing |
-| S3 | nothing | nothing | unchanged | unchanged | The bar is emptied at once (`web/project.js:1335`); nothing else until the read comes back | nothing | nothing |
+| S2 | as S1 | nothing | as S1 | as S1 | No box of its own since 2026-11-15: the Overview's one text box is this chat's (`web/project.js` say, `web/canvas/loop.js` sendDock) | nothing | nothing |
+| S3 | nothing | nothing | unchanged | unchanged | The chat's box keeps the words until the read comes back (`web/canvas/loop.js` sendDock) | nothing | nothing |
 | S4 | nothing | nothing | unchanged | unchanged | nothing | nothing | nothing: a reload loses the question if no answer is saved yet |
 | S5 | nothing | nothing | unchanged ("Untitled" in a new chat: the chat's title is not shown) | unchanged | nothing | A row with the chat's title and its age (`web/home.js:275`). No sign that Hermia answered or asked | Both turns (`server/server.mjs:3529`, `server/server.mjs:3530`) |
 | S6 | nothing | nothing | unchanged | unchanged | From the bar, a question moves the person to the deck's chat (`web/project.js:1357`) | Row as S5. No sign that a question waits | The question and its options (`server/server.mjs:2125`). "Build now or talk first?" is not kept |

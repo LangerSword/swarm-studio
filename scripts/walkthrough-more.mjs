@@ -301,6 +301,8 @@ async function card(env, key, name) {
   await env.wait(400)
   if (await shown(env.page, '.scaffold.files-on .sc-layers-btn')) await tap(env.page, '.sc-layers-btn')
 }
+// the Overview's chat is its one text box: open on a desk, a sheet behind the dock's Chat tool on a phone
+async function ovChat(env) { if (!(await shown(env.page, '#brief'))) await click(env.page, '.pj-dock [data-tool="comment"]'); await vis(env.page, '#brief') }
 const insp = (page, root = '.project') => vis(page, `${root} .pj-insp:not([hidden])`)
 // a page picked on the Overview, then one of its sections in the inspector
 async function section(env) {
@@ -437,11 +439,11 @@ const LIST = [
   // ---------- The Overview
   { id: 'm-ov-work', flow: `${OV} (a build is running)`, uses: 'live', title: 'The work chip and Stop', run: async env => { const s = await live(env); await overviewOf(env, s, s.ids.site); await vis(env.page, '.topbar .work-chip', 20000); await vis(env.page, '.topbar .work-stop') }, settle: 1200 },
   { id: 'm-ov-work-pop', flow: `${OV} (a build is running)`, uses: 'live', title: 'The work chip’s popover', run: async env => { const s = await live(env); await overviewOf(env, s, s.ids.site); await click(env.page, '.topbar .work-chip', 20000); await vis(env.page, '.wk-pop .wk-row') }, settle: 800 },
-  { id: 'm-ov-tell-busy', flow: `${OV} (a build is running)`, uses: 'live', title: 'Tell the crew while a build runs, four seconds after Send', run: async env => { const s = await live(env); await go(env, s, `/?project=${s.ids.site}&version=${s.ids.site2}`, '.project:not(.plan) .pj-world'); await env.page.locator('form.pj-ask input[name=q]').first().fill('Add a page for gift boxes'); await env.page.keyboard.press('Enter') }, settle: 4000 },
+  { id: 'm-ov-tell-busy', flow: `${OV} (a build is running)`, uses: 'live', title: 'Tell the crew while a build runs, four seconds after Send', run: async env => { const s = await live(env); await go(env, s, `/?project=${s.ids.site}&version=${s.ids.site2}`, '.project:not(.plan) .pj-world'); await ovChat(env); await env.page.locator('#brief').fill('Add a page for gift boxes'); await env.page.locator('#brief').press('Enter') }, settle: 4000 },
   { id: 'm-ov-stop', flow: `${OV} (a build is running)`, uses: 'live', title: 'Stop pressed', run: async env => { const s = await live(env); await overviewOf(env, s, s.ids.site); await click(env.page, '.topbar .work-stop', 20000) }, settle: 2500 },
   { id: 'm-ov-live-line', flow: OV, uses: 'rich', title: 'The live line: who is painting', run: async env => { const s = await rich(env); await overviewOf(env, s, s.R.art); await vis(env.page, 'button.pj-now') }, settle: 2000 },
   { id: 'm-ov-picture-failed', flow: OV, uses: 'rich', title: 'A picture that failed: Try again', run: async env => { const s = await rich(env); await overviewOf(env, s, s.R.art); await vis(env.page, '.pj-world .ab.art.pt-failed .pt-again'); await env.page.locator('.pj-world .ab.art.pt-failed').first().click(); await insp(env.page) }, settle: 1500 },
-  { id: 'm-ov-section', flow: OV, title: 'The inspector with a section picked, and the scope chip', run: async env => { await section(env); if (!env.phone) await vis(env.page, '.pj-ask .pj-scope:not(.pj-mkchip)') }, settle: 1500 },
+  { id: 'm-ov-section', flow: OV, title: 'The inspector with a section picked, and the scope chip', run: async env => { await section(env); if (!env.phone) await vis(env.page, '#brief-form .pj-scope:not(.pj-mkchip)') }, settle: 1500 },
   { id: 'm-ov-part', flow: OV, title: 'The inspector with a part picked', run: async env => { await section(env); await click(env.page, '.pj-insp .pj-part[data-el]', 10000); await vis(env.page, '.pj-insp .pj-eback') }, settle: 1500 },
   { id: 'm-ov-marks', flow: OV, title: 'Scribble: a mark, its note and the marks chip', run: async env => {
     const s = await main(env); await overviewOf(env, s, s.ids.site)
@@ -450,7 +452,9 @@ const LIST = [
     const b = await page.locator('.pj-world .ab[data-key="page:home"]').first().boundingBox()
     await page.mouse.move(b.x + b.width * 0.25, b.y + b.height * 0.25); await page.mouse.down()
     await page.mouse.move(b.x + b.width * 0.6, b.y + b.height * 0.5, { steps: 8 }); await page.mouse.up()
-    await vis(page, '.pj-ask .pj-mkchip')
+    // the marks chip is with the chat's box (a sheet on a phone, behind the dock's Chat tool)
+    await ovChat(env)
+    await vis(page, '#brief-form .pj-mkchip')
   }, settle: 800 },
   { id: 'm-ov-mode-menu', flow: OV, title: 'The mode menu', run: async env => { if (env.phone) no('not shown at 390: the mode menu is hidden below 760 px (web/studio.css)'); const s = await main(env); await overviewOf(env, s, s.ids.site); await click(env.page, '.mode-btn'); await vis(env.page, '.mode-menu [data-mode]') } },
   { id: 'm-ov-more-menu', flow: OV, title: 'The ☰ menu', run: async env => { const s = await main(env); await overviewOf(env, s, s.ids.site); await click(env.page, '#more-btn'); await vis(env.page, '#more-menu') } },

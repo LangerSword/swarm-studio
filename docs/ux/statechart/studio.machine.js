@@ -502,7 +502,9 @@ export const studioMachine = setup({
                       '8. A project: the Overview › Files: Site, Story, App, Game, Film, Art, Uploads, Code',
                       '8. A project: the Overview › Stage: artboards in sections',
                       '8. A project: the Overview › Inspector (while something is selected)',
-                      '8. A project: the Overview › Dock: Move, Frame, Text, Image, Comment, Tell the crew…'
+                      '8. A project: the Overview › Dock: Move, Scribble, Eraser, Frame, Follow, New page, Upload, Chat',
+                      '8. A project: the Overview › Chat (left, open on the way in): the one place to type',
+                      '8. A project: the Overview › Chat: fold the chat (×) and bring it back'
                     ]
                   },
                   on: { up: { guard: 'playerClosed', target: '#projects' } }

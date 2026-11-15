@@ -379,7 +379,7 @@ els.brief.addEventListener('blur', () => setTimeout(() => (slashPop.hidden = tru
 
 // A message goes to the open build (web/route.js): an edit of the selected section (/fix), or the
 // project's next version, which keeps every page and adds what was asked. window.swarm.submit
-// says where its words go: Projects home starts a new project, a project's dock extends it.
+// says where its words go: Projects home starts a new project, a project's Overview extends it.
 export let nextRoute = null
 export function setNextRoute(v) { return (nextRoute = v) }
 // one message at a time: while one is being read (talk or build?) or its build is starting, another
@@ -414,9 +414,15 @@ mountAgentsChip({ select: els.agentsSel, button: $('#agents-btn') })
 export const github = githubDoor({ api, esc: s => esc(s), botMsg, youSaid: text => feed(null, text, 'you'), run: () => shownRun() || null, project: () => /** @type {any} */ (window).swarmCosmos?.project || shownRun() || null, off: !!BOOT.hosted })
 const githubBtn = $('#github-btn')
 if (githubBtn) { if (BOOT.hosted) githubBtn.remove(); else githubBtn.onclick = () => github.open() }
+// The Overview is the room (web/project.js): the chat is its one place to type (owner, 2026-11-15), so what is
+// selected or marked there decides where the words go. null in every other room.
+const overview = () => { const c = /** @type {any} */ (window).swarmCosmos; return c?.mode === 'project' ? c.projectView : null }
+const ovLines = { you: t => { feed(null, t, 'you') }, bot: t => { botMsg(t) } }
 async function sendDock() {
   // a replay comes first (web/replaytalk.js): "stop", "is this building?", "replay"; anything else ends it, then goes on
   if (!nextRoute && await replaySay(els.brief.value)) return
+  // marks drawn on the Overview's pages go with the words, or with none
+  if (!nextRoute && overview()?.marked && !/^\/[a-z?]/i.test(els.brief.value.trim())) { const t = els.brief.value.trim(); els.brief.value = ''; return void overview().sendMarks(t, ovLines) }
   // a typed GitHub move is never a brief, in any mode and from any dock
   if (!nextRoute?.fresh && github.say(els.brief.value)) { nextRoute?.done?.(null); nextRoute = null; els.brief.value = ''; return }
   // where builds go on GitHub ("publish to <organization>", "where do builds go"): taken only when the name is the
@@ -458,6 +464,15 @@ async function sendDock() {
   if (links.count('layer') && shownRun() && !nextRoute?.fresh) { skip(); return sendLayers(brief) }
   // a guest names themself before the first build (docs/specs/13-hosted-studio.md)
   if (hosted && !(await hosted.ready())) return skip()
+  // typed on the Overview: a fix of the selected section, a picture painted again, the app's change, a talk
+  // with the planner, or the route of the project's next version (web/project.js say)
+  const ov = !nextRoute && overview()
+  if (ov) {
+    const took = await ov.say(brief, ovLines)
+    if (took === true) { if (els.brief.value.trim() === brief) els.brief.value = ''; return }
+    if (took === 'kept') return
+    nextRoute = took
+  }
   const to = nextRoute || { from: runNow(), selected: !!S.sel }
   nextRoute = null
   // a project's dock has already decided (web/project.js): its open version is what the words

@@ -39,10 +39,15 @@ Overview  (build.playable.room.overview)          crumb: Home › Projects › <
   · crew cursors (Follow one)
   · drop files from the desktop    ──(none)──▶ Uploads, and to the crew
   · skeleton while the board loads: three page skeletons (aria-busy), Hermia on the first
-  dock (bottom)
-  · Move · Scribble (S) · Eraser (E) · Frame all (F) · Follow · New page · Upload · Chat
-  · scope chip ("About <section> ×") · marks chip ("n marks ×")
-  · "Tell the crew…" (input) · Send   ──(none)──▶ fix, repaint, extend or a new page; a question opens the deck's chat
+  dock (bottom): tools only, no text box
+  · Move · Scribble (S) · Eraser (E) · Frame all (F) · Follow · New page · Upload · Chat (folds the chat, brings it back)
+  chat (left; open on every way in; × folds it, and folded there is no text box)
+  · the one place to type (owner, 2026-11-15: "chat always here instead")
+  · with its box: scope chip ("About <section> ×") · marks chip ("n marks ×")
+  · its box · Send   ──(none)──▶ marks → the marks go; a picture selected → painted again with those words; a
+    section picked → its builder rewrites it; an app's board → the app's change (App room); a page selected → fix;
+    otherwise the next version (extend or a new page); a question or "don't build yet" → the planner answers here
+  · what happened is a line in the chat: who took it, "Painting it again.", or "Nothing happened: <why>."
 
 Project menu  (layer)        Rename · Duplicate · Version n (the open one ticked)  ──open.project { version }──▶ that version
 Mode menu  (layer)           Overview · Canvas ──room.deck──▶ · Video ──room.video──▶ · App ──room.app──▶ · Game ──room.game──▶
@@ -53,7 +58,7 @@ Work popover  (layer)        a row per job                ──open.project / r
 Inspector  (layer, while an artboard is selected; ×, Esc, a click on the empty stage)
   · default: preview, Size, Style, Used on, Length, File, Section, Marks, From, Use, Link
       Open · Export / Export zip · Replace · Accept / Dismiss (a draft) · Use for… (a reference)
-  · a section picked: Back, Text, Fill, Type, Spacing, Pictures (Paint), Parts · Code · "Tell the crew…"
+  · a section picked: Back, Text, Fill, Type, Spacing, Pictures (Paint), Parts · Code · Open · Chat (390 only: opens the chat)
   · a part picked: Content, Style, Attributes · Up · Down · Remove · Code
 
 Player  (build.playable.player: prototype | visitor)
@@ -63,8 +68,9 @@ Player  (build.playable.player: prototype | visitor)
 ## At 390 px
 
 Files and Layers become a sheet from the dock's Files button; the inspector is a bottom sheet (at most 70 % of the
-height) with its own ask line; the dock spans the width without New page and Upload; Play and Publish keep their
-icons only; the mode menu is hidden; the live line is a pill under the top bar.
+height); the chat is a sheet too, so it does not open by itself: the dock's Chat tool opens it, and with a section
+picked (the dock is under the inspector) the inspector's Chat button does, the chat taking the inspector's place
+until it is folded; the dock spans the width with every tool; Play and Publish keep their icons only; the mode menu is hidden; the live line is a pill under the top bar.
 
 ## Where the code differs
 
