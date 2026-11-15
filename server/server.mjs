@@ -117,6 +117,7 @@ const argPort = process.argv.indexOf('--port')
 // let go can be taken by another process before this one binds it); `port` is the real one from then on
 let port = Number(argPort >= 0 ? process.argv[argPort + 1] : process.env.SWARM_PORT || 4319)
 
+// engine: hermes
 // Endpoint and model per role (Nous catalog review, point 2). By default every model call goes to Hermes:
 // the studio's own loopback endpoint /llm/v1 (engine/hermesllm.mjs) forwards it to the Hermes bridge, and
 // Hermes answers with its own provider, model and key, so no provider key ever reaches this process.
@@ -158,6 +159,7 @@ const envRole = (role, fallback = DEFAULT_MODEL) => {
     model: process.env[`SWARM_${role}_MODEL`] || process.env[`SWARM_STUDIO_${role}_MODEL`] || fallback
   }
 }
+// end engine: hermes
 // the reviewer follows Hermes's vision model; with a key of its own it has no default
 const models = { planner: envRole('PLANNER'), worker: envRole('WORKER'), reviewer: envRole('REVIEWER', '') }
 const ROLES = ['planner', 'worker', 'reviewer']
@@ -216,6 +218,7 @@ const pyCommand = (call, timeout) => new Promise(resolve => {
   })
 })
 
+// engine: hermes
 // hermes_models.py's helpers (the Setup sheet's model picker), run once in Hermes's Python under the
 // profile's HERMES_HOME; `input` goes in on stdin, so a pasted key is never a process argument
 const pyModels = (call, input = '', timeout = 60000) => new Promise(resolve => {
@@ -311,6 +314,7 @@ async function imageChoice() {
   if (picks.image === 'off') return null
   return chooseImage(await loadImageProviders(), picks.image)
 }
+// end engine: hermes
 
 // The one-time Setup sheet (docs/specs/06-onboarding.md): what builds use for pictures (the
 // `pictures` pick: painted, stock or drawn) and whether the planner and the builders answer.
@@ -369,6 +373,7 @@ async function checkArt(path, guide, messages = art.checkMessages) {
 }
 // One picture through the art director. A picture sent back is made once more with
 // the reasons in its prompt; the second one stands.
+// engine: hermes
 // another image source than the one in use: ckff first, then Hermes, then any other
 async function backupImage(choice) {
   const list = (await loadImageProviders()).filter(x => x.available && x.provider !== choice?.provider)
@@ -376,17 +381,20 @@ async function backupImage(choice) {
   const p = list.find(x => x.provider === 'ckff') || list.find(x => x.provider === 'hermes') || list[0]
   return p ? { provider: p.provider, model: p.default || '' } : null
 }
+// end engine: hermes
 async function paintArt(choice, guide, { gen, aspect = 'landscape', hero = false, cutout = false, ref = '' }, onSentBack) {
   // ref: a picture to match in style (the hero's sprite, for a figure or prop painted to stand beside it)
   let withRef = !!(ref && existsSync(ref))
   const once = (c, strict) => { const pick = art.tierFor(c, { hero }); return imagegen(['--provider', pick.provider, ...(pick.model ? ['--model', pick.model] : []), '--aspect', aspect, ...(withRef ? ['--ref', ref] : []), art.promptFor(gen, guide, { aspect, strict, cutout })], hero ? 300000 : 150000) }
   // a refusal that isn't out of quota: once more after a pause, then on another provider (engine/paintretry.mjs)
   let first = await paintWithBackup(c => once(c, ''), { choice, backup: () => backupImage(choice), quota: OUT_OF_QUOTA, exists: existsSync })
+  // engine: hermes
   // out of quota on a Hermes login: ckff paints it when it has a key, rather than no picture
   if (OUT_OF_QUOTA.test(String(first?.error || '')) && choice?.provider !== 'ckff' && ckffProvider()) {
     const alt = { provider: 'ckff', model: ckffProvider().default }, other = await once(alt, '')
     if (other?.ok && other.path && existsSync(other.path)) first = { ...other, backup: alt }
   }
+  // end engine: hermes
   // not every provider takes a reference picture: without one, rather than no picture
   if (withRef && (!first.ok || !first.path || !existsSync(first.path)) && !OUT_OF_QUOTA.test(String(first.error || ''))) {
     withRef = false
@@ -904,6 +912,7 @@ function versions(dir, stem, ext) {
   const last = nums.length ? Math.max(...nums) : 0
   return { last: last ? join(dir, `${stem}-v${last}${ext}`) : null, next: join(dir, `${stem}-v${last + 1}${ext}`) }
 }
+// engine: video
 // The build's video in the visible folder: the newest version, or a new one when
 // the build has a cut that is newer than every copy (made now if none exists yet).
 function shelveVideo(id, shape = 'wide') {
@@ -917,6 +926,7 @@ function shelveVideo(id, shape = 'wide') {
     return v.next
   } catch { return null }
 }
+// end engine: video
 function shelveExport(id, zip) {
   if (!zip || !existsSync(zip)) return null
   try {
@@ -991,11 +1001,13 @@ async function reviewNow(id, input) {
   // overlaps the canvas measured at desktop and phone width: no model needed to see them
   const measured = (Array.isArray(input.measured) ? input.measured : []).filter(m => m && keys.has(m.section) && m.problem).slice(0, 6)
     .map(m => ({ section: m.section, problem: clip(m.problem, 160), fix: clip(m.fix, 220), measured: true }))
+  // engine: open-design
   // what the slop linter (engine/lint) still finds after each builder's own fix pass: the worst in each
   // section, handed on like the measured overlaps, and a section that ignores the design system's tokens (the
   // rest of a section's findings are P1 advice)
   const linted = sections.flatMap(s => lintSection(s.html, { tokens: theme?.system?.tokens }).filter(f => f.severity === 'P0' || f.id === 'tokens-unused').slice(0, 1)
     .map(f => ({ section: s.key, problem: clip(f.message, 160), fix: clip(f.fix, 220), lint: f.id })))
+  // end engine: open-design
   // the same page at phone width, for a second look
   const phone = input.mobile && /^data:image\/(jpeg|png|webp);base64,/.test(String(input.mobile.image || '')) && Array.isArray(input.mobile.sections)
     ? { image: String(input.mobile.image), sections: input.mobile.sections.filter(s => s && keys.has(s.key)).map(s => ({ key: s.key, role: String(s.role || s.key), top: Math.round(s.top) || 0, height: Math.round(s.height) || 0 })) }
@@ -1067,6 +1079,7 @@ async function reviewNow(id, input) {
   }
 }
 
+// engine: video
 // ---------- promo video: the planner storyboards the build, HyperFrames renders it
 const videos = new Map() // run id -> { state, pct, stage, src, file, seconds, message }
 // one film renders at a time (engine/video.mjs renders): the next one says so while it waits
@@ -1224,6 +1237,7 @@ async function videoNow(id, input = {}) {
     }
     // a beat whose painted shot failed has no picture: it becomes a type card
     for (const sc of scenes) if ((sc.kind === 'image' || sc.kind === 'split') && !sc.image) { sc.kind = 'title'; sc.layer = 'type'; if (!sc.headline) sc.headline = c.brand }
+    // engine: hermes
     // moving clips: a video model animates a few story stills (Veo through Hermes's FAL, xAI…);
     // clips already in <run>/flow (made with Flow by hand) are used as they are
     const media = await mediaNow().catch(() => null)
@@ -1236,6 +1250,7 @@ async function videoNow(id, input = {}) {
           if (r.ok) made++
           else send('video:note', { message: `a still stayed still: ${String(r.error || 'no clip').slice(0, 120)}` })
         })))
+    // end engine: hermes
         if (made) send('video:clips', { by: media.clips.by, made })
       }
     }
@@ -1257,6 +1272,7 @@ async function videoNow(id, input = {}) {
         sc.speedName = name
       } catch { sc.speed = 1 }
     }
+    // engine: sound
     // the voice only when the film wants narration, or the person picked a voice
     const preset = motionPreset(c.theme)
     let voices = []
@@ -1304,6 +1320,7 @@ async function videoNow(id, input = {}) {
         else fx = fx.map(x => ({ ...x, at: retime(x.at, planned, lengths) }))
       } catch (err) { musicCut = { kept: `the track could not be measured: ${String(err.message || err).split('\n')[0].slice(0, 100)}` } }
     }
+    // end engine: sound
     const comp = composition(scenes, c, lengths, transition)
     // the tall cut for phones: the same storyboard, look and timing, laid out again for a 9:16 frame
     const tallComp = composition(scenes, c, lengths, transition, comp.look, { shape: 'tall' })
@@ -1353,6 +1370,7 @@ async function videoNow(id, input = {}) {
         squared = true
       } catch (err) { send('video:note', { message: `no square cut this time: ${String(err.message || err).split('\n')[0].slice(0, 160)}` }) }
     }
+    // engine: sound
     let sound = false
     try {
       progress(98, 'mixing the sound')
@@ -1361,6 +1379,7 @@ async function videoNow(id, input = {}) {
       send('video:note', { message: `sound failed, the video is silent: ${String(err.message || err).split('\n')[0].slice(0, 160)}` })
     }
     if (!sound) copyFileSync(silent, out)
+    // end engine: sound
     // the phone cut takes the wide cut's finished sound as it is (same scenes, same timing)
     if (tall) {
       try {
@@ -1403,19 +1422,27 @@ async function videoNow(id, input = {}) {
   })
   return job
 }
+// end engine: video
 
+// engine: dyad
 // ---------- the App tab's jobs, loaded the first time someone uses it
 let appsP = null
 const apps = () => (appsP ||= import('../engine/appjob.mjs').then(m => (appsNow = m.appJobs({ runsDir, record, broadcast, readEvents, provider, modelFor, paint: paintGame, fill: fillApp, nameFor, idleMs: () => idleStops().app * 60000 }))))
+// end engine: dyad
 // Autoplay in the Game room (server/autoplay.mjs): an AI player plays the game that is already running, never
 // starts one. Jev decides only when the person set JEV_KEY, an OpenRouter key kept for this (plugin.yaml; the
 // first name engine/autoplay.mjs reads); without it the moves are scripted and nothing leaves the machine.
 const autoplayRoute = autoplayRoutes({ urlOf: id => apps().then(a => a.seen(id).url), broadcast, key: () => hermesKey('JEV_KEY') })
 
 // ---------- ⚡ Auto mode: one prompt → design, review, video, app, games, credit shop, data, deploy
+// engine: hermes
 // sign-in connectors through Hermes (Supabase): no keys to paste
 const connectors = hermesConnectors({ bridge: hermes, broadcast })
+// end engine: hermes
 
+// engine: video
+// engine: sound
+// engine: hermes
 // The Film studio's outside services (engine/media.mjs): what Hermes already has, else a
 // pasted key, else the built-in path. The canvas learns where each comes from, never a key.
 async function mediaNow() {
@@ -1425,6 +1452,9 @@ async function mediaNow() {
   ])
   return mediaSources({ env: pick(['SWARM_ELEVENLABS_KEY']), keys: mediaKeyStore, mcp, images, videos, imagePick: picks.image })
 }
+// end engine: video
+// end engine: sound
+// end engine: hermes
 // The launch kit's pitch (engine/launch.mjs): one line on what the product is and who it is for,
 // written by the planner from the pages the crew planned. Never the person's words to the crew.
 async function writePitch(events, id) {
@@ -1474,6 +1504,7 @@ function appStats(id) {
   return { files, lines }
 }
 
+// engine: hermes
 // Messaging targets Hermes's gateway can send to (Discord, Slack, Telegram), from
 // `hermes send --list`. Read-only; cached a minute.
 const HERMES_BIN = [join(homedir(), '.local', 'bin', 'hermes'), 'hermes'].find(p => p === 'hermes' || existsSync(p))
@@ -1488,7 +1519,9 @@ function gatewayTargets() {
     ok(gateway.platforms)
   }))
 }
+// end engine: hermes
 
+// engine: sound
 // Occasional real words from the crew: a short fixed list, read by the studio's TTS (the
 // Pro's TTS job through SWARM_TTS_URL, or Kokoro when the video tools already have it),
 // pitched up in the browser, cached by text. Nothing is made for any other text.
@@ -1507,6 +1540,7 @@ async function chatterMake(text, voice) {
     if (r?.file) { mkdirSync(chatterDir, { recursive: true }); copyFileSync(r.file, file) }
   } catch {} finally { chatterBusy.delete(file); try { rmSync(dir, { recursive: true, force: true }) } catch {} }
 }
+// end engine: sound
 
 // ---------- the person talks to the crew while it builds
 // Talk (engine/talk.mjs) answers: a crew member whose only job is to talk, so the builder never
@@ -1694,8 +1728,11 @@ async function studioFacts(runId = null, { light = false } = {}) {
 // ---------- game mode: answers → a spec → a new build whose app is the game
 let gameP = null
 const gameMod = () => (gameP ||= import('../engine/game.mjs'))
+// engine: meshy
 let castP = null
 const castMod = () => (castP ||= import('../engine/cast.mjs'))
+// end engine: meshy
+// engine: hermes
 // The Plan board's pictures (spec 21): sketches and mocks at medium, backdrops and close-up art at
 // high, through the same image login as the builds. Image runs only; no Meshy credits.
 async function planPaint({ prompt, quality = 'medium', aspect = 'landscape', crop = '', refs = [] }) {
@@ -1710,13 +1747,20 @@ async function planPaint({ prompt, quality = 'medium', aspect = 'landscape', cro
   return r?.ok ? r : (await fallback()) || r
 }
 planPaint.ready = async () => !!ckffCreds() || !!(await imageChoice())
+// end engine: hermes
+// engine: meshy
 // The build (spec 21) spends Meshy credits only on a locked plan, inside the price it was locked at.
+// end engine: meshy
+// engine: godot
 // whether Godot 4 is on this machine (engine/port.mjs loads the game modules, so it is read once, late)
 let godotHere
 let godotBinOf = null
 import('../engine/port.mjs').then(m => { godotBinOf = m.godotBin; godotHere = !!m.godotBin() }).catch(() => {})
 // "Install Godot 4" in the planner chat looks again (the person may have just installed it); Swarm never downloads it
 const godotCheck = () => { if (godotBinOf) godotHere = !!godotBinOf(); return !!godotHere }
+// end engine: godot
+// engine: godot
+// engine: meshy
 const plans = planRoutes({
   dataDir, builtInTemplates: [join(root, 'games', 'ares', 'plan.json')], paint: planPaint, make: { character: planMakeCharacter, key: () => planMeshyKey() },
   // the planner reads the idea's genre family; Godot asked for is said in the plan, and so is a missing Godot
@@ -1725,6 +1769,7 @@ const plans = planRoutes({
   // a game's art references join its project when its talk does: a look to match to References, one used as is to Assets
   toProject: (pid, { name, buf, asIs }) => (asIs ? projectAssets.addFile(pid, { name }, buf) : refs.addFile(pid, { name, source: 'plan' }, buf))
 })
+// end engine: meshy
 // The planner conversation (docs/specs/27-plan-conversation.md): decide together in the left chat, then lock.
 // A locked game chat makes its plan through the Plan board's routes above.
 const talks = talkRoutes({
@@ -1734,6 +1779,7 @@ const talks = talkRoutes({
     extra: { reasoning_effort: 'none', reasoning: { enabled: false } }, messages
   })).text : null
 })
+// end engine: godot
 // Chats (docs/specs/29-chats-references-marks.md): conversations live apart from builds and move into
 // their project when they build. On start: empty old chats go, and game plans made before chats existed
 // each get a chat that points at them (the plan files stay where they are).
@@ -1810,6 +1856,7 @@ function matchLook(pid, ref, run) {
   })()
   return now
 }
+// engine: hermes
 // Research before planning (engine/research.mjs; decision 0025 part a): when the person's own words ask to look
 // something up (a build stops with what it found, /api/run), or they press Research. Hermes searches and reads
 // (bridge.py /web); the planner's model picks the searches and what to take from each page. Each finding is kept in
@@ -1831,6 +1878,7 @@ async function lookUp({ ask, kind = 'site', pid = null, signal = null }) {
   broadcast({ type: 'research', state: 'done', ask, project: pid, findings: got.findings, searched: got.searched, read: got.read, note: got.note, kept: kept.map(r => r.id) })
   return got
 }
+// end engine: hermes
 // What you have (decision 0015): a file or a site brought to the Studio's first step is read in the background,
 // one read per reference at a time, and what it says fills in the walk: the idea while the Studio has none, and
 // the brand's story where it is still empty. The planner's model reads it; with none, its first words do.
@@ -1890,7 +1938,9 @@ const filmRoute = filmRoutes({
     projects.claim(id, pid)
     return id
   },
+  // engine: video
   startFilm: (id, input) => makeVideo(id, input)
+  // end engine: video
 })
 // Media in a chat (spec 29, server/chatmedia.mjs): a picture is read by the reviewer's vision model, with
 // reasoning off and the vision fallbacks after it, the same way Scribble's marks are read
@@ -1928,7 +1978,9 @@ async function askMedia(who, messages, { maxTokens = 600, kind = 'media-read' } 
   const res = await streamChat(provider(mediaRole()), { trace: { kind }, model, messages, maxTokens, temperature: 0.2, extra: { reasoning_effort: 'none', reasoning: { enabled: false } }, signal: AbortSignal.timeout(150000) })
   return res.text
 }
+// engine: video
 // watch and listen to a finished film; the review is kept beside it as review.json
+// engine: sound
 async function criticize({ ffmpeg, file, dir, music = true }) {
   const board = JSON.parse(readFileSync(join(dir, 'storyboard.json'), 'utf8'))
   const tmp = mkdtempSync(join(tmpdir(), 'swarm-critic-'))
@@ -1940,6 +1992,8 @@ async function criticize({ ffmpeg, file, dir, music = true }) {
     return kept
   } finally { rmSync(tmp, { recursive: true, force: true }) }
 }
+// end engine: sound
+// end engine: video
 // read one clip or sound from a chat: what it shows and sounds like, and what happened
 async function readClip(file, kind) {
   const tmp = mkdtempSync(join(tmpdir(), 'swarm-read-'))
@@ -1956,7 +2010,7 @@ async function readClip(file, kind) {
 // Bring a game or app in (docs/specs/45-intake.md): POST /api/intake
 const bringInRoute = bringInRoutes({ runsDir, projects, apps: () => apps(), record, readEvents, broadcast, join: joinHistory })
 // A project's source on GitHub (the same spec): GET and POST /api/projects/<id>/github
-const sourceRoute = sourceRoutes({ runsDir, dataDir, projects, readEvents, record, broadcast, bringIn: bringInRoute.bringIn, working: async id => (await apps()).state(id)?.state === 'working' })
+const sourceRoute = sourceRoutes({ runsDir, dataDir, projects, readEvents, record, broadcast, bringIn: bringInRoute.bringIn, working: async id => (await apps()).state(id)?.state === 'working', connectors })
 const chatMediaRoute = chatMediaRoutes({ chats, projectOf: run => RUN_ID.test(String(run || '')) ? projects.projectOf(run) : null, see: seePicture, read: readClip,
   toProject: (pid, { name, buf, chat }) => projects.get(pid) ? refs.addFile(pid, { name, source: 'chat', from: chat }, buf) : null })
 const brands = brandRoutes({
@@ -2007,6 +2061,7 @@ const storyRoute = storyRoutes({
   },
   notify: (id, type, data) => broadcast({ type, run: id, t: Date.now(), ...data })
 })
+// engine: open-design
 // the Deck kit (docs/specs/35-open-design.md section 7): its slides written by the planner, through Hermes
 const decks = deckRoutes({
   dataDir, runsDir, chats,
@@ -2015,6 +2070,7 @@ const decks = deckRoutes({
     extra: { reasoning_effort: 'none', reasoning: { enabled: false } }, messages
   })).text : null
 })
+// end engine: open-design
 try {
   chats.cleanup()
   const pd = join(dataDir, 'plans')
@@ -2093,9 +2149,12 @@ const workshops = workshopRoutes({
   paint: planPaint,
   planner: () => ({ provider: provider('planner'), model: modelFor('planner') }),
   voices: (() => { try { return JSON.parse(readFileSync(join(root, 'games', 'ares', 'data', 'heroes.json'), 'utf8')).voices || {} } catch { return {} } })(),
+  // engine: sound
   speak: (voice, text, out) => import('../engine/voice.mjs').then(v => v.speakLine(voice, text, out)),
+  // end engine: sound
   build: (spec, copy) => startGame(spec, copy)
 })
+// engine: meshy
 let meshyP = null
 const meshyMod = () => (meshyP ||= import('../engine/meshy.mjs'))
 
@@ -2142,6 +2201,7 @@ function meshyAddArt(input = {}) {
 // one list of jobs for the studio: one character or several at once, each worked by a crew member
 let meshyJobsP = null
 const meshyJobs = () => (meshyJobsP ||= meshyMod().then(m => m.meshyJobs({ outDir: join(dataDir, 'models'), resolveArt: meshyImage })))
+// end engine: meshy
 // stand-ins load lazily; the vision tagger is the reviewer model; Octo's public lane when the studio has a key
 let standinP = null
 const standinsOf = () => (standinP ||= (() => {
@@ -2620,9 +2680,13 @@ async function paintGame(runId, spec, items, appDir, step, signal = null, { have
     live(slot, it, 'painting', { src: img(startName) })
     say('making', { text: IDLE_SAY.making(o.by), start: img(startName), line: o.line })
     const tag = randomBytes(4).toString('hex'), clipName = `idle-${tag}.mp4`, clip = join(imgDir, clipName)
+    // engine: hermes
     const v = await videogen(['--provider', o.provider, ...(o.model ? ['--model', o.model] : []), '--image', start, '--seconds', String(o.seconds), '--aspect', aspect, '--out', clip, idlePrompt({ who: it.who, look: it.look, key, tune: o.tune })], 900000)
+    // end engine: hermes
     if (!v.ok || !existsSync(clip)) return fail(`the video model made no clip (${String(v.error || 'no answer').slice(0, 100)})`)
+    // engine: video
     await makePoster(clip, { ffmpeg: posterFfmpeg(dataDir, findFfmpeg) })
+    // end engine: video
     say('clip', { text: IDLE_SAY.clip(), clip: `/img/${runId}/${clipName}`, model: v.model || null })
     live(slot, it, 'cutting', { src: img(startName) })
     const heavy = heavyConfig(dataDir)
@@ -2720,7 +2784,9 @@ async function startGame(spec, extraCopy = {}, { idle } = {}) {
   // cast made from the project's art (spec 20): Meshy models from the library, sprites from the site's pictures
   const cm = await castMod()
   for (const c of cm.cleanCast(spec.cast)) {
+    // engine: meshy
     if (c.source === 'meshy') for (const f of [c.file, ...Object.values(c.clips || {})]) { if (isGltf(join(lib, f))) copy[`public/models/${f}`] = join(lib, f) }
+    // end engine: meshy
     if (c.source === 'art') { const [, run, f] = c.art.match(/^\/img\/([^/]+)\/(.+)$/); if (existsSync(join(runsDir, run, 'img', f))) copy[`public/models/${cm.spriteFile(c)}`] = join(runsDir, run, 'img', f) }
   }
   Object.assign(copy, extraCopy)
@@ -2877,7 +2943,9 @@ async function commentNow(id, input) {
     if (gen) return void repaint(id, send, s, agent, text, gen, picChoice)
     send('comment:take', { text, page: k.split('/')[0], layer: k.split('/').pop(), role: s.role, agent, reply: i === 0 ? reply : '' })
     // a section the person changed by hand (web/edit/patches.js): its builder keeps those changes
+    // engine: open-design
     rework(id, send, s, agent, theme, { comment: keepHand(text, handChanges(events, k.split('/')[0], k.split('/').pop())) })
+    // end engine: open-design
   })
   return { sections: keys, reply }
 }
@@ -2939,7 +3007,9 @@ async function markRequest(id, { events, start, theme, sections, text, input, se
     const s = known.get(k), list = bySection.get(k)
     const agent = agents[(commentTurn++ * 3 + 2) % Math.max(1, agents.length)]?.id
     send('comment:take', { text: text || `${list.length} mark${list.length > 1 ? 's' : ''}`, page: k.split('/')[0], layer: k.split('/').pop(), role: s.role, agent, reply: i === 0 ? reply.slice(0, 90) : '', marks: list.map(m => m.id) })
+    // engine: open-design
     rework(id, send, s, agent, theme, { comment: keepHand(fixText({ text, marks: list, reads, role: s.role }), handChanges(events, k.split('/')[0], k.split('/').pop())) }, { draft: { marks: list.map(m => m.id) } })
+    // end engine: open-design
   })
   if (!keys.length && !asked.size) send('comment:none', { text })
   return { sections: keys, reply, reads, ids }
@@ -3009,7 +3079,9 @@ async function seoRequest(id, { events, start, theme, given, text, send }) {
     if (!s) return
     const who = agents[(commentTurn++ * 3 + 2) % Math.max(1, agents.length)]?.id
     send('comment:take', { text, page: c.key.split('/')[0], layer: c.key.split('/').pop(), role: s.role, agent: who, reply: i === 0 ? c.ask.slice(0, 90) : '' })
+    // engine: open-design
     rework(id, send, s, who, theme, { comment: keepHand(c.ask, handChanges(events, c.key.split('/')[0], c.key.split('/').pop())) })
+    // end engine: open-design
   })
   return { sections: r.copy.map(c => c.key), reply: r.reply, seo: r.changes }
 }
@@ -3269,11 +3341,13 @@ ${researchBrief(seen)}`
         const looked = await lookUp({ ask: lookFor, kind: 'site', pid }).catch(() => null)
         if (looked?.findings.length) return void res.writeHead(409, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'research', ask: lookFor, project: pid, findings: looked.findings, searched: looked.searched, read: looked.read, note: looked.note, ...(pid ? { refs: refs.shown(pid).filter(r => r.source === 'research') } : {}) }))
       }
+      // engine: open-design
       // the look, in Open Design's order (decision 0016 point 3): a design system the request names, then the
       // project's (a locked brand sheet, or a Studio project's own brand, spec 37), then the default (the planner's).
       // A follow-up keeps the project's
       const brand = !base ? requestedBrand(input.system, String(input.brief)) || lockedBrand(chats, chatId) || (pid ? lockedBrand(studios.brands, pid) : null) : null
       if (brand) input.brand = brand
+      // end engine: open-design
       const run = startRun(input)
       // one answer is one build: the chat's "Skip all" is used up by this run
       if (goChat?.go && !next) await chats.update(chatId, c => { if (c.go) c.go.run = run.id }).catch(() => {})
@@ -3464,8 +3538,10 @@ ${researchBrief(seen)}`
     return json(200, { results: results.map(r => ({ ...r, src: `/api/library/file?id=${encodeURIComponent(r.id)}` })) })
   }
   if (url.pathname === '/api/library/packs' && req.method === 'GET') return json(200, { packs: assets.packs() })
+  // engine: open-design
   // Open Design's design templates, for the person to pick one for a build (engine/odlibrary.mjs, decision 0016)
   if (url.pathname === '/api/library/templates' && req.method === 'GET') return json(200, { templates: odTemplates() })
+  // end engine: open-design
   if (url.pathname === '/api/library/file' && req.method === 'GET') {
     assets.file(url.searchParams.get('id')).then(got => {
       if (!got) return json(404, { error: 'no such picture' })
@@ -3812,6 +3888,7 @@ ${researchBrief(seen)}`
     return
   }
 
+  // engine: video
   const runVideo = url.pathname.match(/^\/api\/runs\/([^/]+)\/video$/)
   // a style reference for the film (an image, a video or a piece of music), kept in the run's video/refs
   const runRef = url.pathname.match(/^\/api\/runs\/([^/]+)\/video\/ref$/)
@@ -3844,6 +3921,7 @@ ${researchBrief(seen)}`
     })
     return
   }
+  // end engine: video
 
   // a new picture for one <img data-gen> in a finished section
   const runImage = url.pathname.match(/^\/api\/runs\/([^/]+)\/image$/)
@@ -3956,6 +4034,7 @@ ${researchBrief(seen)}`
     })
     return
   }
+  // engine: hermes
   // One picture through Hermes's image tool, for tools outside the server (engine/skins.mjs's command line):
   // { prompt, aspect, refs, edit } -> { ok, path } | { ok:false, error }
   if (url.pathname === '/api/hermes/image' && req.method === 'POST') {
@@ -3970,6 +4049,8 @@ ${researchBrief(seen)}`
     })
     return
   }
+  // end engine: hermes
+  // engine: hermes
   // whether Hermes is there to answer, and if not why not; ?ready=1 gives a Hermes that is starting up a
   // few seconds to attach (the Make box asks this before it does anything)
   if (url.pathname === '/api/hermes' && req.method === 'GET') {
@@ -3979,6 +4060,8 @@ ${researchBrief(seen)}`
     })
     return
   }
+  // engine: video
+  // engine: sound
   if (url.pathname === '/api/media' && req.method === 'GET') {
     mediaNow().then(m => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(m)), err => res.writeHead(500, { 'content-type': 'application/json' }).end(JSON.stringify({ error: String(err.message || err) })))
     return
@@ -3996,6 +4079,8 @@ ${researchBrief(seen)}`
     })
     return
   }
+  // end engine: video
+  // end engine: sound
   // Hermes sign-in connectors: GET their state, POST {name} to connect (or to cancel a sign-in)
   if (url.pathname === '/api/connectors' || url.pathname === '/api/connectors/connect' || url.pathname === '/api/connectors/cancel') {
     const reply = (code, data) => res.writeHead(code, { 'content-type': 'application/json' }).end(JSON.stringify(data))
@@ -4011,6 +4096,7 @@ ${researchBrief(seen)}`
     })
     return
   }
+  // end engine: hermes
   // Pro packs (docs/specs/09-demo-modes.md): what the Auto window's Pro side lists
   if (url.pathname === '/api/packs' && req.method === 'GET') {
     import('../engine/packs.mjs').then(m => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ packs: m.listPacks().map(m.packSummary) })))
@@ -4121,6 +4207,7 @@ ${researchBrief(seen)}`
     return
   }
 
+  // engine: meshy
   // Make with Meshy (spec 20). GET ?from=<site run> -> { ready, cost, art }: whether a key is set (never
   // the key), the price of one character, and the project's pictures to make it from.
   // POST { role, label, art, credits } spends credits, so it starts only when `credits` is the price the
@@ -4175,6 +4262,7 @@ ${researchBrief(seen)}`
     res.end(readFileSync(file))
     return
   }
+  // end engine: meshy
 
   if (url.pathname === '/api/game' || url.pathname === '/api/game/spec') {
     const reply = (code, data) => res.writeHead(code, { 'content-type': 'application/json' }).end(JSON.stringify(data))
@@ -4230,6 +4318,7 @@ ${researchBrief(seen)}`
       try {
         if (!sub) return reply(200, await launchKit(id))
         if (sub === 'mark') return reply(200, markLaunch(dir, input))
+        // engine: hermes
         // send: one post, one platform, confirmed by the person in the canvas's confirm box
         const kit = readLaunch(dir)
         const post = kit?.posts.find(p => p.id === input.post)
@@ -4247,16 +4336,20 @@ ${researchBrief(seen)}`
           if (err) return reply(502, { error: String(errOut || err.message).split('\n').filter(Boolean).at(-1)?.slice(0, 300) || 'the send failed' })
           reply(200, markLaunch(dir, { post: post.id, action: 'sent', target }))
         })
+        // end engine: hermes
       } catch (err) { reply(err.code === 409 ? 409 : 400, { error: String(err.message || err) }) }
     })
     return
   }
 
+  // engine: hermes
   if (url.pathname === '/api/gateway' && req.method === 'GET') {
     gatewayTargets().then(p => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ platforms: p })))
     return
   }
+  // end engine: hermes
 
+  // engine: sound
   // A crew line's audio: cached, or made in the background (the canvas babbles meanwhile).
   if (url.pathname === '/api/chatter/say' && req.method === 'GET') {
     const text = CHATTER_LINES.find(l => l === url.searchParams.get('text'))
@@ -4267,7 +4360,9 @@ ${researchBrief(seen)}`
     chatterMake(text, voice)
     return res.writeHead(202, { 'content-type': 'application/json' }).end(JSON.stringify({ making: true }))
   }
+  // end engine: sound
 
+  // engine: dyad
   // The app advisor: POST { sections } for its questions (each with a recommended
   // answer), then { sections, qa: [{ q, a }] } for the app plan the engine builds from.
   const runAdvise = url.pathname.match(/^\/api\/runs\/([^/]+)\/advise$/)
@@ -4337,7 +4432,9 @@ ${researchBrief(seen)}`
     })
     return
   }
+  // end engine: dyad
 
+  // engine: godot
   // An engine port (Godot, Unity, Unreal) the game job wrote to app/ports/<target>/, zipped on request
   const portZip = url.pathname.match(/^\/api\/runs\/([^/]+)\/port\/(godot|unity|unreal)\.zip$/)
   if (portZip && RUN_ID.test(portZip[1])) {
@@ -4351,6 +4448,7 @@ ${researchBrief(seen)}`
     })
     return
   }
+  // end engine: godot
 
   // Export: static HTML, a React + Vite + Tailwind project and an ABA handoff,
   // written to runs/<id>/export/ and zipped.
@@ -4718,6 +4816,7 @@ for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, shutdown)
 // Nothing to do for Settings › Background's time (20 min): no pane open (an /events stream), no request, no
 // build, Auto run, film, publish or app build. The server exits; the launcher's ensure_server() starts it again
 // on next use (decision 0017, issue #450).
+// engine: hermes
 // Work that stopping the server would lose: a site build, an Auto run, a film, a publish, or an app or game being
 // built. One answer for everyone who asks: the idle stop, the server replacing itself, and /api/state's `busy`,
 // which the launcher reads before it retires a stale server. (`busy` used to leave out films, publishes and
@@ -4746,6 +4845,7 @@ function replaceSelf() {
   setTimeout(() => server.closeAllConnections?.(), 300).unref()
   return true
 }
+// end engine: hermes
 const POLLS = /^\/api\/(state|hermes(\/attach)?)$/
 // checked every 30 s, or a quarter of the time when it is shorter (a test sets SWARM_SERVER_IDLE_MIN to seconds)
 const idle = idleWatch({ ms: () => idleStops().server * 60000, busy: serverBusy, every: Math.max(200, Math.min(30000, (idleStops().server * 60000) / 4 || 30000)), onIdle: () => {

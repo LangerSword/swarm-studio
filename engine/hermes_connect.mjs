@@ -17,7 +17,10 @@ import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-export const CONNECTORS = { supabase: { label: 'Supabase' } }
+// GitHub is not in Hermes's catalog (`hermes mcp catalog`, Hermes v0.23.1): GitHub's own MCP server is added by hand,
+// and Hermes asks for the token itself, hidden, and keeps it in its .env (hermes_cli/mcp_config.py, `--auth header`).
+// The studio never runs that command: it shows it. Without the connector, `gh` does the same (engine/sourcehub.mjs).
+export const CONNECTORS = { supabase: { label: 'Supabase' }, github: { label: 'GitHub', add: 'hermes mcp add github --url https://api.githubcopilot.com/mcp/ --auth header' } }
 const PLUGIN = 'swarm-studio'
 const NAME = /^[A-Za-z0-9_.-]{1,64}$/
 
@@ -69,7 +72,9 @@ export function hermesConnectors({ bridge, bin = process.env.SWARM_HERMES_BIN, h
       installed: c.servers.includes(name),
       allowed,
       ...(allowed ? {} : { allow: allowCommand(name, c.granted) }),
-      signed_in: existsSync(join(home, 'mcp-tokens', `${name}.json`)),
+      // a connector added with a token (header auth) is signed in once it is there; an OAuth one has its token file
+      signed_in: CONNECTORS[name]?.add ? c.servers.includes(name) : existsSync(join(home, 'mcp-tokens', `${name}.json`)),
+      ...(CONNECTORS[name]?.add && !c.servers.includes(name) ? { add: CONNECTORS[name].add } : {}),
       signingIn: logins.has(name),
       authUrl: logins.get(name)?.authUrl || null
     }
@@ -86,6 +91,8 @@ export function hermesConnectors({ bridge, bin = process.env.SWARM_HERMES_BIN, h
   async function connect(name, { confirm = false } = {}) {
     if (!CONNECTORS[name]) throw new Error(`no connector called ${name}`)
     let s = await status(name)
+    // one that is not in Hermes's catalog is added by the person, with the command shown
+    if (CONNECTORS[name].add) return s
     if (!s.installed) {
       if (!confirm) return { ...s, confirm: `Add Hermes's ${s.label} connector? This runs: hermes mcp install ${name}` }
       const r = await cli(['mcp', 'install', name])

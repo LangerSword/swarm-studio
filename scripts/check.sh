@@ -27,7 +27,16 @@ echo "· type-check ratchet"
 cap=4749
 untyped=$(for f in $(git ls-files 'web/*.js' | grep -v '^web/vendor/'); do head -1 "$f" | grep -q '^// @ts-check' || echo "$f"; done)
 n=$(for f in $untyped; do cat "$f"; done | grep -cvE '^[[:space:]]*(//|$|import )' || true)
-if [ "$n" -gt "$cap" ]; then echo "$n untyped lines of web code, over the cap of $cap; start new files with // @ts-check. Untyped files:"; echo "$untyped"; exit 1; fi
+if [ "$n" -gt "$cap" ]; then
+  # two pull requests each under the cap can be over it together (merge skew): say what main has and what this adds,
+  # when main is here to count (a shallow CI checkout may not have it)
+  base=""
+  if git rev-parse -q --verify origin/main >/dev/null; then
+    m=$(for f in $(git ls-tree -r --name-only origin/main -- web | grep '[.]js$' | grep -v '^web/vendor/'); do git show "origin/main:$f" | head -1 | grep -q '^// @ts-check' || git show "origin/main:$f"; done | grep -cvE '^[[:space:]]*(//|$|import )' || true)
+    base=" (main is at $m of $cap; this adds $((n - m)))"
+  fi
+  echo "$n untyped lines of web code, over the cap of $cap$base; start new files with // @ts-check, or type one. Untyped files:"; echo "$untyped"; exit 1
+fi
 if [ "$n" -lt "$cap" ]; then echo "  $n untyped lines, under the cap of $cap: lower cap= in scripts/check.sh to $n"; fi
 
 echo "· engine modules load"

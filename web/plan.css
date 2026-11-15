@@ -76,7 +76,12 @@ body.cosmos-plan .crew-layer, body.cosmos-plan .cbox { display: none; }
 @keyframes pl-sheen { from { background-position: 130% 0; } to { background-position: -130% 0; } }
 @media (prefers-reduced-motion: reduce) { .pl-work { animation: none; } }
 /* a picked cell on a sheet: a ring, the noted one solid */
-.pl-wait { position: absolute; inset: 0; display: grid; place-items: center; font: 500 12px var(--body); color: var(--muted); pointer-events: none; }
+.pl-wait { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 0 10px; text-align: center; font: 500 12px var(--body); color: var(--muted); pointer-events: none; }
+.pl-wait > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* the one action an empty picture or the next step offers (web/plan.js tileStop) */
+.pl-act { pointer-events: auto; cursor: pointer; border: 0; font: 600 12px var(--body); padding: 4px 12px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); white-space: nowrap; }
+.pl-act:hover { filter: brightness(.92); }
+.pl-next { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; max-width: 660px; font: 500 14px/1.4 var(--body); color: var(--text); }
 .pl-ring { position: absolute; box-sizing: border-box; border: 2px solid var(--accent); border-radius: 3px; pointer-events: none; }
 .pl-ring.on { box-shadow: 0 0 0 2px var(--void), 0 0 0 4px var(--accent); }
 .pl-picks { display: flex; flex-wrap: wrap; gap: 6px; }
