@@ -90,3 +90,9 @@ Five people, twenty minutes each, thinking aloud, on the redesigned flows. What 
 ## Changes
 
 - 2026-11-15: written.
+- 2026-11-15 (later), owner: "I like our look a lot. It's just the dead ends that are causing the issues and our
+  app not doing what it's supposed to." The look and the screens stay. This is a repair of behaviour, not a
+  visual redesign. What gets fixed, in the owner's words: the dead ends; the chat as a second way to control
+  everything a button does; dependencies the app does not install; the defects caught in the capture; the state
+  engine. Step 5 ("Draw, area by area") shrinks to the few places a fix needs a new or changed screen (a
+  missing failure state, the chat on the Overview). Nothing is removed or restyled to match another product.
