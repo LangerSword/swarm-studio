@@ -36,7 +36,7 @@ window.swarm = {
   // talk.start({ text, kind, build, blank, said }) opens the talk in this chat; talk.end() leaves it
   // the planner's one line in the left chat (the Studio's "start with…", docs/specs/37-studio-first.md)
   say: text => botMsg(String(text || '')),
-  readTalk, hermesReady, hermesSays, talk: { start: talkStart, ask: talkAsk, end: talkEnd, saidOf, lock: () => (talk.on && talk.kind === 'game' ? gameLock() : null), get on() { return talk.on }, get chat() { return talk.on ? talk.chat : null } },
+  readTalk, hermesReady, hermesSays, talk: { start: talkStart, ask: talkAsk, end: talkEnd, saidOf, lock: () => (talk.on && talk.kind === 'game' ? gameLock() : null), get on() { return talk.on }, get chat() { return talk.on ? talk.chat : null }, get kind() { return talk.kind }, get plan() { return talk.plan } },
   // a replay started from ☰ → Replay ends when the deck is left
   stopReplay,
   // the project's canvas is being zoomed or panned: page swaps and screenshots here wait for it too
