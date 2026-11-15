@@ -240,6 +240,8 @@ export function makePet({ sw, C, doc = document }) {
       range.selectNodeContents(n)
       for (const r of range.getClientRects()) if (r.width && r.height) out.push(r)
     }
+    // and never on a picture slot (owner, 2026-11-14: on an empty slot she looked as if she painted it)
+    for (const n of doc.querySelectorAll('.ab.ppic')) { const r = n.getBoundingClientRect(); if (r.width && r.height) out.push(r) }
     words = { at: Date.now(), rects: out }
     return out
   }
