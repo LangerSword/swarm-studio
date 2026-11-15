@@ -94,6 +94,12 @@ Most of the 127 come from six causes. Fixing a root closes its holes in every ta
 4. **Errors are passed through as text.** The provider's string travels from the model call to the screen
    (C1, C8, C11, B16, PL19, PI4, PI5, PI15, PU6). Only a stopped build has a reason with a code, plain words
    and one action (`engine/stopreason.mjs:43`).
+   **Repaired 2026-11-15 for the chat:** one table, `web/stopreason.js` (`engine/stopreason.mjs` hands it on, the
+   page joins it in), turns every raw failure into `{code, message, action}` with a closed set of codes; a talk
+   turn, Ask, Fix, a planner's retry and a failed change read it, and the raw text is the Log's only
+   (`tests/stopreason.test.mjs`, `tests/failroutes.test.mjs`, the walkthrough's `noRaw`). Closed: C1, C11 (Ask),
+   B10, B11, B16. Left: PL19, PI4, PI5, PI15, PU6, C8's status words, the App room's own error line, the React
+   Studio's copy of C1 (C23).
 5. **Sentences written before the fact.** The chat says what is about to happen as if it had (C5, B25, PI14,
    PU8), or keeps an old line on screen (B14, PL22).
 6. **"Designed, not built" is missing as a state** for apps, and "the plan is being painted" is missing

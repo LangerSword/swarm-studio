@@ -5,7 +5,9 @@
 //   POST /api/talk { kind, said }        -> { chat, turn }  a new chat and the planner's first turn
 //   GET  /api/talk/:id                   -> { chat, draft?, starts? }  draft: a game chat's plan as it stands;
 //                                           starts: a locked one's parts to work on next (startsOf)
-//   POST /api/talk/:id { said?, pick? }  -> { chat, turn, draft?, plan? }  pick is a chip's id ("art:2d", "talk",
+//   POST /api/talk/:id { said?, pick?, again? } -> { chat, turn, draft?, plan?, failed? }  failed: why the planner's model
+//                                           did not answer this turn ({code, message, action}); again: the same words
+//                                           after such a turn, which is taken back first. pick is a chip's id ("art:2d", "talk",
 //                                           "lock", "do:paint"); plan: the plan an action changed (the board shows it)
 //   POST /api/talk/:id/lock              -> the same as the pick "lock"
 //   POST /api/talk/:id/unlock { key? }   -> { chat }
@@ -23,6 +25,7 @@ import { say, lock, unlock, planInput, draftOf, startsOf, wordsDecide, openQuest
 import { nextStep, planFacts, goWords, readPicks, pieces, lockLabel, godotOptions, installLine } from '../engine/gamestep.mjs'
 import { planView } from '../engine/plan.mjs'
 import { starterSpec } from '../engine/starters.mjs'
+import { reasonFromTalk, reasonLine, isRaw } from '../engine/stopreason.mjs'
 
 // model() -> (messages -> text) or null; env() -> { godot }; plans.fromTalk(input, planId) -> plan view;
 // plans.act(id, sub, input) -> plan view (a Plan board action); godotCheck() looks for Godot 4 again -> boolean
@@ -34,7 +37,8 @@ const INSTALL = /^\s*((ok(ay)?|yes|yeah|sure|please)[,!.\s]+)*(install|download|
 // "check again", "I installed it", "it is installed now": the person says Godot is there, so the Studio looks
 const LOOKED = /\b(check(ed)?( it)? again|look again|(i|i've|i have|already|just) (just |already )?installed|(it'?s|it is|is) (already |now )?installed)\b/i
 
-export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plans = null, godotCheck = null, godotInstall = null, helpers = () => null }) {
+// viaHermes() -> the planner's model is reached through Hermes (a broken connection is then Hermes away)
+export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plans = null, godotCheck = null, godotInstall = null, helpers = () => null, viaHermes = () => false }) {
   // a game talk that joins a project takes its plan's art references there (engine/planrefs.mjs)
   const chats = chatStore({ dataDir, onMove: (chat, pid) => { if (chat?.plan) plans?.carry?.(chat.plan, pid) } })
   const json = (res, code, data) => res.writeHead(code, { 'content-type': 'application/json' }).end(JSON.stringify(data))
@@ -43,7 +47,16 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
     req.on('data', c => { b += c; if (b.length > cap) req.destroy() })
     req.on('end', () => { try { resolve(JSON.parse(b || '{}')) } catch { resolve({}) } })
   })
-  const fail = (res, err) => json(res, err.status || 400, { error: String(err.message || err) })
+  // A failure never goes back as it was thrown (engine/stopreason.mjs): `reason` is {code, message, action} in plain
+  // words. A refusal this file words itself (it carries a status) keeps its words; anything else is read as a failed
+  // call, and its own text stays in the server's log.
+  const whyOf = err => {
+    const text = String(err?.message || err)
+    if (err?.status && !isRaw(text)) return { code: 'studio', message: `${text.charAt(0).toUpperCase()}${text.slice(1).replace(/\.$/, '')}.`, action: '' }
+    console.warn('talk:', text.slice(0, 400))
+    return reasonFromTalk(err, { viaHermes: viaHermes() })
+  }
+  const fail = (res, err) => { const reason = whyOf(err); json(res, err.status || 400, { error: reasonLine(reason), reason }) }
   // a game chat carries its plan as it stands, so the board beside the chat takes shape while they talk
   const withDraft = out => out.chat?.kind === 'game' ? { ...out, draft: planView(draftOf(out.chat, env())) } : out
   // a game chat with its plan: the real next step, from the plan file (engine/gamestep.mjs)
@@ -61,8 +74,17 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
     return { ...out, step, starts: startsOf(plan) }
   }
   const turnOf = (id, input) => chats.update(id, async chat => {
-    const turn = await say(chat, { said: String(input.said || '').slice(0, 4000), pick: String(input.pick || '').slice(0, 120) }, { model: model(), env: env(), plan: planOf(chat), helpers: helpers() ? { kit: helpers(), ctx: { project: chat.project || null, run: chat.run || null, plan: chat.plan || null, chat: chat.id } } : null })
-    return { chat, turn }
+    // the planner's model, heard: a call that fails is caught inside the turn (engine/talkplan.mjs goes on with the
+    // plan's own next step), so the failure is kept here and goes back beside the turn as `failed`, never in the chat file
+    const ask = model()
+    let failed = null
+    // Try again after a turn whose model failed: that turn (the person's words and the step said without the
+    // model) is taken back first, so the same words are in the chat once
+    const words = String(input.said || '').slice(0, 4000)
+    if (input.again === true && words && chat.turns.length >= 2 && chat.turns.at(-1).who === 'planner' && chat.turns.at(-2).who === 'person' && chat.turns.at(-2).text === words) chat.turns.splice(-2)
+    const heard = ask && (async messages => { try { return await ask(messages) } catch (err) { failed = err; throw err } })
+    const turn = await say(chat, { said: String(input.said || '').slice(0, 4000), pick: String(input.pick || '').slice(0, 120) }, { model: heard, env: env(), plan: planOf(chat), helpers: helpers() ? { kit: helpers(), ctx: { project: chat.project || null, run: chat.run || null, plan: chat.plan || null, chat: chat.id } } : null })
+    return failed ? { chat, turn, failed: whyOf(failed) } : { chat, turn }
   }).then(withDraft)
 
   // ---------- what a game chat's words or chip ask the server to do, or null for talk
@@ -208,7 +230,7 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
     const now = Date.now()
     chat.turns.push({ id: `t${chat.turns.length + 1}`, who: 'person', at: now, text: said || label || pick, ...(pick ? { pick } : {}), refs: [], marks: [], layers: [] })
     let out = null, why = ''
-    try { out = await perform(chat, action, said) } catch (err) { why = `Nothing happened: ${String(err.message || err).replace(/\.$/, '')}.` }
+    try { out = await perform(chat, action, said) } catch (err) { why = isRaw(err.message || err) ? `Nothing happened. ${reasonLine(whyOf(err))}` : `Nothing happened: ${String(err.message || err).replace(/\.$/, '')}.` }
     const plan = out?.plan ? (plans.get(out.plan.id) || out.plan) : planOf(chat)
     const turn = { id: `t${chat.turns.length + 1}`, who: 'planner', at: now, text: '', refs: [], marks: [], layers: [], made: [], reads: [] }
     if (!plan) {

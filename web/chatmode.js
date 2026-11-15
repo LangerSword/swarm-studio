@@ -183,7 +183,8 @@ async function modeAskApp(h, text, run) {
   const res = await modePost(h, `/api/runs/${encodeURIComponent(run)}/app/ask`, { text })
   const j = res ? await res.json().catch(() => ({})) : {}
   wait.remove()
-  if (!res?.ok || !j.answer) return void h.botMsg(j.error || 'No answer came back. Ask again.')
+  // no answer: the reason in plain words and Try again, which asks the same thing (never the error as Hermia's words)
+  if (!res?.ok || !j.answer) return void h.failSay(j.reason, { again: () => modeAskApp(h, text, run) })
   const item = h.botMsg(j.answer)
   if (j.media) item.append(h.media(j.media))
   // the answer came with a diagram: the room draws it in its Map window (web/canvas/mapwin.js)
@@ -202,7 +203,7 @@ async function askPlanner(h, text, run) {
   const j = res ? await res.json().catch(() => ({})) : {}
   wait.remove()
   if (res?.status === 503 && j.hermes) return void h.hermesSays(j)
-  if (!res?.ok || !j.reply) return void h.botMsg(j.error || 'No answer came back. Ask again.')
+  if (!res?.ok || !j.reply) return void h.failSay(j.reason, { again: () => askPlanner(h, text, run) })
   chatMode.asked.push({ who: 'you', text }, { who: 'hermia', text: j.reply })
   h.botMsg(j.reply)
 }
@@ -216,7 +217,7 @@ async function fixSay(h, text, run) {
   const res = await modePost(h, '/api/doctor', { text, ...(run ? { run } : {}) })
   const j = res ? await res.json().catch(() => ({})) : {}
   wait.remove()
-  if (!res?.ok || !j.reply) return void h.botMsg(j.error || 'The check did not answer. Ask again.')
+  if (!res?.ok || !j.reply) return void h.failSay(j.reason, { again: () => fixSay(h, text, run) })
   const item = h.botMsg(j.reply)
   item.classList.add('fix-reply')
   const acts = Array.isArray(j.actions) ? j.actions : []
@@ -242,6 +243,7 @@ async function takeStep(h, a) {
   if (!a) return
   if (a.kind === 'setup') return void h.setup(a.row === 'parts' ? ['parts', a.group, a.part] : [a.row])
   if (a.kind === 'resume') return void h.resume(a.run)
+  if (a.kind === 'again') return void h.again(a.run)
   if (a.kind === 'app-again') return void h.appAsk('')
   if (a.kind === 'repaint') {
     const res = await modePost(h, `/api/runs/${encodeURIComponent(a.run)}/image`, { page: a.page, layer: a.layer, gen: a.gen })
