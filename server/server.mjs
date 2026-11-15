@@ -13,7 +13,7 @@ import { randomBytes, timingSafeEqual, createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync, appendFileSync, existsSync, readdirSync, statSync, copyFileSync, createReadStream, mkdtempSync, rmSync, openSync, readSync, closeSync } from 'node:fs'
 import { execFile, hermesEnv, pick, respawnSelf } from '../engine/proc.mjs'
 import { hermesBridge, imageBody, videoBody } from '../engine/bridge.mjs'
-import { engineTools } from '../engine/enginetools.mjs'
+import { engineTools, webReads } from '../engine/enginetools.mjs'
 import { hermesLlm, roleModel } from '../engine/hermesllm.mjs'
 import { hermesHealth, HERMES_SAYS } from '../engine/hermeshealth.mjs'
 import { reasonFromAbort, reasonFromFailure } from '../engine/stopreason.mjs'
@@ -141,16 +141,17 @@ const hermesGone = why => {
   const said = why.code === 'hermes_closed' ? HERMES_SAYS.gone : why
   current.controller.abort({ ...said, code: 'hermes' })
 }
+// The web, as the app engine's tools and the chat's read it: Hermes's web tools, the guarded walk, public addresses only
+const webAccess = {
+  web: body => hermes.call('/web', body, 90000),
+  walk: async url => (await import('../engine/sitelook.mjs')).walkSite(url, { dataDir, pages: 1, shots: 1 }),
+  check: url => publicUrl(url)
+}
 // the app engine's web search, page reading, site clone and pictures, on the same gateway (engine/enginetools.mjs):
 // through Hermes's web tools, the guarded site walk and the studio's own painting, never a key of their own
 const llm = hermesLlm({
   bridge: hermes, port: () => port, broadcast: e => broadcast(e), health, onGone: hermesGone, graceMs: Number(process.env.SWARM_HERMES_GRACE_MS) || 20000,
-  tools: engineTools({
-    web: body => hermes.call('/web', body, 90000),
-    walk: async url => (await import('../engine/sitelook.mjs')).walkSite(url, { dataDir, pages: 1, shots: 1 }),
-    paint: ({ prompt }) => planPaint({ prompt, aspect: 'landscape' }),
-    check: url => publicUrl(url)
-  })
+  tools: engineTools({ ...webAccess, paint: ({ prompt }) => planPaint({ prompt, aspect: 'landscape' }) })
 })
 const envRole = (role, fallback = DEFAULT_MODEL) => {
   const apiKey = process.env[`SWARM_${role}_API_KEY`] || process.env.SWARM_API_KEY || process.env.SWARM_STUDIO_API_KEY || ''
@@ -2246,7 +2247,12 @@ const assetLibrary = library({ dataDir })
 // the library on purpose (engine/assetlib.mjs): searched and picked from, with packs of one's own
 const assets = assetLib({ dataDir })
 // the chat as the helper (decision 0025 e): the tools the planner can call from any talk, and the press of a card
-const helpers = helperKit(chatTools({ assets, refs, plans, projects, runsDir }))
+const helpers = helperKit(chatTools({
+  assets, refs, plans, projects, runsDir,
+  // the app builder's web tools (part c): the same reads the app engine's tools use, and a press that clones
+  reads: webReads(webAccess),
+  change: (run, ask) => apps().then(a => a.start(run, { ask }))
+}))
 const helperRoute = helperRoutes({ kit: helpers, chats })
 // the library picture for a slot: the closest packs of the build's style first, then any pack
 async function libraryFor(it, style, used) {
@@ -4634,7 +4640,7 @@ const server = createServer((req, res) => {
     res.end(body)
     return
   }
-  const img = url.pathname.match(/^\/img\/([\w-]{1,64})\/((?:\d{1,3}|snap|app(?:-[a-f0-9]{7})?|kept-\d{1,3}|(?:edit|video)-[a-z0-9]{1,12}-?\d{0,2}|(?:game|peek|lib|idle)-[a-z0-9-]{1,56})\.(png|jpe?g|webp))$/)
+  const img = url.pathname.match(/^\/img\/([\w-]{1,64})\/((?:\d{1,3}|snap|app(?:-[a-f0-9]{7})?|kept-\d{1,3}|(?:edit|video)-[a-z0-9]{1,12}-?\d{0,2}|(?:game|peek|lib|idle|clone)-[a-z0-9-]{1,56})\.(png|jpe?g|webp))$/)
   if (img) {
     const file = join(runsDir, img[1], 'img', img[2])
     if (!existsSync(file)) return res.writeHead(404).end('not found')
