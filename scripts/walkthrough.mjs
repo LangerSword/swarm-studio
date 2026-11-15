@@ -119,6 +119,8 @@ try {
     } finally {
       await ctx.close()
       s.stop()
+      // a second Studio a step started and a skipped step would have ended
+      for (const k of ['night', 'nh']) { try { env[k]?.stop?.() } catch {} }
     }
   }
 } finally {
