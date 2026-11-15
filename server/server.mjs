@@ -4945,8 +4945,10 @@ closeStoppedVideos()
 // got: run:stopped and the reason code `interrupted`. The build state then reads it as halted, with Resume when
 // sections are kept and Try again when nothing is (engine/buildstate.mjs). Only the file's own lines are read.
 // Like the films above, this takes every unended build in the runs folder to be this server's.
+// SWARM_CLOSE_BUILDS=0 leaves them as they are: the motion check and the board gauge seed a build with no end to
+// stand for one the crew is still on (scripts/motion-check.mjs, scripts/board-gauge.mjs).
 function closeStoppedBuilds() {
-  if (!existsSync(runsDir)) return
+  if (process.env.SWARM_CLOSE_BUILDS === '0' || !existsSync(runsDir)) return
   for (const id of readdirSync(runsDir).filter(x => RUN_ID.test(x))) {
     let text
     try { text = readFileSync(join(runsDir, id, 'events.jsonl'), 'utf8') } catch { continue }

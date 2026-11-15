@@ -54,17 +54,19 @@ function seed({ runs, site, T0, rid }) {
   seed.R = R
 }
 
-// one Studio for these steps, kept on env until the last one ends it
+// one Studio for these steps, kept on env.fs like a flow's (scripts/walkthrough-flows.mjs), so the walkthrough
+// ends it itself when the last of these steps was left out of a run
 async function cards(env) {
-  if (env.cs) return env.cs
+  if (env.fs?.key === 'cards') return env.fs
+  try { env.fs?.stop() } catch {}
   let open
   const never = new Promise(r => { open = r })
   const s = await studio({ setup: seed, model: async () => { await never; return null } })
   await s.api('/api/setup', { seen: true })
-  env.cs = { ...s, R: { ...seed.R }, end: open }
-  return env.cs
+  env.fs = { ...s, key: 'cards', ctl: { calls: [] }, R: { ...seed.R }, stop: () => { open(); s.stop() } }
+  return env.fs
 }
-function endCards(env) { try { env.cs?.end(); env.cs?.stop() } catch {} env.cs = null }
+function endCards(env) { if (env.fs?.key !== 'cards') return; try { env.fs.stop() } catch {} env.fs = null }
 
 async function go(env, s, addr = '/', root = '.home') {
   await env.page.goto(s.BASE + addr)
