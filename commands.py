@@ -785,12 +785,15 @@ def _project(ref: str) -> dict:
         names = ", ".join(str(p.get("name") or p["id"]) for p in projects[:8])
         raise RuntimeError(f"say which project: its name or id ({names})")
     low = ref.lower()
-    hit = (next((p for p in projects if p["id"] == ref), None)
-           or next((p for p in projects if str(p.get("name") or "").lower() == low), None)
-           or next((p for p in projects if low in str(p.get("name") or "").lower()), None))
-    if not hit:
-        raise RuntimeError(f"no project called {ref!r}")
-    return hit
+    # by id; else the projects named exactly so; else those whose name has the words. Two of the same name are never
+    # guessed between: the answer lists them with their ids, so the reference goes where the person meant.
+    for match in ([p for p in projects if p["id"] == ref], [p for p in projects if str(p.get("name") or "").lower() == low],
+                  [p for p in projects if low in str(p.get("name") or "").lower()]):
+        if len(match) == 1:
+            return match[0]
+        if len(match) > 1:
+            raise RuntimeError(f"{len(match)} projects match {ref!r}; say which by its id: " + ", ".join(f"{p.get('name')} ({p['id']})" for p in match[:8]))
+    raise RuntimeError(f"no project called {ref!r}")
 
 
 def _upload(path: str, raw: bytes, timeout: float = 120.0) -> dict:

@@ -86,6 +86,17 @@ class AgentLibrary(unittest.TestCase):
         self.assertIn("Cedar Cafe", out)
         with mock.patch.object(commands, "_api", side_effect=api):
             self.assertIn("no project called", commands.tool({"action": "reference_add", "project": "nope", "url": "https://a.b"}))
+        # two projects of one name: never guessed between; by id it goes where it was meant
+        projects["projects"].append({"id": "p-older", "name": "Cedar Cafe"})
+        calls.clear()
+        with mock.patch.object(commands, "_api", side_effect=api):
+            out = commands.tool({"action": "reference_add", "project": "Cedar Cafe", "url": "https://example.com"})
+            self.assertIn("2 projects match", out)
+            self.assertIn("(s-cedar)", out)
+            self.assertIn("(p-older)", out)
+            self.assertFalse(any(p.endswith("/refs/link") for p, _ in calls), "nothing was added")
+            commands.tool({"action": "reference_add", "project": "p-older", "url": "https://example.com"})
+        self.assertEqual(calls[-1][0], "/api/projects/p-older/refs/link")
 
     def test_a_reference_file_is_sent_as_itself(self):
         with tempfile.TemporaryDirectory() as d:
