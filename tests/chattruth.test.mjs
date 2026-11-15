@@ -233,6 +233,9 @@ test('an app chat on a designed app: "build the app" is the Build the app button
   for (const w of ['build the app?', 'Let nurses filter the shift board by ward', 'build a login page', "don't build it", 'what does build do']) assert.equal(buildAsk(w, app), false, w)
   assert.equal(buildAsk('build it', { kind: 'game', hasApp: false, steps: [] }), false)
   assert.equal(buildAsk('build it', { kind: 'site', hasApp: true, steps: [] }), false)
+  // a designed app's own steps (its design) are not a build partway; a stopped or failed one is goOnAsk's
+  assert.equal(buildAsk('build the app', { kind: 'site', state: 'idle', hasApp: false, steps: [{ step: 'design' }] }), true)
+  assert.equal(buildAsk('build it', { kind: 'site', state: 'stopped', hasApp: false, steps: [1, 2] }), false)
   assert.equal(noAppYet(app), 'The app is not built yet. Say “build the app” to build it, then change it by chatting.')
 })
 

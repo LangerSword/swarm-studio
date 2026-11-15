@@ -1803,7 +1803,7 @@ const plans = planRoutes({
 const talks = talkRoutes({
   dataDir, plans, helpers: () => helpers, env: () => ({ godot: godotHere }), godotCheck,
   // a website's or an app's saved talk is told what is true of its build (chatTruth, engine/chatstep.mjs)
-  facts: chat => chatTruth({ pid: chat.project || null, run: chat.run || null, kind: chat.kind === 'app' ? 'app' : 'site', chat }),
+  facts: chat => chatTruth({ pid: chat.project || null, run: chat.run || null, kind: chat.kind, chat }),
   model: () => models.planner.apiKey && modelFor('planner') ? async messages => (await streamChat(provider('planner'), {
     trace: { kind: 'talk' }, model: modelFor('planner'), maxTokens: 700, temperature: 0.3, signal: AbortSignal.timeout(60000),
     extra: { reasoning_effort: 'none', reasoning: { enabled: false } }, messages
@@ -2180,8 +2180,13 @@ function projectState(pid, facts = null) {
 }
 // What is true of the build a chat is about, for engine/chatstep.mjs: the website build's one state (siteState:
 // the open build when the chat names one, else the project's newest website build), its pages, the app's state
-// when the chat is the App room's or the build has an app, and where it is live. Reads only.
+// when the chat is the App room's or the build has an app, and where it is live. Reads only. Null for a game, a
+// film or a project brought in: those keep their own states, and their chats are not checked by a website's rules.
 async function chatTruth({ pid = null, run = null, kind = 'site', chat = null } = {}) {
+  if (kind !== 'site' && kind !== 'app') return null
+  const own = run ? readEvents(run) : null
+  const start = own?.find(e => e.type === 'run:start')
+  if (own && (start?.intake || ['game', 'video', 'film'].includes(start?.kind) || own.some(e => typeof e.type === 'string' && (e.type.startsWith('game:') || e.type.startsWith('video:'))))) return null
   const p = pid && projects.get(pid)
   const ids = [...(run ? [run] : []), ...((p?.versions || []).map(v => v.id))]
   let build = null, id = null, events = null
@@ -2190,8 +2195,10 @@ async function chatTruth({ pid = null, run = null, kind = 'site', chat = null } 
     const b = ev ? siteState(v, ev) : null
     if (b) { build = b; id = v; events = ev; break }
   }
-  events ||= run ? readEvents(run) : null
+  events ||= own
   id ||= run
+  // an app's design is a build of its own kind (it has no website state): the chat about it is the app's
+  if (!build && start?.kind === 'app') kind = 'app'
   const pages = events ? [...new Map(events.filter(e => e.type === 'page').map(e => [e.id, String(e.title || e.id)])).values()] : []
   let app = null
   if (id && (kind === 'app' || events?.some(e => typeof e.type === 'string' && e.type.startsWith('app:')))) {
@@ -3519,8 +3526,8 @@ ${researchBrief(seen)}`
     return readJson(1e4, async input => {
       const run = typeof input.from === 'string' && RUN_ID.test(input.from) ? input.from : null
       const chat = typeof input.chat === 'string' && CHAT_ID.test(input.chat) ? chats.get(input.chat) : null
-      const facts = await chatTruth({ pid: chat?.project || (run ? projects.projectOf(run) : null), run, kind: input.room === 'app' || input.kind === 'app' ? 'app' : 'site', chat })
-      json(200, { first: firstLine(facts), step: nextStep(facts, { talked: input.talked === true }) })
+      const facts = await chatTruth({ pid: chat?.project || (run ? projects.projectOf(run) : null), run, kind: input.room === 'app' ? 'app' : ['app', 'film', 'game'].includes(input.kind) ? input.kind : 'site', chat })
+      json(200, facts ? { first: firstLine(facts), step: nextStep(facts, { talked: input.talked === true }) } : { first: '', step: null })
     })
   }
   if ((url.pathname === '/api/discuss/read' || url.pathname === '/api/discuss') && req.method === 'POST') {
@@ -3547,9 +3554,10 @@ ${researchBrief(seen)}`
           const [{ answerOnly }, { factLines }, facts] = await Promise.all([import('../engine/ask.mjs'), import('../engine/doctor.mjs'), studioFacts(inRun, { light: true }).catch(() => null)])
           const plan = typeof input.chat === 'string' && CHAT_ID.test(input.chat) ? String(chats.get(input.chat)?.spec?.brief || '').slice(0, 1500) : ''
           // a question about how far things are is answered by the build's one state; any other answer is checked against it
-          const truth = await chatTruth({ pid: inPid, run: inRun, kind: input.room === 'app' || kind === 'app' ? 'app' : 'site' })
+          const truth = await chatTruth({ pid: inPid, run: inRun, kind: input.room === 'app' ? 'app' : kind })
           const project = [projectState(inPid, truth), plan ? `The plan agreed so far in the chat:\n${plan}` : ''].filter(Boolean).join('\n\n')
-          const answer = await truthTurn({ text: String(said.at(-1)?.text || ''), facts: truth, ask: true, plan: () => answerOnly({ said, kind, chat: talk, project, studio: facts ? factLines(facts).join('\n').slice(0, 2400) : '' }) })
+          const answerIt = () => answerOnly({ said, kind, chat: talk, project, studio: facts ? factLines(facts).join('\n').slice(0, 2400) : '' })
+          const answer = truth ? await truthTurn({ text: String(said.at(-1)?.text || ''), facts: truth, ask: true, plan: answerIt }) : await answerIt()
           return json(200, { reply: answer.reply })
         }
         // media (spec 29): the pictures attached to this turn, and its links read as pages; the planner is
@@ -3588,12 +3596,10 @@ ${researchBrief(seen)}`
         // planner is not asked, and the page runs it as the button does. "build it" writes the brief.
         const talkChat = typeof input.chat === 'string' && CHAT_ID.test(input.chat) ? chats.get(input.chat) : null
         const talkPid = inPid || (talkChat?.project ?? null)
-        const truth = await chatTruth({ pid: talkPid, run: inRun, kind: input.room === 'app' || kind === 'app' ? 'app' : 'site', chat: talkChat })
+        const truth = await chatTruth({ pid: talkPid, run: inRun, kind: input.room === 'app' ? 'app' : kind, chat: talkChat })
         const project = projectState(talkPid, truth)
-        let out = await truthTurn({
-          text: !input.brief && last && last.who !== 'hermia' ? String(last.text || '') : '', facts: truth,
-          plan: () => (input.brief ? d.writeBrief : d.discuss)({ said: told, kind, chat: talk, project, helpers: input.brief ? null : helpers })
-        })
+        const planIt = () => (input.brief ? d.writeBrief : d.discuss)({ said: told, kind, chat: talk, project, helpers: input.brief ? null : helpers })
+        let out = truth ? await truthTurn({ text: !input.brief && last && last.who !== 'hermia' ? String(last.text || '') : '', facts: truth, plan: planIt }) : await planIt()
         if (out.act === 'do:brief') out = { ...(await d.writeBrief({ said: told, kind, chat: talk, project })), step: out.step }
         // a tool the planner asked for (decision 0025 e): it only reads; its cards are kept on the planner's turn below,
         // and a press runs their action from there (/api/helper/pick)

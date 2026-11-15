@@ -51,12 +51,13 @@ export function noAppYet(app) {
 
 /**
  * "build the app", "build it", "build", "go", "make the app", "turn this into an app": the room's Build the app
- * button, typed (anything a button does, the chat does). Only for an app with nothing built and nothing partway
- * (a stopped or failed build is `goOnAsk`), never a game (its start needs its spec) and never a question.
- * @param {string} text  @param {{ kind?: string, hasApp?: boolean, steps?: unknown[] }} app
+ * button, typed (anything a button does, the chat does). Only for an app with nothing built and no build stopped
+ * or failed partway (that one is `goOnAsk`), never a game (its start needs its spec) and never a question.
+ * @param {string} text  @param {{ kind?: string, state?: string, message?: string, hasApp?: boolean, steps?: unknown[] }} app
  */
 export function buildAsk(text, app) {
-  if (app.kind === 'game' || app.hasApp || (app.steps || []).length > 0) return false
+  const partway = (app.steps || []).length > 0 && (app.state === 'stopped' || app.state === 'failed' || app.message === 'stopped')
+  if (app.kind === 'game' || app.hasApp || partway) return false
   const t = String(text || '').trim().replace(/[.!]+$/, '')
   return /^(please\s+)?(ok(ay)?[, ]+)?((build|make|start|create)(\s+me)?(\s+(it|this|the app|an app|my app))?|go|go ahead|do it|let'?s (go|build)( it)?|turn (it|this) into (an|a working) app)(\s+(now|please))?$/i.test(t)
 }

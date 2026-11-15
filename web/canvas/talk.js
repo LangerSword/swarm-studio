@@ -161,6 +161,8 @@ async function siteResume(last) {
   const j = await api(`/api/talk/${encodeURIComponent(talk.chat)}`).then(r => r.ok ? r.json() : null).catch(() => null)
   if (!talk.on) return
   const turn = j?.chat?.turns?.at(-1)
+  // a new website's brief, kept with the question's answers on it: it comes back as the brief, to edit and answer
+  if (!j?.chat?.go && turn?.who === 'planner' && turn.brief && isAsk(turn)) { last.remove(); return talkBrief(turn.text, '', '', false, turn.options) }
   if (!j?.chat?.go && turn?.who === 'planner' && isAsk(turn)) { talk.ask = true; return askActs(last, turn) }
   stepNow(last)
   els.brief.focus({ preventScroll: true })
