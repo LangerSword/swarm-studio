@@ -20,7 +20,9 @@ export const test = base.extend({
   app: ['', { option: true }],
   // one throwaway Studio per worker, its Setup sheet seen, plus a project still in the Studio (as the audit)
   studio: [async ({}, use) => {
-    const s = await studio()
+    // the planner answers one request, the chat's helper scenario (decision 0025 e): "find me a pixel sword" is a
+    // library search. Every other call still gets no answer (HTTP 500), as the scenarios marked Manual say.
+    const s = await studio({ model: ask => (/find me a pixel sword/i.test(String(ask.messages?.at(-1)?.content || '')) ? 'I\'ll look in the asset library.\n{"tool": "library_search", "args": {"q": "sword"}}' : null) })
     await s.api('/api/setup', { seen: true })
     const made = await s.api('/api/studio', { kind: 'site', idea: 'Cedar Cafe, a small cafe by the river' })
     // the brand sheet's scenarios open a project of their own (the same idea, so the same name): opening the sheet

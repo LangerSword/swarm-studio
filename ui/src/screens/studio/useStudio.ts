@@ -152,6 +152,13 @@ export function useStudio(pid: string | null) {
   }, [pid, api, post, fail])
 
   useEffect(() => { setD(null); setSel(null); setTakes(null); prepared.current = null; void load() }, [pid, load])
+  // a picture kept from the chat (decision 0025 e, ui/src/chat/useTalk.ts pickCard): its References again, nothing else
+  useEffect(() => {
+    if (!pid) return
+    const again = () => { api<{ refs: StoreItem[] }>(proj('/refs')).then(j => take({ refs: j.refs })).catch(() => {}) }
+    window.addEventListener('swarm:refs', again)
+    return () => window.removeEventListener('swarm:refs', again)
+  }, [pid, api, take])
 
   // What you have: while the crew reads something the person brought (or walks a site for its look), its card
   // follows; once a read is done, what it filled in (the idea, the brand's story) is loaded with the rest

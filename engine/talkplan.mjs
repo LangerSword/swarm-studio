@@ -6,6 +6,7 @@
 // Meshy (3D only) and the price follow what was decided, not a fixed blueprint.
 // The record is the chat of spec 29 §Store (engine/chats.mjs); this file writes turns, decisions,
 // spec, state and lead.
+import { cardsLine } from './helpers.mjs'
 import { familyOf, sizeOf, titleFrom, FAMILIES, FAMILY_IDS, SIZES, planSummary } from './planshape.mjs'
 import { planFromAnswers, planPrice } from './plan.mjs'
 import { askedOf, askOptions, pickOptions, readAnswer, recommend, ASK_TEXT, PICK_TEXT, GO_TEXT, SKIPS } from './askfirst.mjs'
@@ -115,10 +116,18 @@ export function buildOf(reply) {
 }
 
 // one turn: Hermia's answer, or (when the person said build) the brief to show them
-export async function discuss({ said = [], kind = 'site', chat, project = '' }) {
+// helpers: the chat's tools (engine/helpers.mjs helperKit), offered in the prompt; a reply that calls one returns
+// { tool: { name, args, say } } for the caller to run (decision 0025 e)
+export async function discuss({ said = [], kind = 'site', chat, project = '', helpers = null }) {
   const messages = toMessages(said)
   if (!messages.length || messages.at(-1).role !== 'user') throw new Error('say something first')
-  const reply = String(await chat([{ role: 'system', content: TALK_PROMPT(kind, project) }, ...messages]) || '').trim()
+  const tools = helpers?.lines(kind) || ''
+  const reply = String(await chat([{ role: 'system', content: TALK_PROMPT(kind, project) + (tools ? `
+
+${tools}` : '') }, ...messages]) || '').trim()
+  // a tool first: a reply that is only its JSON would otherwise read as no answer
+  const tool = helpers?.toolOf(reply, kind)
+  if (tool) return { tool }
   const brief = buildOf(reply)
   if (brief) return project ? { brief, route: routeFor(said, reply) } : { brief }
   if (!reply || /^\s*\{/.test(reply)) throw new Error('the planner did not answer')
@@ -282,25 +291,47 @@ export function factsText(f) {
   return `What has really happened: the plan is ${f.locked ? 'locked' : 'NOT locked'}. ${sheets}. ${f.pieces.what}: ${f.pieces.done} of ${f.pieces.total} painted. Painting now: ${f.painting.length ? f.painting.join(', ') : 'nothing'}.`
 }
 
-async function plannerTurn(chat, env, model, fallback, facts = null) {
+async function plannerTurn(chat, env, model, fallback, facts = null, helpers = null) {
   if (!model) return null
   const draft = draftOf(chat, env)
-  const messages = [{ role: 'system', content: TURN_PROMPT }, { role: 'user', content: [
+  const tools = helpers?.lines('game') || ''
+  const messages = [{ role: 'system', content: TURN_PROMPT + (tools ? `\n\n${tools.replace('reply with one short sentence, then this JSON on its own line and nothing after it:\n{"tool": "<name>", "args": {...}}', 'add to your JSON: "tool": {"name": "<name>", "args": {...}}, with "say" telling them what you are looking for')}` : '') }, { role: 'user', content: [
     factsText(facts),
     `Idea: ${planInput(chat).idea}`,
     `Decided: ${JSON.stringify(Object.fromEntries(Object.entries(chat.decisions).map(([k, v]) => [k, v.value])))}`,
     `The plan so far: ${planSummary(draft)}`,
     `Godot installed: ${env.godot === undefined ? 'unknown' : env.godot ? 'yes' : 'no'}`,
     fallback ? `Still open (ask this unless something matters more): ${fallback.text}` : 'Nothing important is open.',
-    `Conversation:\n${(chat.turns || []).slice(-12).map(t => `${t.who === 'person' ? 'Person' : 'Hermia'}: ${t.text}`).join('\n')}`
+    `Conversation:\n${(chat.turns || []).slice(-12).map(t => `${t.who === 'person' ? 'Person' : 'Hermia'}: ${t.text}${cardsLine(t.cards)}`).join('\n')}`
   ].join('\n') }]
-  try { return readTurn(await model(messages)) } catch { return null }
+  try {
+    const text = await model(messages)
+    const ai = readTurn(text)
+    // a tool asked for in the turn's JSON (decision 0025 e): read as the chat's other talks read one
+    const j = (() => { try { return JSON.parse(String(text).match(/\{[\s\S]*\}/)?.[0] || '') } catch { return null } })()
+    const tool = helpers && j?.tool?.name ? helpers.toolOf(JSON.stringify({ tool: j.tool.name, args: j.tool.args || {} }), 'game') : null
+    return ai && tool ? { ...ai, tool } : ai
+  } catch { return null }
 }
 
 // say(chat, { said, pick }, { model, env }): the person's turn (typed, or a chip picked), then the planner's.
 // Changes the chat in place and returns the planner's turn. model(messages) -> text, or null offline.
 // plan: the game chat's plan as the server has it (once there is one): the turn ends with its real next step
-export async function say(chat, { said = '', pick = '' } = {}, { model = null, env = {}, now = Date.now(), plan = null } = {}) {
+// helpers: { kit, ctx } (engine/helpers.mjs): a game turn may ask for a tool; it runs here and its cards are kept on
+// the planner's turn (decision 0025 e)
+export async function say(chat, input = {}, opts = {}) {
+  const back = await sayTurn(chat, input, opts)
+  const h = opts.helpers
+  if (back?.tool && h?.kit) {
+    const { tool } = back
+    delete back.tool
+    const got = tool.unknown ? { text: 'That is not something I can do from this chat.', cards: [] } : await h.kit.run(tool.name, tool.args, { ...(h.ctx || {}), kind: chat.kind })
+    back.text = clean([back.text, got.text].filter(Boolean).join(' '), 1500)
+    if (got.cards.length) back.cards = got.cards
+  } else if (back) delete back.tool
+  return back
+}
+async function sayTurn(chat, { said = '', pick = '' } = {}, { model = null, env = {}, now = Date.now(), plan = null, helpers = null } = {}) {
   chat.decisions ||= {}
   chat.turns ||= []
   const last = [...chat.turns].reverse().find(t => t.who === 'planner')
@@ -330,8 +361,9 @@ export async function say(chat, { said = '', pick = '' } = {}, { model = null, e
   // any change to a decision reopens a locked spec, and the next lock re-plans
   if (changed && chat.state === 'locked') { chat.state = 'open'; if (chat.spec) chat.spec.lockedAt = null }
   if (changed && chat.plan) chat.stale = true
-  if (plan && !chat.stale) return planTalk(chat, { model, env, now, plan })
-  return plannerSays(chat, { model, env, now, changed, asked: /\?\s*$/.test(text) && !option, first: chat.turns.filter(t => t.who === 'person').length === 1 })
+  const kit = helpers?.kit || null
+  if (plan && !chat.stale) return planTalk(chat, { model, env, now, plan, helpers: kit })
+  return plannerSays(chat, { model, env, now, changed, asked: /\?\s*$/.test(text) && !option, first: chat.turns.filter(t => t.who === 'person').length === 1, helpers: kit })
 }
 
 const NO_PLAN = { locked: false, sheets: [], pieces: { done: 0, total: 0 }, mocks: { done: 0 }, backdrops: { done: 0 }, painting: [] }
@@ -339,22 +371,22 @@ const NO_PLAN = { locked: false, sheets: [], pieces: { done: 0, total: 0 }, mock
 // A chat with its plan: the planner answers, without the sentences that claim what the plan file denies, and the
 // turn ends with the one real next step and its buttons (engine/gamestep.mjs). Its own questions and options are
 // dropped: what is open now is what the plan waits on.
-async function planTalk(chat, { model, env, now, plan }) {
+async function planTalk(chat, { model, env, now, plan, helpers = null }) {
   const facts = planFacts(plan, { ...env, skip: chat.skip || [] })
   const step = nextStep(chat, plan, env)
-  const ai = await plannerTurn(chat, env, model, null, facts)
+  const ai = await plannerTurn(chat, env, model, null, facts, helpers)
   const { text: said } = checkClaims(ai?.say || '', facts)
-  const turn = { id: nextId(chat), who: 'planner', at: now, text: clean(`${said ? `${said} ` : ''}${step.text}`, 1500), options: step.options, step: true, plan: plan.id, refs: [], marks: [], layers: [], made: [], reads: [],
+  const turn = { ...(ai?.tool ? { tool: ai.tool } : {}), id: nextId(chat), who: 'planner', at: now, text: clean(`${said ? `${said} ` : ''}${step.text}`, 1500), options: step.options, step: true, plan: plan.id, refs: [], marks: [], layers: [], made: [], reads: [],
     ...(step.wait ? { wait: true } : {}), ...(step.sheet ? { sheet: step.sheet } : {}), ...(step.price ? { price: step.price } : {}) }
   chat.turns.push(turn)
   return turn
 }
 
-async function plannerSays(chat, { model, env, now, first, changed = true, asked: question = false }) {
+async function plannerSays(chat, { model, env, now, first, changed = true, asked: question = false, helpers = null }) {
   // the planner leads: it takes its own recommendation on everything still open
   if (chat.lead === 'planner') for (const q of openQuestions(chat, env)) { const [k, ...v] = q.options[0].id.split(':'); setDecision(chat, k, v.join(':'), 'planner', `t${chat.turns.length}`, q.options[0].why) }
   let open = openQuestions(chat, env)
-  const ai = await plannerTurn(chat, env, model, open[0])
+  const ai = await plannerTurn(chat, env, model, open[0], null, helpers)
   if (ai) for (const [k, v] of Object.entries(ai.decide)) changed = setDecision(chat, k, v, 'planner', `t${chat.turns.length}`, 'the planner read it') || changed
   open = openQuestions(chat, env)
   const draft = draftOf(chat, env)
@@ -365,7 +397,7 @@ async function plannerSays(chat, { model, env, now, first, changed = true, asked
   let q = null
   if (ai?.ask && !chat.decisions[ai.ask.key] && asked(chat).size < MAX_ASKS) q = { key: ai.ask.key, text: ai.ask.text, options: ai.ask.options.map(o => opt(ai.ask.key, o.value, o.label, o.why)) }
   else if (open[0] && chat.lead !== 'planner') q = open[0]
-  const turn = { id: nextId(chat), who: 'planner', at: now, text: '', refs: [], marks: [], layers: [], made: [], reads: [] }
+  const turn = { ...(ai?.tool ? { tool: ai.tool } : {}), id: nextId(chat), who: 'planner', at: now, text: '', refs: [], marks: [], layers: [], made: [], reads: [] }
   if (q) Object.assign(turn, { text: clean(`${first ? lead : said}${q.text}`, 900), options: q.options })
   else if (chat.spec && !changed) {
     // nothing changed: the answer alone (offline, a question waits for a planner model), and the spec stands

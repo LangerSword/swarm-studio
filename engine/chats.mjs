@@ -108,7 +108,8 @@ export function chatStore(arg) {
   function turnOf(t, chat) {
     const turn = { id: `t${chat.turns.length + 1}`, who: whoOf(t.who), at: now(), text: String(t.text || '').slice(0, 8000), refs: [], marks: [], layers: [] }
     if (turn.who === 'planner') Object.assign(turn, { made: [], reads: [] })
-    for (const k of ['options', 'refs', 'marks', 'layers', 'made', 'reads']) if (Array.isArray(t[k]) && t[k].length) turn[k] = t[k]
+    // cards: what a helper tool found (engine/helpers.mjs), each with its action, kept here so a pick is looked up on the turn
+    for (const k of ['options', 'refs', 'marks', 'layers', 'made', 'reads', 'cards']) if (Array.isArray(t[k]) && t[k].length) turn[k] = t[k]
     return turn
   }
   // add a turn; a person's first words also name a chat nobody named yet

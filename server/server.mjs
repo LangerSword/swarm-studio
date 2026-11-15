@@ -84,6 +84,9 @@ import { ckffPaint, ckffCreds } from '../engine/ckff.mjs'
 import { chooseImage, paintWithBackup } from '../engine/paintretry.mjs'
 import { library, PACKS as LIB_PACKS } from '../engine/library.mjs'
 import { assetLib, readPicks, setPick, pickedItem, creditsFor, SLOT_CATEGORIES, slotKind } from '../engine/assetlib.mjs'
+import { helperKit, cardsView, cardsLine } from '../engine/helpers.mjs'
+import { helperRoutes } from './helpers.mjs'
+import { chatTools } from './chattools.mjs'
 import { makeCharacter as planMakeCharacter, meshyKey as planMeshyKey } from '../engine/meshy.mjs'
 import { PLAN_QUESTIONS } from '../engine/plan.mjs'
 import { collect, composition, VOICE_LEAD, videoTools, render, stagePictures, TRANSITIONS, fxFor, SHAPES } from '../engine/video.mjs'
@@ -1773,7 +1776,7 @@ const plans = planRoutes({
 // The planner conversation (docs/specs/27-plan-conversation.md): decide together in the left chat, then lock.
 // A locked game chat makes its plan through the Plan board's routes above.
 const talks = talkRoutes({
-  dataDir, plans, env: () => ({ godot: godotHere }), godotCheck,
+  dataDir, plans, helpers: () => helpers, env: () => ({ godot: godotHere }), godotCheck,
   model: () => models.planner.apiKey && modelFor('planner') ? async messages => (await streamChat(provider('planner'), {
     trace: { kind: 'talk' }, model: modelFor('planner'), maxTokens: 700, temperature: 0.3, signal: AbortSignal.timeout(60000),
     extra: { reasoning_effort: 'none', reasoning: { enabled: false } }, messages
@@ -2266,6 +2269,9 @@ const artJobs = new Map()
 const assetLibrary = library({ dataDir })
 // the library on purpose (engine/assetlib.mjs): searched and picked from, with packs of one's own
 const assets = assetLib({ dataDir })
+// the chat as the helper (decision 0025 e): the tools the planner can call from any talk, and the press of a card
+const helpers = helperKit(chatTools({ assets, refs, plans, projects, runsDir }))
+const helperRoute = helperRoutes({ kit: helpers, chats })
 // the library picture for a slot: the closest packs of the build's style first, then any pack
 async function libraryFor(it, style, used) {
   const category = SLOT_CATEGORIES[slotKind(it.id)] || []
@@ -3496,7 +3502,17 @@ ${researchBrief(seen)}`
             try { walkLook(lp, refs.addLink(lp, { url: r.url, use: note, source: 'chat', from })) } catch (err) { console.warn('look:', err.message) }
           }
         }
-        const out = await (input.brief ? d.writeBrief : d.discuss)({ said: told, kind, chat: talk, project: projectState(inPid || (chats.get(input.chat)?.project ?? null)) })
+        const out = await (input.brief ? d.writeBrief : d.discuss)({ said: told, kind, chat: talk, project: projectState(inPid || (chats.get(input.chat)?.project ?? null)), helpers: input.brief ? null : helpers })
+        // a tool the planner asked for (decision 0025 e): it only reads; its cards are kept on the planner's turn below,
+        // and a press runs their action from there (/api/helper/pick)
+        let cards = []
+        if (out.tool) {
+          const got = out.tool.unknown ? { text: 'That is not something I can do from this chat.', cards: [] }
+            : await helpers.run(out.tool.name, out.tool.args, { kind, project: inPid || (chats.get(input.chat)?.project ?? null), run: inRun, plan: null, chat: typeof input.chat === 'string' ? input.chat : null })
+          out.reply = [out.tool.say, got.text].filter(Boolean).join(' ') || 'Here is what I found.'
+          cards = got.cards
+          delete out.tool
+        }
         // the talk is kept in its chat (spec 29): made on the first turn, inside the project when it
         // started in one; the person's newest words and Hermia's answer are added, a brief is the spec's
         let id = typeof input.chat === 'string' && CHAT_ID.test(input.chat) && chats.get(input.chat) ? input.chat : null
@@ -3505,9 +3521,14 @@ ${researchBrief(seen)}`
           if (!id) id = chats.create({ kind, project: pid }).id
           if (fresh.length) await chats.update(id, c => { c.refs = [...(c.refs || []), ...fresh].slice(-60) })
           if (!input.brief && last && last.who !== 'hermia') await chats.say(id, { who: 'person', text: last.text, refs: now.map(r => r.id) })
-          if (out.reply) await chats.say(id, { who: 'planner', text: out.reply })
+          if (out.reply) await chats.say(id, { who: 'planner', text: out.reply, ...(cards.length ? { cards } : {}) })
+          if (cards.length) { const t = chats.get(id)?.turns?.at(-1); if (t?.cards) { out.cards = cardsView(t.cards); out.turn = t.id } }
           if (out.brief) await chats.update(id, c => { c.spec = { brief: String(out.brief).slice(0, 8000), open: [], art: [], engine: null, time: null, cost: null, lockedAt: null, ...(c.spec || {}), ...{ brief: String(out.brief).slice(0, 8000) } } })
         } catch (err) { console.warn('chat:', err.message) }
+        // cards not saved (the chat could not be written) are shown to look at, never to press
+        if (cards.length && !out.cards) out.cards = cardsView(cards).map(({ pick, ...c }) => c)
+        // what the client keeps of this answer for the next turn: the reply and the cards it showed
+        if (out.cards) out.heard = out.reply + cardsLine(out.cards)
         json(200, id ? { ...out, chat: id } : out)
       }).catch(err => json(502, { error: String(err.message || err) }))
     })
@@ -3542,6 +3563,15 @@ ${researchBrief(seen)}`
   // Open Design's design templates, for the person to pick one for a build (engine/odlibrary.mjs, decision 0016)
   if (url.pathname === '/api/library/templates' && req.method === 'GET') return json(200, { templates: odTemplates() })
   // end engine: open-design
+  // a library picture already on disk, for a chat card's <img> (decision 0025 e): like /ref/ and /plans/ it needs
+  // no token, and it never fetches, so showing what the chat found downloads nothing
+  if (url.pathname === '/library/pic' && req.method === 'GET') {
+    const f = assets.local(url.searchParams.get('id'))
+    if (!f) return void res.writeHead(404).end('not found')
+    // as it is: a card's small picture is not worth a copy in the image service
+    res.writeHead(200, { 'content-type': { '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif' }[extname(f).toLowerCase()] || 'image/jpeg', 'cache-control': 'private, max-age=86400', 'content-security-policy': 'sandbox', 'x-content-type-options': 'nosniff' })
+    return void res.end(readFileSync(f))
+  }
   if (url.pathname === '/api/library/file' && req.method === 'GET') {
     assets.file(url.searchParams.get('id')).then(got => {
       if (!got) return json(404, { error: 'no such picture' })
@@ -4172,6 +4202,7 @@ ${researchBrief(seen)}`
     if (!pid) return void res.writeHead(404, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'this build is not in a project yet' }))
     url.pathname = `/api/projects/${pid}/${byRun[2]}${byRun[3] || ''}`
   }
+  if (helperRoute(req, res, url)) return
   if (refsRoute(req, res, url)) return
   if (studioRoute(req, res, url)) return
   if (filmRoute(req, res, url)) return

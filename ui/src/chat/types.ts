@@ -33,7 +33,14 @@ export interface ChatLine {
   sheet?: SheetPick
   // something to act on in Hermia's turn, drawn under her words (a build's research stop: ResearchStop)
   card?: ReactNode
+  // what a tool Hermia used found (decision 0025 e): its cards, and the saved turn they are on (for a press)
+  cards?: ChatCard[]
+  cardsTurn?: string
 }
+
+// a helper tool's card (engine/helpers.mjs cardsView): where it came from always; pick: its button's words when it
+// can be pressed; picked: when it was
+export interface ChatCard { id: string, title: string, source: string, img?: string, note?: string, pick?: string, picked?: number }
 
 // a sketch sheet in the chat: its picture, its grid and the cells picked so far (0-based)
 export interface SheetPick { id: string, src: string | null, grid: [number, number], picks: number[] }
@@ -55,7 +62,7 @@ export interface ChatTalk {
   // reopen this chat: its turns come back, and a game's open question with its options
   chat?: string | null
   // the turns to show first (an old chat opened from Projects)
-  said?: { who: 'you' | 'hermia', text: string }[]
+  said?: { who: 'you' | 'hermia', text: string, cards?: ChatCard[], turn?: string }[]
   // the person's first words, sent at once
   text?: string
   // a brief ready to read, edit and Build, with what Build makes (a showcase, or the Make box's prompt);

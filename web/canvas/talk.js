@@ -8,6 +8,7 @@ import { esc } from './design.js'
 import { nextRoute, slashPop, slashMatches, slashAt, renderSlash, pickSlash, setNextRoute, setSlashAt } from './loop.js'
 import { runNow, shownRun } from './film.js'
 import { paintSend } from '../chatmode.js'
+import { chatCards, chatCardsLine } from '../chatcards.js'
 
 // ---------- talk first (engine/talkplan.mjs): the person asked not to build yet, or asked the crew
 // a question. Hermia answers here in the chat, the conversation goes on in this dock, and nothing is
@@ -38,7 +39,11 @@ export function talkStart({ text = '', kind = 'site', build, blank = false, said
   talkDock(true)
   els.feed.querySelector('.empty-chat')?.remove()
   let last = null
-  for (const m of said) { talk.said.push(m); last = m.who === 'hermia' ? botMsg(m.text) : feed(null, m.text, 'you') }
+  for (const m of said) {
+    talk.said.push({ who: m.who, text: m.text + chatCardsLine(m.cards) })
+    last = m.who === 'hermia' ? botMsg(m.text) : feed(null, m.text, 'you')
+    if (m.who === 'hermia' && m.cards?.length) talkCards(last, m.cards, m.turn || null)
+  }
   if (brief) { talk.said.push({ who: 'you', text: brief }); return talkBrief(brief, '', what, sheet) }
   if (text) return talkSay(text)
   // a game chat reopened: its open question's chips come back under the planner's last words
@@ -50,7 +55,9 @@ export function talkStart({ text = '', kind = 'site', build, blank = false, said
   els.brief.focus({ preventScroll: true })
 }
 // a chat from the store, as the talk keeps it: the person is 'you', the planner 'hermia'
-export const saidOf = chat => (chat?.turns || []).filter(t => t.who !== 'crew').map(t => ({ who: t.who === 'planner' ? 'hermia' : 'you', text: t.text }))
+export const saidOf = chat => (chat?.turns || []).filter(t => t.who !== 'crew').map(t => ({ who: t.who === 'planner' ? 'hermia' : 'you', text: t.text, ...(t.cards?.length ? { cards: t.cards, turn: t.id } : {}) }))
+// what a tool Hermia used found (decision 0025 e): its cards under her message; a press answers as her next one
+const talkCards = (/** @type {HTMLElement} */ item, /** @type {any[]} */ cards, /** @type {string | null} */ turn) => chatCards(item, { cards, chat: talk.chat, turn, base: BASE, api, said: text => { talk.said.push({ who: 'hermia', text }); botMsg(text) } })
 export const talkEnd = () => { talk.on = false; talk.busy = false; talkDock(false); els.feed.querySelectorAll('.talk-acts').forEach(x => x.remove()) }
 export async function talkSay(text, brief = false) {
   if (talk.kind === 'game') return gameSay({ said: text })
@@ -78,8 +85,10 @@ export async function talkSay(text, brief = false) {
   if (!talk.on) return
   if (!res?.ok) return talkActs(botMsg(j.error || 'Hermia did not answer. Say it again.'))
   if (j.brief) return talkBrief(j.brief, j.route)
-  talk.said.push({ who: 'hermia', text: j.reply })
-  talkActs(botMsg(j.reply))
+  talk.said.push({ who: 'hermia', text: j.heard || j.reply })
+  const msg = botMsg(j.reply)
+  if (j.cards?.length) talkCards(msg, j.cards, j.turn || null)
+  talkActs(msg)
 }
 // ---------- the skip question before a website's build (docs/decisions/0020-ask-before-build.md, engine/askfirst.mjs):
 // Skip all, Step by step, or Pick steps to skip, the recommended one first. A pick or typed words answer it through
@@ -169,8 +178,10 @@ async function gameSay({ said = '', pick = '', label = '' }) {
     const j = talk.chat ? await talkPost(`/api/talk/${encodeURIComponent(talk.chat)}`, { said, pick }) : await talkPost('/api/talk', { kind: 'game', said })
     if (!talk.on) return
     talk.chat = j.chat.id
-    talk.said.push({ who: 'hermia', text: j.turn.text })
-    gameActs(botMsg(j.turn.text), j.turn)
+    talk.said.push({ who: 'hermia', text: j.turn.text + chatCardsLine(j.turn.cards) })
+    const msg = botMsg(j.turn.text)
+    if (j.turn.cards?.length) talkCards(msg, j.turn.cards, j.turn.id)
+    gameActs(msg, j.turn)
     // an action changed the plan (server/talk.mjs): the board opens on it, or shows what changed
     if (j.plan?.id) { const fresh = talk.plan !== j.plan.id; talk.plan = j.plan.id; if (fresh) window.swarmCosmos?.plan?.(j.plan.id, true); else window.swarmCosmos?.planAt?.(j.plan.id, {}) }
     else if (j.draft) window.swarmCosmos?.planDraft?.(j.draft)
