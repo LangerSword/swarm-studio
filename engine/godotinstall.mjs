@@ -20,7 +20,7 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { chmodSync, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { once } from 'node:events'
-import { delimiter, join, resolve, sep } from 'node:path'
+import { delimiter, join, posix, resolve, sep } from 'node:path'
 import { execFile } from './proc.mjs'
 
 // One stable release, exact files. The sums are the release's own SHA512-SUMS.txt
@@ -52,7 +52,7 @@ export function ownGodot(dataDir, exists = existsSync) {
 // Homebrew, also where an app opened from the Dock does not have it on PATH (issue #405)
 export function brewOf(env = process.env, exists = existsSync) {
   const dirs = [...String(env.PATH || '').split(delimiter).filter(Boolean), '/opt/homebrew/bin', '/usr/local/bin']
-  return dirs.map(d => join(d, 'brew')).find(f => exists(f)) || null
+  return dirs.map(d => posix.join(d, 'brew')).find(f => exists(f)) || null
 }
 
 // run(cmd, args, opts) -> { ok, out }: never throws, never has a terminal (its input is closed at once)

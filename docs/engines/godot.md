@@ -53,7 +53,10 @@ first (`godotCheck`): a Godot the person already has is used as it is. Then, in 
    which are that release's own `SHA512-SUMS.txt` (read 2026-11-15), before anything opens it. It is unpacked with the
    system's tool (`ditto` on macOS, `tar` on Windows, `unzip` on Linux) into `<data folder>/godot/4.7.2/`, and
    `current.json` beside it names the program. Nothing is written outside the data folder; no sudo, no password.
-   Another kind of computer gets one line: get it from godotengine.org, then Check again.
+   Another kind of computer gets one line: get it from godotengine.org, then Check again. Unchecked: the Linux
+   and Windows archives were never run by Swarm (only the macOS one, below); the program names inside them
+   (`Godot_v4.7.2-stable_linux.x86_64`, `…_win64_console.exe`) are from Godot's naming, and `binIn` falls back to the
+   one `Godot_v…` file it finds.
 "Installed" means it ran: `--version` must answer 4.x from where it was put, else the folder is removed. One install
 runs at a time for the whole Studio (`godotJob`); it counts as work, so the server does not idle out or replace itself
 under it. The chat's turn waits on it (`wait`, with `install`): Hermia's working line says the route, the size and

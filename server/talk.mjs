@@ -20,7 +20,7 @@
 // on it like a painting, and when it ends the chat gets one more turn that says what happened (settle).
 import { chatStore, CHAT_ID } from '../engine/chats.mjs'
 import { say, lock, unlock, planInput, draftOf, startsOf, wordsDecide, openQuestions } from '../engine/talkplan.mjs'
-import { nextStep, planFacts, goWords, readPicks, pieces, lockLabel, godotOptions } from '../engine/gamestep.mjs'
+import { nextStep, planFacts, goWords, readPicks, pieces, lockLabel, godotOptions, installLine } from '../engine/gamestep.mjs'
 import { planView } from '../engine/plan.mjs'
 import { starterSpec } from '../engine/starters.mjs'
 
@@ -29,6 +29,8 @@ import { starterSpec } from '../engine/starters.mjs'
 // env() -> { godot, install }: install is godotInstall.state(); godotInstall.start() -> a promise of the install's
 // end, { ok, version, note? } or { ok: false, why } (engine/godotinstall.mjs godotJob), or null: nothing to install with
 // helpers() -> the chat's tool kit (engine/helpers.mjs, decision 0025 e), or null
+// the order to install, and nothing longer: "install", "install it", "install godot 4", "yes, install it", "try again"
+const INSTALL = /^\s*((ok(ay)?|yes|yeah|sure|please)[,!.\s]+)*(install|download|get)( it| godot( 4)?| the engine)?( now| please| for me)*[\s.!]*$|^\s*(please\s+)?try( it)? again[\s.!]*$/i
 // "check again", "I installed it", "it is installed now": the person says Godot is there, so the Studio looks
 const LOOKED = /\b(check(ed)?( it)? again|look again|(i|i've|i have|already|just) (just |already )?installed|(it'?s|it is|is) (already |now )?installed)\b/i
 
@@ -52,7 +54,10 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
     let step = nextStep(out.chat, plan, env())
     // an install just ended and nothing was said since: the step is the turn that says how it ended
     const last = out.chat.turns?.at(-1)
-    if (last?.settled === 'godot' && !step.wait) step = { ...step, text: last.text, options: last.options || [] }
+    // (only while it is still true: the success while its next step is still the plan's, the failure while the
+    // Godot question is still open; the board or another chat may have moved things since)
+    const holds = last?.settled === 'godot' && !step.wait && (last.text.startsWith('Nothing happened') ? step.options[0]?.id === 'do:godot' : last.text.endsWith(step.text))
+    if (holds) step = { ...step, text: last.text, options: last.options || [] }
     return { ...out, step, starts: startsOf(plan) }
   }
   const turnOf = (id, input) => chats.update(id, async chat => {
@@ -77,7 +82,9 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
     if (step.sheet && readPicks(said, step.sheet, planFacts(plan).cast).length) return 'do:typed'
     const engine = wordsDecide(said).engine
     if (ids.includes('do:browser') && engine === 'web') return 'do:browser'
-    if (ids.includes('do:godot') && (engine === 'godot' || /\b(install|try again)\b/i.test(said))) return 'do:godot'
+    // only an order installs ("install", "install godot", "ok, install it", "try again"): a question, a "don't" or
+    // the word Godot alone is talk
+    if (ids.includes('do:godot') && INSTALL.test(said)) return 'do:godot'
     return null
   }
 
@@ -127,8 +134,16 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
       if (found) { chat.godot = 'install'; return { plan, said: 'Godot 4 is installed: the game builds as a Godot 4 project.' } }
       if (action === 'do:godot:check' || !godotInstall) return { plan, said: 'Godot 4 is still not on this computer.', godot: true }
       // the press is the yes: the install starts (or this chat joins the one running) and the turn waits on it
+      const flight = godotInstall.start()
+      // one that ends at once (no download for this kind of computer) is answered in this turn
+      const quick = await Promise.race([flight, new Promise(r => setTimeout(r, 30, null))])
+      if (quick) {
+        const found = !!quick.ok && (godotCheck ? !!godotCheck() : true)
+        if (found) chat.godot = 'install'
+        return found ? { plan, said: installedLine(quick) } : { plan, said: failedLine(quick), godot: 'failed' }
+      }
       chat.godot = 'installing'
-      settle(chat.id, godotInstall.start())
+      settle(chat.id, flight)
       return { plan, said: '' }
     }
     if (action === 'do:browser') {
@@ -165,6 +180,8 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
 
   // When the install a chat waits on ends, the chat gets the turn that says what happened: installed, with the
   // version that ran and the plan's real next step, or "Nothing happened" with the reason and the way on.
+  const installedLine = r => [r.note || '', `Godot ${r.version || 4} is installed: the game builds as a Godot 4 project.`].filter(Boolean).join(' ')
+  const failedLine = r => `Nothing happened: ${String(r?.why || 'Godot is installed but the Studio cannot find it').replace(/\.$/, '')}.`
   const settling = new Set()
   function settle(id, flight) {
     if (settling.has(id)) return
@@ -177,8 +194,7 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
       if (found) chat.godot = 'install'
       else delete chat.godot
       const step = nextStep(chat, plan, env())
-      const text = found ? [r.note || '', `Godot ${r.version || 4} is installed: the game builds as a Godot 4 project.`, step.text].filter(Boolean).join(' ')
-        : `Nothing happened: ${String(r?.why || 'Godot is installed but the Studio cannot find it').replace(/\.$/, '')}.`
+      const text = found ? `${installedLine(r)} ${step.text}` : failedLine(r)
       chat.turns.push({ id: `t${chat.turns.length + 1}`, who: 'planner', at: Date.now(), text, options: found ? step.options : godotOptions(true), step: true, plan: plan.id, settled: 'godot', ...(found && step.wait ? { wait: true } : {}), ...(found && step.sheet ? { sheet: step.sheet } : {}), refs: [], marks: [], layers: [], made: [], reads: [] })
     })).catch(() => {}).finally(() => settling.delete(id))
   }
@@ -202,8 +218,11 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
       chat.turns.push(turn)
       return { chat, turn }
     }
-    const step = nextStep(chat, plan, env())
-    if (out?.godot) step.options = godotOptions(false)
+    let step = nextStep(chat, plan, env())
+    // the install this turn started ended in the instant since: the turn still waits, and the next look finds the
+    // turn that says how it ended (settle)
+    if (chat.godot === 'installing' && action.startsWith('do:godot') && !step.wait) step = { text: installLine(env().install?.state === 'installing' ? env().install : {}), options: [], wait: true, install: { pct: null } }
+    if (out?.godot) step.options = godotOptions(out.godot === 'failed')
     if (out?.ask) step.options = [{ id: 'lock', label: lockLabel(plan.price), why: '', made: [] }, { id: 'talk', label: 'Keep talking', why: '', made: [] }]
     const text = [why || out?.said || '', out?.godot ? '' : step.text].filter(Boolean).join(' ')
     Object.assign(turn, { text, options: step.options, step: true, plan: plan.id, ...(step.wait ? { wait: true } : {}), ...(step.install ? { install: step.install } : {}), ...(step.sheet ? { sheet: step.sheet } : {}), ...(step.price || out?.ask ? { price: plan.price } : {}) })
