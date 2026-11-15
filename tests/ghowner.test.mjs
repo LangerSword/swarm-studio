@@ -59,6 +59,8 @@ function github({ login = 'me' } = {}) {
       return ok('')
     }
     if (cmd === 'repo' && path === 'edit') return ok('')
+    // the source push asks with a gh subcommand: gh repo view <slug> --json isPrivate,description
+    if (cmd === 'repo' && path === 'view') return desc.has(args[2]) ? ok(JSON.stringify({ isPrivate: true, description: desc.get(args[2]) })) : no(`GraphQL: Could not resolve to a Repository with the name '${args[2]}'. (repository)`)
     return no(`unexpected gh ${args.join(' ')}`)
   }
   const hub = { url: at, page: slug => `https://github.com/${slug}`, file: true }

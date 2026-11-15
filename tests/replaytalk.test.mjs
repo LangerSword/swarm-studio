@@ -26,6 +26,8 @@ test('a live build keeps its words', () => {
   assert.deepEqual(['working', 'done', 'failed', 'stopped', 'paused', 'idle'].map(state => appPill({ state })), ['building', 'built', 'failed', 'stopped', 'your turn', 'no app yet'])
   assert.equal(appPill({ state: 'done', url: 'http://127.0.0.1:1/' }), 'running')
   assert.equal(appPill({ state: 'idle', hasApp: true }), 'built')
+  // a game not built yet is not an app (game-mode walk, 2026-11-15)
+  assert.equal(appPill({ state: 'idle', kind: 'game' }), 'no game yet')
 })
 
 test('nothing a replay shows reads as work going on', () => {

@@ -7,6 +7,7 @@ import { join, extname } from 'node:path'
 import { planStore, planView, editCard, editStarter, setSystems, lockPlan, assertLocked, pickCell, roster, is3d, replan, PLAN_ID } from '../engine/plan.mjs'
 import { addSheet, addMocks, lockStyle, addBackdrops, addCloseups, entryFor, settleStale, buildScope, charEntry, viewJob, spriteJobs, VIEWS, gameBrief } from '../engine/planart.mjs'
 import { askShape } from '../engine/planshape.mjs'
+import { nextStep } from '../engine/gamestep.mjs'
 import { addPlanRef, addPlanNote, addPlanLink, removePlanRef, planRefAsIs, planRefs, carryPlanRefs } from '../engine/planrefs.mjs'
 import { planTemplate, remixPlan, templateStore, TEMPLATE_ID } from '../engine/template.mjs'
 
@@ -27,7 +28,9 @@ export function planRoutes({ dataDir, hooks = {}, paint = null, make = null, onP
   }
   const templates = templateStore(join(dataDir, 'templates'), { builtIn: builtInTemplates })
   const files = id => join(store.dir, id)
-  const view = plan => planView(settleStale(plan))
+  // the next step is the game chat's own last line (engine/gamestep.mjs), shown on the board too
+  const nextOf = plan => { try { return nextStep({}, plan).text || '' } catch { return '' } }
+  const view = plan => ({ ...planView(settleStale(plan)), next: nextOf(plan) })
 
   // a finished picture lands in its entry: copied next to the plan, served by name
   function land(planId, job, r) {
@@ -282,7 +285,12 @@ export function planRoutes({ dataDir, hooks = {}, paint = null, make = null, onP
     if (!PLAN_ID.test(id)) { json(res, 404, { error: 'no such plan' }); return true }
     const plan = store.get(id)
     if (!plan) { json(res, 404, { error: 'no such plan' }); return true }
-    if (req.method === 'GET' && !sub) { json(res, 200, view(plan)); return true }
+    // a read also says whether an image model is signed in: the board says so before a paint fails
+    if (req.method === 'GET' && !sub) {
+      const shown = view(plan)
+      Promise.resolve(paint ? paint.ready() : false).catch(() => false).then(ok => json(res, 200, { ...shown, painter: !!ok }))
+      return true
+    }
     if (req.method === 'GET' && sub === 'brief') { json(res, 200, { brief: gameBrief(plan) }); return true }
     if (req.method === 'GET' && sub === 'build') { json(res, 200, { gate: plan.gate, build: plan.build }); return true }
     if (req.method !== 'POST') { json(res, 405, { error: 'POST' }); return true }

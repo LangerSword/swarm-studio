@@ -91,7 +91,7 @@ export function nextStep(chat, plan, env = {}) {
   }
   if (!f.locked) {
     const tested = plan.gate?.tested ? `${plan.gate.tested} is painted: check it on the board. ` : ''
-    return { text: `${tested}The plan is not locked yet, so nothing paints. Lock it at about ${priceLine(f.price)}.`, options: [o('lock', lockLabel(f.price)), o('talk', 'Keep talking')], price: f.price }
+    return { text: `${tested}The plan is not locked yet. Lock it at about ${priceLine(f.price)}.`, options: [o('lock', lockLabel(f.price)), o('talk', 'Keep talking')], price: f.price }
   }
   if (f.engine === 'godot' && f.godot === false && !chat.godot) {
     return { text: 'Godot 4 is not installed on this computer. Install Godot 4, or is the browser fine?', options: [o('do:godot', 'Install Godot 4'), o('do:browser', 'Browser is fine')] }

@@ -1,6 +1,6 @@
 # Meshy
 
-Glue: engine/meshy.mjs, engine/cast.mjs, engine/plan.mjs, engine/planart.mjs, server/plans.mjs, server/server.mjs, web/canvas/rooms.js, web/plan.js
+Glue: engine/meshy.mjs, engine/cast.mjs, engine/plan.mjs, engine/planart.mjs, server/plans.mjs, server/server.mjs#meshy, web/canvas/rooms.js, web/plan.js
 Status: optional (person connects)
 
 Meshy is a paid outside service that turns pictures into textured 3D models and rigs them (https://api.meshy.ai,
