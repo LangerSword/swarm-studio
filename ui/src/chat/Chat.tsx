@@ -140,7 +140,7 @@ export function Chat(props: ChatProps) {
   }
   useEffect(() => { const off = () => setDrop(false); document.addEventListener('dragend', off); return () => document.removeEventListener('dragend', off) }, [])
 
-  const acts = { build: talk.build, pick: talk.pick, briefText: talk.briefText, briefGo: talk.briefGo, brandSheet: talk.brandSheet, keepTalking: (id: string) => { talk.keepTalking(id); box.current?.focus() }, busy: talk.busy }
+  const acts = { build: talk.build, pick: talk.pick, briefText: talk.briefText, briefGo: talk.briefGo, brandSheet: talk.brandSheet, keepTalking: (id: string) => { talk.keepTalking(id); box.current?.focus() }, pickCard: talk.pickCard, busy: talk.busy }
   const tabClass = 'inline-flex min-h-10 cursor-pointer items-center rounded-[8px] px-3 font-monospace text-xs text-muted outline-none data-[hovered]:text-text data-[selected]:bg-panel-2 data-[selected]:text-text data-[focus-visible]:outline-2 data-[focus-visible]:outline-frame-hi'
   // what Hermia's latest turn offers (one open question at a time: only the latest turn has any)
   const offer = talk.turns.findLast(t => !!t.acts && t.acts.type !== 'brief')

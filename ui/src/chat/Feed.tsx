@@ -7,7 +7,8 @@ import { useLayoutEffect, useRef, type MouseEvent } from 'react'
 import { TextArea } from 'react-aria-components'
 import { Button } from '../primitives/Button'
 import type { Turn } from './useTalk'
-import type { BuildRoute, ChatLine, ChatOption, SheetPick } from './types'
+import type { BuildRoute, ChatCard, ChatLine, ChatOption, SheetPick } from './types'
+import { ChatCards } from './ChatCards'
 import { base } from './api'
 
 // beside New project or Start over, the build that stays in this project is Add here
@@ -21,6 +22,8 @@ export interface FeedActs {
   briefGo: (t: Turn, route: BuildRoute) => void
   brandSheet: (id: string, text: string) => void
   keepTalking: (id: string) => void
+  // a helper card pressed (decision 0025 e): the line it is under, the saved turn, the card
+  pickCard?: (line: string, turn: string | undefined, card: ChatCard) => void
   busy: boolean
 }
 
@@ -135,6 +138,7 @@ function Line({ t, acts, onHover }: { t: Turn, acts?: FeedActs, onHover?: (el: H
         {t.working && t.text === '…'
           ? <span aria-hidden className="mt-2 flex flex-col gap-[7px]"><i className="block h-[9px] w-[86%] rounded-full bg-[color-mix(in_srgb,var(--text)_9%,transparent)] motion-safe:animate-pulse" /><i className="block h-[9px] w-[54%] rounded-full bg-[color-mix(in_srgb,var(--text)_9%,transparent)] motion-safe:animate-pulse" /></span>
           : <span className={`txt mt-1 block whitespace-pre-wrap ${t.working ? 'text-muted motion-safe:animate-pulse' : ''}`}>{t.text}</span>}
+        {t.cards?.length ? <ChatCards cards={t.cards} busy={acts?.busy} onPick={acts?.pickCard && t.cardsTurn ? c => acts.pickCard?.(t.id, t.cardsTurn, c) : undefined} /> : null}
         {acts && <Brief t={t} a={acts} />}
         {acts && <Step t={t} a={acts} />}
       </div>
@@ -165,7 +169,7 @@ export function Feed({ lines, acts, label, empty, onHover }: { lines: (Turn | Ch
     <div ref={box} role="log" aria-label={label} tabIndex={0} className="feed outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-frame-hi flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3"
       onScroll={e => { const b = e.currentTarget; stick.current = b.scrollHeight - b.scrollTop - b.clientHeight < 60 }}>
       {!lines.length && empty && <p className="empty-chat m-auto max-w-56 text-center font-monospace text-xs text-muted">{empty}</p>}
-      {lines.map(t => <Line key={t.id} t={t} acts={acts && 'acts' in t ? acts : undefined} onHover={onHover} />)}
+      {lines.map(t => <Line key={t.id} t={t} acts={acts && ('acts' in t || 'cards' in t) ? acts : undefined} onHover={onHover} />)}
     </div>
   )
 }

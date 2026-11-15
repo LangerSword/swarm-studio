@@ -250,6 +250,15 @@ export function planRoutes({ dataDir, hooks = {}, paint = null, make = null, onP
   // true when the request was a plan route (and has been answered)
   handle.fromTalk = fromTalk
   handle.carry = carry
+  // a picture into a plan's art references from elsewhere in the Studio (the chat's helper, decision 0025 e)
+  handle.addRef = (planId, { name, buf }) => {
+    const plan = PLAN_ID.test(String(planId || '')) && store.get(planId)
+    if (!plan) throw Object.assign(new Error('no such plan'), { status: 404 })
+    const r = addPlanRef(plan, files(plan.id), { name, buf })
+    lockAgain(plan)
+    store.save(plan)
+    return r
+  }
   // a plan as the board shows it, or null
   handle.get = id => { const p = store.get(id); return p ? view(p) : null }
   handle.act = (id, sub, input) => act(id, sub, input)

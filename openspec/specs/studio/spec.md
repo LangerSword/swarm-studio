@@ -162,3 +162,15 @@ sheet.
 - **WHEN** the person presses Layers at 390 wide
 - **THEN** the Layers sheet opens, and ×, Esc or a click outside closes it
 - Gate: `manual`
+
+### Requirement: The chat is the helper
+
+Asked for something a tool does, the planner SHALL use the tool, and the chat SHALL show what it found under
+Hermia's answer as at most three cards, each with its picture or title and where it came from. A card that can be
+used SHALL have a button; pressing it SHALL do what the card says (decision 0025 e, spec 48). The test Studio's
+planner is scripted for this one request, so the scenario runs without a model.
+
+#### Scenario: A tool's cards to pick from
+- **WHEN** the person asks the chat "find me a pixel sword" and the asset library has swords
+- **THEN** at most three cards show under Hermia's answer, each with its title and where it came from, and Keep this on one puts that picture in the project's References
+- Gate: `manual`
