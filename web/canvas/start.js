@@ -55,7 +55,7 @@ function onEvent(m) {
     if (e.type === 'hermes:waiting' || e.type === 'hermes:back') return hermesWait(e)
     // the server's one state of a website build (engine/buildstate.mjs): kept by run, whichever build is open,
     // and sent before the event that changed it, so an end event is said from it (core.js buildOf)
-    if (e.type === 'build:state') return setBuild(e.run, e.state)
+    if (e.type === 'build:state') return setBuild(e.run, e.state, e.parts)
     if (e.type === 'reset' || e.type === 'run:start') {
       setLiveId(e.run)
       // a talk before building keeps the canvas: a build started elsewhere waits in Projects

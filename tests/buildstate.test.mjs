@@ -144,7 +144,8 @@ test('an app, a game and a project brought in have no website state', () => {
   assert.equal(buildState([]), null)
   assert.equal(buildState([ev('error', { where: 'models', message: 'No model key yet.' })]), null)
   assert.equal(buildState([start({ kind: 'game' }), ev('game:spec', { spec: {} }), ev('app:start', { kind: 'game' })]), null)
-  assert.equal(buildState([start({ kind: 'app' }), ...plan(), ...every(built), done({ planned: 9, done: 9, failed: 0 })]), null)
+  // an app's design is a website build until its app is built (engine/kindstate.mjs): its start may say app
+  assert.equal(buildState([start({ kind: 'app' }), ...plan(), ...every(built), done({ planned: 9, done: 9, failed: 0 })]).state, 'done')
   assert.equal(buildState([...first(), ev('app:start', {}), ev('app:failed', { message: 'npm failed' })]), null)
   assert.equal(buildState([start({ intake: true }), ev('intake', {})]), null)
   // a film made on a site leaves the site's build what it was
@@ -197,7 +198,8 @@ test('old against new: only a failed, stopped or unfinished website changes its 
   const diffs = differences(runs, projects)
   assert.ok(diffs.length > 0)
   assert.deepEqual(diffs.filter(d => !d.ok), [])
-  // whole builds, the app, the game and the Live cards are not in the list
+  // whole builds, the app, the game and the Live cards are not in the list (an app's design that half failed
+  // was read as a whole app's then: its own state came with the kinds' states, tests/kindstate.test.mjs)
   for (const id of ['2026-11-01T10-00-00-000Z', '2026-11-02T10-00-00-000Z', '2026-11-02T11-00-00-000Z', '2026-11-02T12-00-00-000Z', '2026-11-02T13-00-00-000Z', '2026-11-02T14-00-00-000Z'])
     assert.equal(diffs.some(d => d.what === 'version' && d.run === id), false, id)
   // hole B2: the project's card read the older version's "Designed"; now it reads its newest build's own word

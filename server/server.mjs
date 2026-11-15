@@ -43,10 +43,11 @@ import { canvasPage as sharedCanvasPage, webVersion as pageVersion, playBoot } f
 import { nextPage, nextVendor } from './next.mjs'
 import { makeProjects, stateOf, gameProgress } from './projects.mjs'
 import { buildState } from '../engine/buildstate.mjs'
+import { kindState, KIND_EVENTS } from '../engine/kindstate.mjs'
 import { CHAT_ID } from '../engine/chats.mjs'
 import { askTurn, askedOf, askOptions, ASK_TEXT } from '../engine/askfirst.mjs'
 import { wordsRead } from '../engine/talkplan.mjs'
-import { deployName, isScreenName, PIECES } from '../engine/naming.mjs'
+import { deployName, isScreenName, pieceKind, PIECES } from '../engine/naming.mjs'
 import { autoJob, hermesKey } from '../engine/auto.mjs'
 import * as art from '../engine/artdirect.mjs'
 import { runBoard as boardOf } from './board.mjs'
@@ -531,6 +532,18 @@ const LATE_PICTURE = new Set(['image', 'image:failed', 'image:sent-back'])
 // gets it on the stream while the build runs (`build:state`, below) and with a saved build
 // (GET /api/runs/<id>/state); the Overview with its board (server/board.mjs).
 const siteState = (id, events) => buildState(events, { live: current?.id === id && !current.done })
+// Every part of a build with its one state (engine/kindstate.mjs): what it is (site, app, game, film), the
+// website's state above, and the app's, the game's and the film's, read from the events and this server's own
+// jobs. It travels with the website's state, as `parts`: on the stream (`build:state`, sent before an app or film
+// event that changes it: record, below), with a saved build (GET /api/runs/<id>/state), on every card
+// (/api/runs) and on the Overview's board.
+// what the run or its brief says it is, at its start: an app is an app before anything of it is built
+const pieceFor = (id, events) => { const s = events.find(e => e.type === 'run:start'); return s ? pieceKind({ piece: runMeta(id).piece, kind: s.kind, brief: s.brief, pages: events.filter(e => e.type === 'page').length, video: existsSync(join(runsDir, id, 'video', 'promo.mp4')) }) : null }
+const jobFacts = id => { const j = appsNow?.jobs?.get(id); return { working: j?.state === 'working', stage: j?.stage || '', film: videos.get(id) || null, alive: appAlive, self: process.pid } }
+const partsFor = (id, events, piece = pieceFor(id, events)) => kindState(events, { live: current?.id === id && !current.done, piece, ...jobFacts(id) })
+function sayParts(id, events = readEvents(id)) {
+  if (events) broadcast({ type: 'build:state', run: id, state: siteState(id, events), parts: partsFor(id, events) })
+}
 // the events that can change it: it is sent again only when it did, just before the event that changed it,
 // so the page already holds the state an end event (run:done, run:stopped) is said from. Never recorded:
 // it is read from the events, not one of them.
@@ -675,6 +688,8 @@ function record(id, event) {
   if (!existsSync(file)) return false
   if (!event.type.endsWith(':delta')) appendFileSync(file, JSON.stringify(event) + '\n')
   if (current?.id === id) current.events.push(event)
+  // an app's, a game's or a film's state changed: the pages hold it before the event it is said from
+  if (KIND_EVENTS.has(event.type)) sayParts(id)
   broadcast(event)
   return true
 }
@@ -840,6 +855,11 @@ function runCard(id) {
     } }
     // a website build's one state (engine/buildstate.mjs), at rest and while this server runs it
     card.site = { rest: buildState(events, { live: false }), live: buildState(events, { live: true }) }
+    // what it is, and its app's, game's and film's state at rest (engine/kindstate.mjs); `open`: a build left at
+    // its start, which is at work for as long as the Studio that drives it lives, so it is read again each time
+    card.piece = pieceFor(id, events)
+    card.parts = kindState(events, { piece: card.piece, alive: appAlive, self: process.pid })
+    card.open = events.findLast(e => ['app:start', 'app:done', 'app:failed', 'app:paused'].includes(e.type))?.type === 'app:start'
     cards.set(id, card)
   }
   const meta = runMeta(id)
@@ -861,6 +881,7 @@ function runCard(id) {
     progress: current?.id === id && !current.done ? Math.min(1, (current.events.filter(e => e.type === 'layer:done').length) / Math.max(1, current.events.filter(e => e.type === 'layer:plan').length || 12)) : null,
     work: workOf(id),
     buildState: current?.id === id && !current.done ? card.site.live : card.site.rest,
+    parts: card.open || appsNow?.jobs?.get(id)?.state === 'working' || videos.get(id)?.state === 'working' ? partsFor(id, readEvents(id) || [], card.piece) : card.parts,
     // the cover: its hero picture, else a snapshot of its first page (saved by the canvas), else a film frame
     cover: card.info.cover || snapsOf().cover(id) || snapOf(id) || (existsSync(join(runsDir, id, 'video', 'p1.webp')) ? `/video/${id}/live/p1.webp` : null),
   }
@@ -1175,6 +1196,8 @@ async function videoNow(id, input = {}) {
   const halt = stopSignal(id)
   const job = { state: 'working', pct: 0, stage: 'storyboard', t: Date.now() }
   videos.set(id, job)
+  // the film is being made from this moment (its video:start comes once its material is read): the pages are told
+  sayParts(id, events)
   const send = (type, data) => record(id, { type, t: Date.now(), run: id, ...data })
   const progress = (pct, stage) => {
     if (halt.aborted) return
@@ -3684,15 +3707,15 @@ ${researchBrief(seen)}`
   if (runBoard && req.method === 'GET') {
     const id = runBoard[1], events = readEvents(id)
     if (!events) return json(404, { error: 'no such build' })
-    const b = boardOf(id, events, runsDir, current?.id === id && !current.done, pictureTh)
+    const b = boardOf(id, events, runsDir, current?.id === id && !current.done, pictureTh, { piece: pieceFor(id, events), ...jobFacts(id) })
     // the game made from this site lives in its own run: it shows here, as part of this version
     const linked = events.findLast(e => e.type === 'game:linked' && e.game)
     if (!b.game && linked && RUN_ID.test(linked.game)) {
       const gev = readEvents(linked.game)
       if (gev) {
-        const g = boardOf(linked.game, gev, runsDir, false, pictureTh)
+        const g = boardOf(linked.game, gev, runsDir, false, pictureTh, { piece: 'game', ...jobFacts(linked.game) })
         const work = workOf(linked.game)
-        b.game = { ...(g.game || { title: linked.title || 'Game', cover: null }), run: linked.game, work }
+        b.game = { ...(g.game || { title: linked.title || 'Game', cover: null }), run: linked.game, work, part: g.parts.game }
         // no title screen yet: the site's key art stands in
         if (!b.game.cover) b.game.cover = b.pages.find(p => p.cover)?.cover || b.art?.[0]?.src || null
         if (work) b.busy = true
@@ -3789,13 +3812,14 @@ ${researchBrief(seen)}`
       json(200, { run: run.id, from: id })
     })
   }
-  // The one state of a website build, for the Design deck opening a saved build: { run, state } (state: null
-  // for an app, a game or a project brought in)
+  // The one state of a build, for a page opening a saved one: { run, state, parts }. state: the website build's
+  // (null for an app, a game or a project brought in); parts: what the build is and each part's own state
+  // (site, app or game, film: engine/kindstate.mjs)
   const runState = url.pathname.match(/^\/api\/runs\/([\w-]{1,64})\/state$/)
   if (runState && req.method === 'GET') {
     const id = runState[1], events = readEvents(id)
     if (!events) return json(404, { error: 'no such build' })
-    return json(200, { run: id, state: siteState(id, events) })
+    return json(200, { run: id, state: siteState(id, events), parts: partsFor(id, events) })
   }
   // Try again: a website build that failed, was halted or was cut off with nothing to resume from is built
   // afresh from its own words, in its project. Only where the build state names it (`next: 'again'`), and the

@@ -100,11 +100,16 @@ export function endWords(b) {
 /**
  * The App room's pill. Live: building, running, built… In a replay: Replay and how far, whatever the recording
  * is showing.
- * @param {{ replay?: boolean, at?: number, state?: string, url?: string | null, hasApp?: boolean, kind?: string }} o
+ * `part`: the server's one state of the app or the game (engine/kindstate.mjs, sent to the page as `parts`). With
+ * it the pill is made from that state, the same one the Projects card and the Overview read; without it (the
+ * hosted studio, a page not told yet) from the room's own job view, as before.
+ * @param {{ replay?: boolean, at?: number, state?: string, url?: string | null, hasApp?: boolean, kind?: string, part?: { state: string, hasApp?: boolean } | null }} o
  */
+const PART_AS = { designed: 'idle', building: 'working', waiting: 'paused', built: 'done', failed: 'failed', stopped: 'stopped' }
 export function appPill(o) {
   if (o.replay) return `${REPLAY_WORD} ${replayPct(o.at || 0)}`
-  const st = o.state
+  const st = o.part ? PART_AS[o.part.state] : o.state
+  if (o.part?.state === 'designed') return o.kind === 'game' ? 'no game yet' : 'no app yet'
   return st === 'working' ? 'building' : st === 'done' ? (o.url ? 'running' : 'built') : st === 'failed' ? 'failed' : st === 'stopped' ? 'stopped' : st === 'paused' ? 'your turn' : o.hasApp ? 'built' : o.kind === 'game' ? 'no game yet' : 'no app yet'
 }
 
