@@ -5,7 +5,7 @@
 //   POST /api/talk { kind, said }        -> { chat, turn }  a new chat and the planner's first turn
 //   GET  /api/talk/:id                   -> { chat, draft?, starts? }  draft: a game chat's plan as it stands;
 //                                           starts: a locked one's parts to work on next (startsOf)
-//   POST /api/talk/:id { said?, pick?, brief? }  -> { chat, turn, draft?, plan? }  pick is a chip's id ("art:2d", "talk",
+//   POST /api/talk/:id { said?, pick?, brief?, soft? }  -> { chat, turn, draft?, plan? }  pick is a chip's id ("art:2d", "talk",
 //                                           "lock", "do:paint"); plan: the plan an action changed (the board shows it)
 //   POST /api/talk/:id/lock              -> the same as the pick "lock"
 //   POST /api/talk/:id/unlock { key? }   -> { chat }
@@ -21,7 +21,7 @@ import { say, lock, unlock, planInput, draftOf, startsOf, wordsDecide, openQuest
 import { nextStep, planFacts, goWords, readPicks, pieces, lockLabel } from '../engine/gamestep.mjs'
 import { planView } from '../engine/plan.mjs'
 import { starterSpec } from '../engine/starters.mjs'
-import { pendingAsk } from '../engine/askfirst.mjs'
+import { pendingAsk, readAnswer } from '../engine/askfirst.mjs'
 
 // model() -> (messages -> text) or null; env() -> { godot }; plans.fromTalk(input, planId) -> plan view;
 // plans.act(id, sub, input) -> plan view (a Plan board action); godotCheck() looks for Godot 4 again -> boolean
@@ -47,7 +47,7 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
   }
   const turnOf = (id, input) => chats.update(id, async chat => {
     // the brief as the person left it in its box, when a pick on the brief answers the question before a build
-    if (chat.kind !== 'game' && typeof input.brief === 'string' && input.brief.trim() && String(input.pick || '').startsWith('go:') && pendingAsk(chat)) chat.ask = { ...(chat.ask || {}), brief: input.brief.trim().slice(0, 8000), at: Date.now() }
+    if (chat.kind !== 'game' && typeof input.brief === 'string' && input.brief.trim() && (String(input.pick || '').startsWith('go:') || input.soft === true) && pendingAsk(chat)) chat.ask = { ...(chat.ask || {}), brief: input.brief.trim().slice(0, 8000), at: Date.now() }
     const turn = await say(chat, { said: String(input.said || '').slice(0, 4000), pick: String(input.pick || '').slice(0, 120) }, { model: model(), env: env(), plan: planOf(chat), facts: chat.kind !== 'game' && facts ? await facts(chat) : null, helpers: helpers() ? { kit: helpers(), ctx: { project: chat.project || null, run: chat.run || null, plan: chat.plan || null, chat: chat.id } } : null })
     return { chat, turn }
   }).then(withDraft)
@@ -204,6 +204,9 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
       const chat = chats.get(m[1])
       if (!chat) return json(res, 404, { error: 'no such chat' })
       if (m[2] === 'lock' && chat.kind !== 'game') return json(res, 200, { chat: await chats.update(m[1], c => { lock(c, { env: env() }) }) })
+      // soft: words typed while a brief shows the question before a build as its answers. Only an answer ("skip
+      // all", "step by step", "build it") is taken; a question and anything else is for the talk, and nothing is written here
+      if (input.soft === true && chat.kind !== 'game') { const asked = pendingAsk(chat); if (!asked || /\?/.test(String(input.said || '')) || !readAnswer(String(input.said || ''), asked)) return json(res, 200, { chat, turn: null }) }
       const action = m[2] === 'lock' ? 'lock' : actionOf(chat, { said: String(input.said || ''), pick: String(input.pick || '') })
       if (action) return json(res, 200, withDraft(await actTurn(m[1], input, action)))
       json(res, 200, await turnOf(m[1], input))

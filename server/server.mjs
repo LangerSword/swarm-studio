@@ -43,7 +43,7 @@ import { canvasPage as sharedCanvasPage, webVersion as pageVersion, playBoot } f
 import { nextPage, nextVendor } from './next.mjs'
 import { makeProjects, stateOf, gameProgress } from './projects.mjs'
 import { buildState } from '../engine/buildstate.mjs'
-import { chatFacts, factsText, firstLine, nextStep, truthTurn } from '../engine/chatstep.mjs'
+import { chatFacts, checkSaid, factsText, firstLine, nextStep, truthTurn } from '../engine/chatstep.mjs'
 import { CHAT_ID } from '../engine/chats.mjs'
 import { askTurn, askedOf, askOptions, ASK_TEXT } from '../engine/askfirst.mjs'
 import { wordsRead } from '../engine/talkplan.mjs'
@@ -2144,6 +2144,9 @@ async function askBeforeBuild({ chatId, typed, pid }) {
   const turn = await chats.update(id, c => {
     c.turns ||= []
     const last = [...c.turns].reverse().find(t => t.who === 'planner')
+    // (a brief that carries the question, from a page that still sends its Build here: the question is that one,
+    // in the question's own words, and the brief built is the one sent now, as the person left it)
+    if (last && askedOf(last) && c.turns.at(-1) === last && last.brief) { c.ask = { brief: typed.slice(0, 8000), at: Date.now() }; return { ...last, text: ASK_TEXT } }
     if (last && askedOf(last) && c.turns.at(-1) === last) return last
     const lastPerson = [...c.turns].reverse().find(t => t.who === 'person')
     if (known && lastPerson?.text !== typed) c.turns.push({ id: `t${c.turns.length + 1}`, who: 'person', at: Date.now(), text: typed.slice(0, 8000), refs: [], marks: [], layers: [] })
@@ -3607,7 +3610,8 @@ ${researchBrief(seen)}`
         if (out.tool) {
           const got = out.tool.unknown ? { text: 'That is not something I can do from this chat.', cards: [] }
             : await helpers.run(out.tool.name, out.tool.args, { kind, project: inPid || (chats.get(input.chat)?.project ?? null), run: inRun, plan: null, chat: typeof input.chat === 'string' ? input.chat : null })
-          out.reply = [out.tool.say, got.text].filter(Boolean).join(' ') || 'Here is what I found.'
+          // (what she said before the tool ran is her own words, so it is checked like any answer)
+          out.reply = [truth && out.tool.say ? checkSaid(out.tool.say, truth).text : out.tool.say, got.text].filter(Boolean).join(' ') || 'Here is what I found.'
           cards = got.cards
           delete out.tool
         }

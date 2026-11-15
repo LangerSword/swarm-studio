@@ -134,7 +134,7 @@ const WORDS = [
 ]
 /**
  * The action a typed line asks for, or null: only a whole line that is the command, never a question, never
- * "don't build yet", and only an action the step offers now. "build it", "go", "do it" run its first action.
+ * "don't build yet", and only an action the step offers now.
  * @param {string} text  @param {Step} step
  */
 export function wordsAct(text, step) {
@@ -148,18 +148,37 @@ export function wordsAct(text, step) {
     if (id === 'do:app' && !/\bapp\b/.test(t) && step.options.find(x => x.id === id)?.label === 'Build the app') continue
     return id
   }
-  return readBuild(t) ? ids.find(i => i.startsWith('do:')) || null : null
+  // the button's own name, typed
+  const named = (step?.options || []).find(x => x.label.toLowerCase() === t.replace(/^please /, ''))
+  if (named) return named.id
+  if (!readBuild(t)) return null
+  // "build it", "make it": the app's build where that is the step, else the brief; never Resume or Try again,
+  // which a word that names another button must not press. "go", "do it", "go ahead": the step's first action.
+  if (/\b(build|make|generate|create)\b/.test(t)) return ids.includes('do:app') ? 'do:app' : ids.includes('do:brief') ? 'do:brief' : null
+  return ids.find(i => i.startsWith('do:')) || null
 }
 
-const STATE_ASK = /\b(how far|how(?:'s| is) (?:it|the (?:build|site|website|app)) (?:going|doing|coming)|what(?:'s| is|s) (?:going on|happening|built|done|left|the (?:state|status))|is (?:it|the (?:site|website|app|build)) (?:done|built|finished|ready|live|published|building|running)|(?:is|are) (?:all )?(?:the )?pages (?:done|built|finished|ready)|status|progress|where are we|did (?:it|the build) (?:finish|fail|work|stop))\b/
+const IT = '(?:it|this|that|the (?:build|site|website|app|project))'
+const STATE_ASK = new RegExp(`^(?:so |and |ok(?:ay)?,? |hey,? |hermia,? )*(?:` + [
+  `how far (?:along )?(?:is|are|did|has|have) (?:${IT}|we|you|the crew)(?: (?:along|now|got|gotten|come|get))?`,
+  `how(?:'s| is) ${IT} (?:going|doing|coming(?: along)?)`,
+  `what(?:'s| is|s) (?:going on|happening)(?: here| now| with ${IT})?`,
+  `what(?:'s| is|s) (?:built|done|left|finished)(?: so far| now| yet| here)?`,
+  `what(?:'s| is|s) the (?:state|status)(?: of ${IT})?`,
+  `is ${IT} (?:done|built|finished|ready|live|published|building|running)(?: yet| now)?`,
+  `(?:is|are) (?:all )?(?:the )?(?:pages|sections) (?:done|built|finished|ready)(?: yet| now)?`,
+  `did ${IT} (?:finish|fail|work|stop|build)`,
+  'status', 'progress', 'where are we(?: now| at)?'
+].join('|') + ')$')
 /**
- * Is this a question about how far things are? Then the state answers it, not the planner. Only with something
- * here to speak of.
+ * Is this a question about how far things are? Then the state answers it, not the planner. Only the whole line,
+ * about the build itself ("add a progress bar" and "how far down should the menu go?" are words for the planner),
+ * and only with something here to speak of.
  * @param {string} text  @param {ChatFacts} f
  */
 export function stateAsk(text, f) {
-  const t = tidy(text)
-  return !!(f.site || f.app) && t.length <= 90 && STATE_ASK.test(t)
+  const t = tidy(text).replace(/[?.!]+$/, '').trim()
+  return !!(f.site || f.app) && STATE_ASK.test(t)
 }
 
 // ---------- the planner's own words, checked against the facts
@@ -167,7 +186,7 @@ const NUMS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eig
 const N = `(\\d{1,3}|${Object.keys(NUMS).join('|')})`
 const num = (/** @type {string | undefined} */ w) => (w === undefined ? NaN : /^\d+$/.test(w) ? Number(w) : NUMS[/** @type {keyof typeof NUMS} */ (w.toLowerCase())] ?? NaN)
 // "is built", "are all finished", "has been published", "it's live", "has started"
-const BE = /\b(?:is|are|was|were|it['’]s|that['’]s|they['’]re|has been|have been|has|have|got)\s+(?:(?:all|now|already|fully|just|been|still|currently)\s+)*(built|finished|done|complete|completed|ready|live|online|published|deployed|launched|locked|started|underway|under way|running|building|in progress)\b/gi
+const BE = /\b(?:is|are|was|were|it['’]s|that['’]s|they['’]re|has been|have been|has|have|got)\s+(?:(?:all|now|already|fully|just|been|still|currently)\s+)*(built|finished|done|complete|completed|ready|live|online|published|deployed|launched|locked|started|underway|under way|running|building|in progress)\b(?!\s+(?:to|for|when|if|as)\b)/gi
 // "I built", "we've published", "the crew has started", "I'm building"
 const DID = /\b(?:i|we|the crew|they|hermia)(?:['’]ve|['’]m|['’]re|\s+have|\s+has|\s+am|\s+are|\s+is|\s+just|\s+already|\s+now)*\s+(built|finished|completed|published|deployed|launched|started|locked|building|publishing|deploying|starting)\b/gi
 // what comes just before makes it no claim: "once it is built", "when all 3 pages are built", "it is not built"
@@ -175,8 +194,10 @@ const UNSAID = /\b(once|when|whenever|if|after|until|before|unless|whether|as so
 // a second state hung on the first: "is finished and live", "is built, published and locked"
 const AND = /(?:\band|,)\s+(?:(?:is|are|now|already|also)\s+)*(built|finished|done|live|online|published|deployed|launched|locked|started|running)\b/gi
 const KIND = { built: 'built', finished: 'built', done: 'built', complete: 'built', completed: 'built', ready: 'built', live: 'published', online: 'published', published: 'published', deployed: 'published', launched: 'published', publishing: 'published', deploying: 'published', locked: 'locked' }
-// what a "built" or "started" sentence has to be about, to be a claim about the build ("the brief is ready" is not)
-const ABOUT = /\b(site|website|app|pages?|sections?|screens?|build|project|prototype|it|it['’]s|everything|all|they|they['’]re|that['’]s|i|we|crew)\b/i
+// what the verb's own subject has to be, to be a claim about the build: the words just before it ("the brief is
+// ready", "I think that part is done" and "many shops like yours are online" are not about it)
+const ABOUT = /\b(site|website|app|pages?|sections?|screens?|build|project|prototype|it|everything|all|they)\b/i
+const subjectOf = (/** @type {string} */ s, /** @type {RegExpMatchArray} */ m) => `${s.slice(0, m.index).split(/[,;:]/).at(-1)?.split(/\s+/).slice(-6).join(' ') || ''} ${m[0].split(/\s+/)[0]}`
 const COUNT = new RegExp(`\\b${N}\\s+(?:of\\s+(?:the\\s+)?${N}\\s+)?(pages?|sections?|screens?)\\b`, 'i')
 const HAS = new RegExp(`\\b(?:site|website|project|app|it)\\s+(?:now\\s+)?(?:has|have)\\s+(?:now\\s+|only\\s+|exactly\\s+)?${N}\\s+(pages?|screens?)\\b`, 'i')
 const NOTHING = /\b(nothing|no pages?|not anything)\b[^.!?]{0,30}\b(built|made|exists?|here|started)\b/i
@@ -188,7 +209,8 @@ function claimsIn(s) {
   for (const re of [BE, DID]) for (const m of s.matchAll(re)) {
     if (UNSAID.test(s.slice(0, m.index))) continue
     const kind = KIND[/** @type {keyof typeof KIND} */ (m[1].toLowerCase())] || 'running'
-    if ((kind === 'built' || kind === 'running') && !ABOUT.test(s)) continue
+    // "I built", "the crew has started" name who did it; "is built" has to be said of the build ("is locked" of anything)
+    if (re === BE && kind !== 'locked' && !ABOUT.test(subjectOf(s, m))) continue
     out.add(kind)
   }
   if (out.size) for (const m of s.matchAll(AND)) out.add(KIND[/** @type {keyof typeof KIND} */ (m[1].toLowerCase())] || 'running')

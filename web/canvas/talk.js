@@ -18,7 +18,8 @@ import { chatCards, chatCardsLine } from '../chatcards.js'
 // The talk is kept in a chat (spec 29, engine/chats.mjs): the server makes it on the first turn and
 // answers with its id; an old chat opened from Studio home or a project's chats comes back here.
 // ask: the chat's skip question before a website's build is open (decision 0020): words and picks answer it
-export const talk = { on: false, busy: false, said: [], kind: 'site', build: null, dock: null, chat: null, from: null, plan: null, ask: false }
+// briefAsk: a brief on screen carries that question as its own answers: its text box (typed answers reach it too)
+export const talk = { on: false, busy: false, said: [], kind: 'site', build: null, dock: null, chat: null, from: null, plan: null, ask: false, briefAsk: null }
 // while talking, the dock sends to Hermia: its button says Send, not the mode's word (web/chatmode.js
 // writes the button: the mode can change while a talk is open)
 function talkDock(on) {
@@ -35,7 +36,7 @@ export const readTalk = (text, answerTo = '', kind = 'site') => api('/api/discus
 // web/scaffold.js, decision 0020): those words are Hermia's reply, and the planner is not asked
 export function talkStart({ text = '', kind = 'site', build, blank = false, said = [], chat = null, from = null, brief = '', what = '', sheet = false, heard = null }) {
   if (blank) { setViewing('new'); fresh(null) }
-  Object.assign(talk, { on: true, busy: false, said: [], kind, build, chat, from, plan: null, heard, ask: false })
+  Object.assign(talk, { on: true, busy: false, said: [], kind, build, chat, from, plan: null, heard, ask: false, briefAsk: null })
   talkDock(true)
   els.feed.querySelector('.empty-chat')?.remove()
   let last = null
@@ -115,10 +116,18 @@ async function stepRun(id, step, label = '') {
 export const saidOf = chat => (chat?.turns || []).filter(t => t.who !== 'crew').map(t => ({ who: t.who === 'planner' ? 'hermia' : 'you', text: t.text, ...(t.cards?.length ? { cards: t.cards, turn: t.id } : {}) }))
 // what a tool Hermia used found (decision 0025 e): its cards under her message; a press answers as her next one
 const talkCards = (/** @type {HTMLElement} */ item, /** @type {any[]} */ cards, /** @type {string | null} */ turn) => chatCards(item, { cards, chat: talk.chat, turn, base: BASE, api, said: text => { talk.said.push({ who: 'hermia', text }); botMsg(text) } })
-export const talkEnd = () => { talk.on = false; talk.busy = false; talkDock(false); els.feed.querySelectorAll('.talk-acts').forEach(x => x.remove()) }
+export const talkEnd = () => { talk.on = false; talk.busy = false; talk.briefAsk = null; talkDock(false); els.feed.querySelectorAll('.talk-acts').forEach(x => x.remove()) }
 export async function talkSay(text, brief = false) {
   if (talk.kind === 'game') return gameSay({ said: text })
   if (talk.ask && !brief) return goSay({ said: text })
+  // a brief with the question's answers on it: typed "skip all", "step by step" or "build it" answers it as a
+  // press does (decision 0020); anything else is for Hermia, as before
+  if (talk.briefAsk && !brief) {
+    const box = talk.briefAsk
+    if (talk.chat && box.value.trim() && await goSay({ said: text, brief: box.value.trim(), soft: true })) { box.disabled = true; return }
+    talk.briefAsk = null
+    if (!talk.on) return
+  }
   const media = brief ? [] : links.take('ref')
   // layers dragged in (the Studio scaffold's Layers, web/layers.js): the planner is told what the turn is about
   const about = brief ? [] : links.take('layer')
@@ -182,24 +191,33 @@ function askActs(item, turn) {
   item.append(acts)
 }
 // brief: the brief as it stands in its box, when the pick was made on the brief itself
-async function goSay({ said = '', pick = '', label = '', brief = '' }) {
-  if (talk.busy || !talk.chat) return
+// soft: typed words that may or may not answer the brief's question: nothing shows until the server says they do
+// -> true when the words (or the pick) were taken
+async function goSay({ said = '', pick = '', label = '', brief = '', soft = false }) {
+  if (talk.busy || !talk.chat) return false
   const text = said || label
-  if (text) { talk.said.push({ who: 'you', text }); feed(null, text, 'you') }
-  els.feed.querySelectorAll('.talk-acts').forEach(x => x.remove())
-  const wait = botMsg('…', true)
+  const show = () => {
+    if (text) { talk.said.push({ who: 'you', text }); feed(null, text, 'you') }
+    els.feed.querySelectorAll('.talk-acts').forEach(x => x.remove())
+    return botMsg('…', true)
+  }
+  let wait = soft ? null : show()
   talk.busy = true
   try {
-    const j = await talkPost(`/api/talk/${encodeURIComponent(talk.chat)}`, { said, pick, ...(brief ? { brief } : {}) })
-    if (!talk.on) return
+    const j = await talkPost(`/api/talk/${encodeURIComponent(talk.chat)}`, { said, pick, ...(brief ? { brief } : {}), ...(soft ? { soft: true } : {}) })
+    if (!talk.on) return true
+    if (soft && !j.turn) return false
+    if (soft) wait = show()
+    talk.briefAsk = null
     const turn = j.turn || {}
     talk.said.push({ who: 'hermia', text: turn.text })
     const item = botMsg(turn.text)
     talk.ask = isAsk(turn)
-    if (talk.ask) return askActs(item, turn)
-    if (turn.go) return goOn(turn.go, j.chat?.id || talk.chat)
+    if (talk.ask) { askActs(item, turn); return true }
+    if (turn.go) { goOn(turn.go, j.chat?.id || talk.chat); return true }
     talkActs(item)
-  } catch (err) { if (talk.on) botMsg(err.message || 'Hermia did not answer. Say it again.') } finally { talk.busy = false; wait.remove() }
+    return true
+  } catch (err) { if (soft) return false; if (talk.on) botMsg(err.message || 'Hermia did not answer. Say it again.'); return true } finally { talk.busy = false; wait?.remove() }
 }
 // the answer: build now (this chat's brief, answered), or the Studio walk from it with the skipped steps marked
 async function goOn(go, chat) {
@@ -362,6 +380,7 @@ function talkBrief(text, route = '', what = '', sheet = false, options = null) {
   item.insertAdjacentHTML('beforeend', `<textarea aria-label="The brief" rows="6" maxlength="4000"></textarea>${asksHtml}<div class="chips talk-acts">${acts}${sheetHtml}<button data-more>Keep talking</button></div>`)
   const box = item.querySelector('textarea')
   box.value = text
+  talk.briefAsk = asks ? box : null
   // @ts-ignore
   item.querySelectorAll('[data-pick]').forEach(b => { b.onclick = () => {
     const t = box.value.trim()
@@ -385,7 +404,7 @@ function talkBrief(text, route = '', what = '', sheet = false, options = null) {
     go?.(t, chat)
   } })
   // @ts-ignore
-  item.querySelector('[data-more]').onclick = () => { item.querySelectorAll('.talk-acts').forEach(x => x.remove()); els.brief.focus() }
+  item.querySelector('[data-more]').onclick = () => { talk.briefAsk = null; item.querySelectorAll('.talk-acts').forEach(x => x.remove()); els.brief.focus() }
   const sheetBtn = item.querySelector('[data-brand]')
   // @ts-ignore
   if (sheetBtn) sheetBtn.onclick = () => {

@@ -119,7 +119,9 @@ test('talk about what could be built is not a claim: questions, plans and condit
     'When all 3 pages are built, you can publish it.', 'The brief is ready when you are.', 'It is not built yet.',
     'A booking form can be built with a plain email.', 'Do you want it live on your own domain?', 'I would add a page for team orders.',
     'If the site is published under your own name, people trust it more.', 'Is the shop already running, or about to open?',
-    'Your shop has been running for ten years, so say so.', 'Payments are best done by a provider like Stripe.', 'Press Build and the crew will start.'
+    'Your shop has been running for ten years, so say so.', 'Payments are best done by a provider like Stripe.', 'Press Build and the crew will start.',
+    'I think that part is done.', 'Many shops like yours are online already.', 'It is ready to use out of the box.', 'The booking form is done in one step.',
+    'Most of your customers are already online, and the menu is ready for them.', 'Stripe is live in most countries.'
   ]
   for (const f of Object.values(F)) for (const line of TALK) assert.deepEqual(checkSaid(line, f).cut, [], `${line} (${stateLine(f)})`)
 })
@@ -145,7 +147,9 @@ test('the next step is the state\'s: Resume, Try again, Build the app, or the br
 
 test('typed words do what the buttons do, and a question never does', () => {
   const act = (w, f) => wordsAct(w, nextStep(f))
-  for (const w of ['resume', 'Resume it', 'go on', 'continue', 'keep going', 'please resume the build', 'build it', 'go', 'do it']) assert.equal(act(w, F.partly), 'do:resume', w)
+  for (const w of ['resume', 'Resume', 'Resume it', 'go on', 'continue', 'keep going', 'please resume the build', 'go', 'do it']) assert.equal(act(w, F.partly), 'do:resume', w)
+  // a word that names the other button never presses this one: "build" on a partly built site is Build, not Resume
+  for (const w of ['build', 'Build', 'build it', 'make it']) { assert.equal(act(w, F.partly), 'do:brief', w); assert.equal(act(w, F.failed), 'do:brief', w) }
   for (const w of ['try again', 'retry', 'Try it again.', 'again', 'go']) assert.equal(act(w, F.failed), 'do:again', w)
   for (const w of ['build the app', 'Build the app!', 'make the app', 'please build the app now', 'turn this into an app', 'build it', 'go']) assert.equal(act(w, F.appDesigned), 'do:app', w)
   for (const w of ['build it', 'build', 'go ahead', "let's build", 'make it']) assert.equal(act(w, F.done), 'do:brief', w)
@@ -174,7 +178,11 @@ test('a question about how far things are is answered by the state, and the plan
       assert.equal(out.by, 'state')
     }
   }
-  for (const q of ['What should the booking form ask?', 'Could a company order for a whole team?', 'how far should the menu go down the page, and what about the progress bar on the order form that customers keep asking us about?']) assert.equal(stateAsk(q, F.done), false, q)
+  // words for the planner, however short: only a whole line about the build itself is a state question
+  for (const q of ['What should the booking form ask?', 'Could a company order for a whole team?', 'Add a progress bar to the order form', 'How far down should the menu go?', 'show the order status on the page', "what's left to decide about the menu?", 'is it done the way shops usually do it?', 'What is built into the booking form?', 'is the site live chat a good idea?', 'progress bars, yes or no?']) {
+    assert.equal(stateAsk(q, F.done), false, q)
+    assert.equal(stateAsk(q, F.partly), false, q)
+  }
   // Ask mode: the same answers, and no action is read from the words
   const ask = await truthTurn({ text: 'resume', facts: F.partly, ask: true, plan: async () => ({ reply: 'Press Resume under the build.' }) })
   assert.equal(ask.act, undefined)
@@ -251,4 +259,19 @@ test('one confirmation: an answer pressed on the brief builds from the brief as 
     assert.equal(j.chat.go.path, 'all')
     assert.equal(s.calls.length, 0, 'the answer needs no model')
   } finally { s.close() }
+  // a typed answer on the brief works the same (decision 0020); words that are not an answer are left for the talk
+  const t = await studio({ facts: F.nothing, model: async () => 'x' })
+  try {
+    const chat = t.chats.create({ kind: 'site', text: 'A site for my bike repair shop' })
+    const brief = 'A website for a bike repair shop in Leeds.'
+    await t.chats.update(chat.id, c => { c.ask = { brief, at: 1 }; c.turns.push({ ...askTurn(`t${c.turns.length + 1}`, brief), text: brief, brief: true }) })
+    for (const words of ['make the look calmer', 'what does step by step mean?', 'resume']) {
+      const j = await t.post(`/${chat.id}`, { said: words, brief, soft: true })
+      assert.equal(j.turn, null, words)
+    }
+    assert.equal(t.chats.get(chat.id).turns.length, 2, 'nothing was written for words that are not an answer')
+    const j = await t.post(`/${chat.id}`, { said: 'step by step', brief: `${brief} One shop.`, soft: true })
+    assert.deepEqual(j.turn.go, { path: 'steps', skip: [], brief: `${brief} One shop.` })
+    assert.equal(t.calls.length, 0)
+  } finally { t.close() }
 })

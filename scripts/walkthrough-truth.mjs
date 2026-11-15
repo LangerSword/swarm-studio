@@ -19,6 +19,7 @@ const posted = (page, re, timeout) => page.waitForResponse(r => re.test(new URL(
 
 // the planner that lies: whatever is asked, it says the site is built and live (the talk and Ask mode both)
 const LIE = 'Good news: all 3 pages are built and the site is live. Should the booking form ask for a phone number?'
+const BRIEF = 'A website for a bike repair shop in Leeds, for local riders. Pages: Home with the services and prices, Book a repair, Find us. One shop. Calm, plain look. Leave out a shop and accounts.'
 const sysOf = ask => String(ask.messages?.[0]?.content || '')
 function liar(ctl) {
   return async ask => {
@@ -26,6 +27,7 @@ function liar(ctl) {
     // a message typed into a project's dock is read first: a question is a talk, the rest a build
     if (/^A person typed this into the box/.test(s)) return /\?\s*$/.test(String(ask.messages?.at(-1)?.content || '')) ? 'talk' : 'build'
     if (/^You are Hermia, the planner/.test(s)) { ctl.talks++; return LIE }
+    if (/^Write the brief a crew/.test(s)) return BRIEF
     return null
   }
 }
@@ -112,5 +114,36 @@ export const TRUTH_STEPS = [
     if (await went) throw new Error('a question started the app build')
     await seen(env.page, /The app is not built yet\. Say “build the app” to build it/)
     await toEnd(env.page)
+  }, settle: 900 },
+  { id: 't-brief-reopen', flow: TRUTH, title: 'A new website’s brief, left and opened again from Chats: it comes back as the brief (not as the person’s own message), with the question’s three answers on it', run: async env => {
+    const s = await truthStudio(env)
+    const chats = async () => {
+      await env.page.goto(`${s.BASE}/`)
+      await vis(env.page, '.home', 15000)
+      if (await env.page.locator('.hm-burger').first().isVisible().catch(() => false)) await env.page.locator('.hm-burger').first().click()
+      await env.page.locator('.hm-nav [data-v="chats"]').first().click()
+    }
+    await chats()
+    await env.page.locator('.chat-row.chat-new').first().click()
+    await send(env, 'A site for my bike repair shop in Leeds')
+    await env.page.locator('#feed .talk-acts button', { hasText: 'Build' }).last().click({ timeout: 15000 })
+    await vis(env.page, '.talk-brief [data-pick^="go:"]', 15000)
+    await chats()
+    await env.page.locator('.chat-row:not(.chat-new)').first().click()
+    await vis(env.page, '.talk-brief textarea', 15000)
+    const n = await env.page.locator('.talk-brief [data-pick^="go:"]').count()
+    if (n !== 3) throw new Error(`the brief opened again shows ${n} answers, not 3`)
+    if ((await env.page.locator('.talk-brief textarea').inputValue()) !== BRIEF) throw new Error('the brief opened again is not the brief that was written')
+    if (/Before I build/.test(await feedText(env.page))) throw new Error('the question is asked as a second message')
+    await toEnd(env.page)
+  }, settle: 900 },
+  { id: 't-brief-typed', flow: TRUTH, title: '"skip all" typed under that brief: the same as pressing Skip all, build now; the server starts the build with no second question', run: async env => {
+    await truthStudio(env)
+    const went = posted(env.page, /\/api\/run$/, 15000)
+    await send(env, 'skip all')
+    const res = await went
+    if (!res) throw new Error('"skip all" typed under the brief asked for no build')
+    if (res.status() !== 200) throw new Error(`the build was not started: POST /api/run answered ${res.status()}`)
+    await env.wait(2500)
   }, settle: 900, after: endTruth }
 ]
