@@ -13,8 +13,11 @@ drives it, what the person connects, the limits, and the sources for every claim
 - If the page doesn't cover it, say "not documented, unchecked", check the engine's own code or docs, and add
   what you found to the page with its source.
 - Never build something an engine already does. Swarm hands the engine the brief; it doesn't redo its work.
-- CI (`engine-docs`) fails a PR that changes an engine's glue code (the files on its page's `Glue:` line)
-  unless the PR updates that page or names it in the description ("Read docs/engines/dyad.md").
+- CI (`engine-docs`) fails a PR that changes an engine's glue code (what its page's `Glue:` line names)
+  unless the PR updates that page or names it in the description ("Read docs/engines/dyad.md"). A file several
+  engines share names a part (`server/server.mjs#meshy`): the lines between `// engine: meshy` and
+  `// end engine: meshy`, in as many blocks as it needs. Only a change whose lines fall inside a part owes its
+  page. Code you add for an engine to a shared file goes inside that engine's part, or in a new block of it.
 - A Claude Code hook (`.claude/settings.json`, `scripts/engine-docs-hook.mjs`) adds "read docs/engines/…"
   to any message that names an engine.
 

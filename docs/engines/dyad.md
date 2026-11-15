@@ -1,6 +1,6 @@
 # Dyad
 
-Glue: engine/appbuild.mjs, engine/appjob.mjs, engine/export.mjs, engine/auto.mjs, engine/appkit.mjs, engine/systems.mjs, engine/advisor.mjs, engine/proc.mjs, engine/hermesllm.mjs
+Glue: engine/appbuild.mjs, engine/appjob.mjs, engine/export.mjs, engine/auto.mjs, engine/appkit.mjs, engine/systems.mjs, engine/advisor.mjs, engine/proc.mjs, engine/hermesllm.mjs, server/server.mjs#dyad
 Status: built in
 
 Dyad is a local AI app builder (dyad/README.md:3). Swarm vendors its agent engine in `dyad/`, copied from the owner's ABA fork (commit `8dd2d7a`), which adds a headless runner in `dyad/src/aba/` (dyad/SWARM.md:3-7). Licence: Apache-2.0 outside `src/pro/`, FSL-1.1-ALv2 inside it (dyad/README.md:33-34, dyad/LICENSE:1-3, dyad/src/pro/LICENSE:1-5). The agent tools below all live in `src/pro/` (dyad/src/pro/main/ipc/handlers/local_agent/tool_definitions.ts:150-209).

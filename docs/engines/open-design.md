@@ -1,6 +1,6 @@
 # Open Design
 
-Glue: engine/brandpacks.mjs, engine/brand.mjs, engine/odlibrary.mjs, scripts/import-od-library.mjs, engine/prompts.mjs, engine/lint/index.mjs, engine/lint/artifact.mjs, engine/deck.mjs, engine/handedit.mjs, web/edit/patches.js, web/project.js, server/deck.mjs, web/kit-deck.js, scripts/import-od-systems.mjs, scripts/import-od-decks.mjs
+Glue: engine/brandpacks.mjs, engine/brand.mjs, engine/odlibrary.mjs, scripts/import-od-library.mjs, engine/prompts.mjs, engine/lint/index.mjs, engine/lint/artifact.mjs, engine/deck.mjs, engine/handedit.mjs, web/edit/patches.js, web/project.js, server/deck.mjs, web/kit-deck.js, scripts/import-od-systems.mjs, scripts/import-od-decks.mjs, server/server.mjs#open-design
 Status: built in
 
 Open Design is a whole design app (daemon, CLI, MCP, Electron desktop) at https://github.com/nexu-io/open-design, Apache-2.0 (engine/opendesign/NOTICE:4-8). Swarm does not run it. Swarm ships copies of its data and one ported file, pinned to commits, with licences beside them (docs/specs/35-open-design.md:227-237). Its editing tools (Edit, Comment, Tweaks, Draw) are decided but not yet brought in (docs/decisions/0010-open-design-tools.md:14-19, docs/PLANS.md:84-90).
