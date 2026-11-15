@@ -97,6 +97,9 @@ export function endWords(b) {
   return total ? join('Stopped.', count, b.next === 'resume' ? 'Say what to change, or Resume.' : 'Say what to change.') : 'Stopped before any page was planned.'
 }
 
+// the one state's names (engine/kindstate.mjs) as the room's own job view names them
+/** @type {Record<string, string>} */
+const PART_AS = { designed: 'idle', building: 'working', waiting: 'paused', built: 'done', failed: 'failed', stopped: 'stopped' }
 /**
  * The App room's pill. Live: building, running, built… In a replay: Replay and how far, whatever the recording
  * is showing.
@@ -105,7 +108,6 @@ export function endWords(b) {
  * hosted studio, a page not told yet) from the room's own job view, as before.
  * @param {{ replay?: boolean, at?: number, state?: string, url?: string | null, hasApp?: boolean, kind?: string, part?: { state: string, hasApp?: boolean } | null }} o
  */
-const PART_AS = { designed: 'idle', building: 'working', waiting: 'paused', built: 'done', failed: 'failed', stopped: 'stopped' }
 export function appPill(o) {
   if (o.replay) return `${REPLAY_WORD} ${replayPct(o.at || 0)}`
   const st = o.part ? PART_AS[o.part.state] : o.state

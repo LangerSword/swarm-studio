@@ -89,7 +89,7 @@ function filmPart(run = video.run) {
   if (!f || run !== video.run) return
   if (f.state === 'making') { if (!video.busy) Object.assign(video, { busy: true, pct: f.pct || 0, stage: f.stage || 'storyboard', message: '', heard: Date.now() }) }
   else if (f.state === 'failed' || f.state === 'stopped') { if (video.busy || !video.message) Object.assign(video, { busy: false, stage: 'failed', message: f.reason?.message || 'stopped' }) }
-  else if (video.busy && f.state === 'done' && !video.src) return void toggleVideoRead(run)
+  else if (video.busy && f.state === 'done') return void toggleVideoRead(run)
   renderVideo()
 }
 partsHooks.add(filmPart)
