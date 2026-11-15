@@ -24,9 +24,10 @@ tooltips, targets under 40 px (44 on touch), blue, purple or green in the chrome
 rest, sideways scroll, and (in the runner) controls found only by hovering. Names are axe's now; the audit's own
 `unnamed` count is gone.
 
-**Target size stays with the hand audit.** axe's `target-size` rule can be given a larger size, but it passes a
-small target that has room around it, and skips a link in a line of text. The house rule has neither exception, so
-`small` is the source of truth and axe's rule is off here.
+**Target size stays with the hand audit.** axe's `target-size` rule defaults to 24 px, passes a small target that
+has room around it, and `@axe-core/playwright` 4.14 has no way to reconfigure a rule's checks (no `configure`). The
+house rule is 40 px (44 on touch) with no such exception, so `small` is the source of truth and axe's rule is off
+here.
 
 Where each rule lives:
 
@@ -58,11 +59,15 @@ A count may go down, never up.
 - The run exits 1 only when a step it captured has more of a failing kind than the baseline accepts. Each is
   printed as `NEW: <step> <kind> was → now`.
 - A step with no entry counts from nothing: a defect on a new step is new.
+- An axe rule is new on a step only when the step had none of it. Its node count is recorded and not held: a state
+  caught while a build runs shows one node more or less from run to run (`m-ov-tell-busy` did, in two runs of the
+  same code). So a second unnamed button on a screen that already has one is not caught by the exit code; the
+  board shows the count.
 - Only the steps of this run are compared, and only the ones reached.
 - A count that went down is printed as `fixed:`; `--update-baseline` keeps it down.
 - `--update-baseline` accepts what this run found for the steps it captured, and keeps the rest.
 
-The baseline committed with the checks covers the desk steps of the proof slice only. **The first full run must be
+The baseline committed with the checks covers the 31 desk steps of the proof slice only. **The first full run must be
 accepted once** (`--update-baseline`, then read the board and commit the file): until then every other step
 counts from nothing.
 

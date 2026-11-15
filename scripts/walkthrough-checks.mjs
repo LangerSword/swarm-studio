@@ -105,6 +105,8 @@ export function countsOf(shots) {
  * The ratchet: a count per kind per step may go down, never up. A step the baseline does not have counts from
  * nothing, so a defect on a new step is new. Only the steps given are compared (a run of a few steps says
  * nothing of the rest), and only the kinds that gate (KINDS[...].gate): waits and layout shift are reported.
+ * An axe rule is new on a step only when the step had none of it: a state caught while a build runs shows one
+ * node more or less from run to run, so its node count is recorded and not held.
  * @param {{ steps?: Record<string, Record<string, number>> } | null} baseline  @param {any[]} shots
  * @returns {{ fresh: { step: string, key: string, was: number, now: number, text: string }[], fixed: { step: string, key: string, was: number, now: number }[] }}
  */
@@ -113,8 +115,8 @@ export function ratchet(baseline, shots) {
   for (const s of shots) {
     if (!s.reached) continue
     const step = stepKey(s), was = base[step] || {}, found = defectsOf(s)
-    for (const d of found) if (KINDS[d.kind]?.gate && d.count > (was[d.key] || 0)) fresh.push({ step, key: d.key, was: was[d.key] || 0, now: d.count, text: d.text })
-    for (const [key, n] of Object.entries(was)) { const now = found.find(d => d.key === key)?.count || 0; if (now < n) fixed.push({ step, key, was: n, now }) }
+    for (const d of found) if (KINDS[d.kind]?.gate && (d.kind === 'axe' ? !was[d.key] : d.count > (was[d.key] || 0))) fresh.push({ step, key: d.key, was: was[d.key] || 0, now: d.count, text: d.text })
+    for (const [key, n] of Object.entries(was)) { const now = found.find(d => d.key === key)?.count || 0; if (key.startsWith('axe:') ? !now : now < n) fixed.push({ step, key, was: n, now }) }
   }
   return { fresh, fixed }
 }

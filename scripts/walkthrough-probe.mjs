@@ -30,19 +30,22 @@ const INIT = `(() => {
   const start = () => new MutationObserver(l => { w.muts += l.length }).observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true })
   if (document.documentElement) start(); else document.addEventListener('readystatechange', start, { once: true })
   addEventListener('click', e => { const r = e.target?.getBoundingClientRect?.(); w.click = r ? [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)] : null }, true)
-  for (const t of ['scroll', 'focusin', 'input', 'change', 'toggle']) addEventListener(t, () => { w.muts++ }, true)
+  // (focus landing on the control that was pressed is not an answer, so it is not counted)
+  for (const t of ['scroll', 'input', 'change', 'toggle']) addEventListener(t, () => { w.muts++ }, true)
 })()`
 
 export async function watch(ctx, page) {
   await ctx.addInitScript(INIT)
   const st = page.__walk = { open: new Map(), started: 0, acts: [], watched: 0 }
   page.on('request', r => {
+    // a new page: what the last one was waiting for went with it
+    if (r.isNavigationRequest() && r.frame() === page.mainFrame()) st.open.clear()
     if (!['fetch', 'xhr'].includes(r.resourceType())) return
     let path = ''
     try { path = new URL(r.url()).pathname } catch {}
     if (QUIET.test(path)) return
     st.started++
-    st.open.set(r, { path, t: Date.now() })
+    st.open.set(r, { path, t: Date.now(), asks: r.method() !== 'GET' })
   })
   const end = r => st.open.delete(r)
   page.on('requestfinished', end)
@@ -144,8 +147,9 @@ export async function afterStep(page, { audit } = {}) {
     out.acts = st.watched
     out.dead = st.acts.filter(a => a.dead).map(({ name, box }) => ({ name, box }))
     out.wait = st.acts.flatMap(a => a.wait || [])
-    // what is still on its way now, a second or more after it was asked for, with nothing saying so
-    const slow = [...st.open.values()].filter(r => Date.now() - r.t >= SLOW)
+    // what the person asked for (a POST, not what the page fetches for itself in the background) and is still
+    // on its way now, a second or more later, with nothing saying so
+    const slow = [...st.open.values()].filter(r => r.asks && Date.now() - r.t >= SLOW)
     if (slow.length && !(await busyShown(page))) out.wait.push(...slow.map(r => ({ path: r.path, ms: Date.now() - r.t, during: 'step' })))
   }
   if (Object.keys(errors).length) out.errors = errors

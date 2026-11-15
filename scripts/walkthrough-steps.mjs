@@ -70,8 +70,8 @@ export const STEPS = [
   { id: 'ideas', flow: 'Make', title: 'The lightbulb', run: async env => { await open(env); await click(env.page, '.hm-ideas'); await vis(env.page, '.hm-pop.show') } },
   { id: 'make-empty', flow: 'Make', title: 'Make with nothing typed', run: async env => { await open(env); await click(env.page, '.hm-make') } },
   // Make opens its menu (Just make it · Studio) before anything starts: with no Hermes, Just make it is pressed
-  // and the step shows what a person is then told, in a toast or in the chat
-  { id: 'no-hermes', flow: 'Make', title: 'Make with no Hermes: Just make it', run: async env => { await noHermes(env); await makeText(env, 'A site for a bike repair shop', 'site'); await click(env.page, '.hm-menu [data-k="now"]'); await vis(env.page, '.hm-toast, #feed .item', 15000) }, settle: 1500, after: endNoHermes },
+  // and the step shows the line a person is then told it in, with Check again (web/hermesline.js)
+  { id: 'no-hermes', flow: 'Make', title: 'Make with no Hermes: Just make it', run: async env => { await noHermes(env); await makeText(env, 'A site for a bike repair shop', 'site'); await click(env.page, '.hm-menu [data-k="now"]'); await vis(env.page, '.hm-off', 15000) }, settle: 800, after: endNoHermes },
   { id: 'studio-first', retired: 'the "Studio first or Build now" popup is gone: Make opens the menu m-make-menu-site shows' },
   { id: 'thorough', retired: 'the popup’s Thorough questions are gone with it: m-step-by-step opens the Studio, m-pick-steps the steps' },
   { id: 'build-now', retired: 'Build now is Just make it: m-ask-first' },

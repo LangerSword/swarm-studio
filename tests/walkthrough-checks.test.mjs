@@ -88,6 +88,14 @@ test('the ratchet: a count may go down, never up; a step with no entry counts fr
   assert.deepEqual(ratchet(base, [{ ...two, reached: false }]), { fresh: [], fixed: [] })
 })
 
+test('an axe rule is new on a step that had none of it; one node more of a rule it had is not', () => {
+  const ax = n => shot('a', { axe: { violations: [{ id: 'label', impact: 'critical', help: 'Labels', count: n, nodes: [] }] } })
+  const base = accept(null, [ax(1)])
+  assert.deepEqual(ratchet(base, [ax(2)]), { fresh: [], fixed: [] })
+  assert.equal(ratchet(base, [shot('a', { axe: { violations: [{ id: 'button-name', impact: 'critical', help: 'Names', count: 1, nodes: [] }] } })]).fresh[0].key, 'axe:button-name')
+  assert.deepEqual(ratchet(base, [shot('a')]).fixed.map(f => f.key), ['axe:label'])
+})
+
 test('waits and layout shift are reported and never gate; the phone and the desk are counted apart', () => {
   const s = shot('a', { checks: { wait: [{ path: '/api/x', ms: 2000, during: 'step' }], shift: 0.4 } })
   assert.deepEqual(ratchet(null, [s]).fresh, [])
