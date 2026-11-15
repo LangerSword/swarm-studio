@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { card, roster, is3d, sprites, CLOSEUP_RULE } from './plan.mjs'
 import { systemsAsk } from './systems.mjs'
 import { keyFor, keyGround } from './keycolor.mjs'
+import { planRefFiles, planRefs, planRefLines } from './planrefs.mjs'
 
 const clean = (v, n = 300) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n)
 const fail = (msg, status = 400) => Object.assign(new Error(msg), { status })
@@ -86,7 +87,8 @@ export function mockPrompt(plan, shot) {
     'A clean, readable HUD. It should look like a real shipped game.'
   ].filter(Boolean).join(' ')
 }
-const sheetRefs = (plan, dir) => (plan.sheets || []).filter(s => s.state === 'done' && s.file && s.picks?.length).map(s => join(dir, s.file))
+// the picked sheets, and the owner's own art references dropped on the board (engine/planrefs.mjs), treated alike
+const sheetRefs = (plan, dir) => [...(plan.sheets || []).filter(s => s.state === 'done' && s.file && s.picks?.length).map(s => join(dir, s.file)), ...planRefFiles(plan, dir)].slice(0, 6)
 export function addMocks(plan, dir, shots = shotsOf(plan).map(s => s[0])) {
   plan.mocks ||= []
   if (plan.mocks.some(m => m.state === 'painting')) throw fail('the mocks are being drawn', 409)
@@ -108,7 +110,7 @@ export function lockStyle(plan, locked = true) {
   if (locked) {
     plan.style.name = clean(look?.body.style) || plan.style.name
     plan.style.picks = (plan.sheets || []).filter(s => s.picks?.length).map(s => `${s.kind} ${s.picks.map(c => `${c + 1}${s.notes?.[c] ? ` (${clean(s.notes[c], 40)})` : ''}`).join(', ')}`).join('; ')
-    plan.style.refs = (plan.sheets || []).filter(s => s.src && s.picks?.length).map(s => s.src)
+    plan.style.refs = [...(plan.sheets || []).filter(s => s.src && s.picks?.length).map(s => s.src), ...planRefs(plan).filter(r => !r.asIs).map(r => r.src)]
   }
   plan.style.locked = !!locked
   if (look) look.body.locked = locked ? 'yes' : 'no'
@@ -293,5 +295,5 @@ export function gameBrief(plan) {
   const engine = plan.engine?.target === 'godot' ? 'Engine: Godot 4. Build it as a Godot 4 project (GDScript, scenes in res://), not a web page.' : plan.engine?.target && plan.engine.target !== 'web' ? `Engine asked for: ${plan.engine.label}.` : ''
   const sized = plan.shape ? `${plan.shape.size === 'normal' ? '' : `${plan.shape.size} `}${plan.shape.label}` : ''
   const kind = plan.shape ? `Kind: ${/^[aeiou]/i.test(sized) ? 'an' : 'a'} ${sized}, ${is3d(plan) ? '3D' : '2D'}, camera ${clean(plan.shape.view, 120).toLowerCase()}.` : ''
-  return [`Make the game "${clean(plan.title, 80)}"${plan.idea ? `: ${clean(plan.idea, 400)}` : ''}.`, [kind, engine].filter(Boolean).join('\n'), `The plan:\n${lines.join('\n')}`, systemsAsk(plan), artBrief(plan)].filter(Boolean).join('\n\n')
+  return [`Make the game "${clean(plan.title, 80)}"${plan.idea ? `: ${clean(plan.idea, 400)}` : ''}.`, [kind, engine].filter(Boolean).join('\n'), `The plan:\n${lines.join('\n')}`, systemsAsk(plan), artBrief(plan), planRefLines(plan)].filter(Boolean).join('\n\n')
 }

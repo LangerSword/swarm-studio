@@ -18,4 +18,8 @@ const url = (id: string, sub = '') => `/api/plans/${encodeURIComponent(id)}${sub
 export const getPlan = (id: string) => api<Plan>(url(id))
 export const post = (id: string, sub: string, body: unknown = {}) => api<Plan>(url(id, sub), { method: 'POST', body: JSON.stringify(body) })
 // the plan as a template others remix (spec 21)
+// a game's art reference (server/plans.mjs, engine/planrefs.mjs): a look to match, used as is, or removed
+export const artRef = (id: string, ref: string, what: 'look' | 'asis' | 'remove') => what === 'remove'
+  ? api<{ plan: Plan }>(url(id, `refs/${encodeURIComponent(ref)}/remove`), { method: 'POST', body: '{}' })
+  : api<{ plan: Plan }>(url(id, 'assets'), { method: 'POST', body: JSON.stringify({ ref, asIs: what === 'asis' }) })
 export const saveTemplate = (id: string, name?: string) => api<unknown>(url(id, 'template'), { method: 'POST', body: JSON.stringify({ name }) })

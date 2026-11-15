@@ -179,7 +179,7 @@ export function replan(plan, { note = '', idea, answers, force, title } = {}, en
   const given = plan.given || Object.fromEntries(Object.entries(plan.answers || {}).filter(([k, v]) => DEFAULTS[k] !== v))
   const fresh = planFromAnswers({ idea: idea ?? plan.idea, answers: answers ?? given, title: plan.titleSet ? plan.title : (title || ''), note, force: force ?? plan.decided ?? null }, env, hint)
   const was = plan.shape?.family || 'action'
-  const keep = { id: plan.id, v: plan.v, kind: plan.kind, created: plan.created, from: plan.from ?? null, titleSet: plan.titleSet }
+  const keep = { id: plan.id, v: plan.v, kind: plan.kind, created: plan.created, from: plan.from ?? null, titleSet: plan.titleSet, ...(plan.refs ? { refs: plan.refs } : {}) }
   const starter = plan.starter
   for (const k of Object.keys(plan)) delete plan[k]
   Object.assign(plan, keep, fresh, { replanned: { at: new Date().toISOString(), note: clean(note, 300), was } })

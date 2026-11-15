@@ -24,7 +24,8 @@ import { starterSpec } from '../engine/starters.mjs'
 // model() -> (messages -> text) or null; env() -> { godot }; plans.fromTalk(input, planId) -> plan view;
 // plans.act(id, sub, input) -> plan view (a Plan board action); godotCheck() looks for Godot 4 again -> boolean
 export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plans = null, godotCheck = null }) {
-  const chats = chatStore(dataDir)
+  // a game talk that joins a project takes its plan's art references there (engine/planrefs.mjs)
+  const chats = chatStore({ dataDir, onMove: (chat, pid) => { if (chat?.plan) plans?.carry?.(chat.plan, pid) } })
   const json = (res, code, data) => res.writeHead(code, { 'content-type': 'application/json' }).end(JSON.stringify(data))
   const body = (req, cap = 1e5) => new Promise(resolve => {
     let b = ''

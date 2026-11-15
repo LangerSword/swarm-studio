@@ -8,7 +8,7 @@ import { Button, LinkButton } from '../../primitives/Button'
 import { Checkbox } from '../../primitives/Checkbox'
 import { Icon } from '../../primitives/Icon'
 import { fieldLabel, fieldsOf, sheetsOf, shotsOf } from './model'
-import type { Card, Pic, Plan, RosterEntry } from './types'
+import type { ArtRef, Card, Pic, Plan, RosterEntry } from './types'
 
 export interface InspectorActions {
   close: () => void
@@ -18,6 +18,8 @@ export interface InspectorActions {
   act: (sub: string, body?: unknown) => void
   pickCell: (cell: number) => void
   note: (sheet: string, cell: number, text: string) => void
+  // a game's art reference: a look to match, used as is, or removed
+  artRef: (id: string, what: 'look' | 'asis' | 'remove') => void
 }
 
 const fieldClass = 'h-8 min-w-0 rounded-[8px] border border-line bg-deep px-2.5 font-body text-[13px] text-text outline-none data-[focused]:border-text'
@@ -186,10 +188,25 @@ function NoteField({ initial, onChange }: { initial: string, onChange: (t: strin
 }
 
 // what the inspector shows for the selection, or null when there is nothing to show (it stays closed)
+// a game's art reference (issue #543): what it is to the crew, the two answers to "like this, or use as is?", Remove
+function ArtRefInspector({ r, a }: { r: ArtRef, a: InspectorActions }) {
+  const opt = (on: boolean) => `h-10 cursor-pointer rounded-[8px] border bg-deep px-3 text-left font-body text-[13px] ${on ? 'border-text text-text' : 'border-line text-muted'}`
+  return <>
+    <InspectorHead name={r.name} onClose={a.close} />
+    <p className="font-body text-[13px] text-text">{r.asIs ? 'Placed in the game as it is, never redrawn.' : 'A look to match: the painter and the crew follow it, like a picked sheet.'}</p>
+    <div className="grid gap-1.5">
+      <button type="button" aria-pressed={!r.asIs} className={opt(!r.asIs)} onClick={() => a.artRef(r.id, 'look')}>Like this</button>
+      <button type="button" aria-pressed={!!r.asIs} className={`${opt(!!r.asIs)} inline-flex items-center gap-1.5`} onClick={() => a.artRef(r.id, 'asis')}><Icon name="pin" size={14} />Use as is</button>
+    </div>
+    <Button role="ghost" onPress={() => a.artRef(r.id, 'remove')}><Icon name="trash" size={15} />Remove</Button>
+  </>
+}
+
 export function inspectorFor(plan: Plan, sel: string | null, cell: number | null, a: InspectorActions) {
   if (!sel) return null
   const card = sel.startsWith('card:') ? plan.cards.find(x => `card:${x.id}` === sel) : null
   if (card) return <CardInspector card={card} plan={plan} a={a} />
   if (/^(st|sys):/.test(sel)) return plan.starterView ? <StarterInspector plan={plan} k={sel} a={a} /> : null
+  if (sel.startsWith('ar:')) { const r = (plan.refs ?? []).find(x => `ar:${x.id}` === sel && !x.removed); return r ? <ArtRefInspector r={r} a={a} /> : null }
   return /^(sheet|mock|bd|vw|sp|md|cu):/.test(sel) ? <PictureInspector plan={plan} k={sel} cell={cell} a={a} /> : null
 }

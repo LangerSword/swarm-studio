@@ -7,6 +7,7 @@ import { join, extname } from 'node:path'
 import { planStore, planView, editCard, editStarter, setSystems, lockPlan, assertLocked, pickCell, roster, is3d, replan, PLAN_ID } from '../engine/plan.mjs'
 import { addSheet, addMocks, lockStyle, addBackdrops, addCloseups, entryFor, settleStale, buildScope, charEntry, viewJob, spriteJobs, VIEWS, gameBrief } from '../engine/planart.mjs'
 import { askShape } from '../engine/planshape.mjs'
+import { addPlanRef, removePlanRef, planRefAsIs, planRefs, carryPlanRefs } from '../engine/planrefs.mjs'
 import { planTemplate, remixPlan, templateStore, TEMPLATE_ID } from '../engine/template.mjs'
 
 // paint({ prompt, quality: 'medium' | 'high', aspect, crop, refs }) -> { ok, path, error }: one picture
@@ -14,7 +15,8 @@ import { planTemplate, remixPlan, templateStore, TEMPLATE_ID } from '../engine/t
 // make.character(opts) is engine/meshy.mjs makeCharacter (spends Meshy credits); make.key() the key or ''.
 // planner() -> { provider, model } or null: reads the idea's genre family (engine/planshape.mjs askShape);
 // without one the plan is shaped from the tables alone. godot() says whether Godot 4 is on this machine.
-export function planRoutes({ dataDir, hooks = {}, paint = null, make = null, onPicture = null, builtInTemplates = [], planner = null, godot = () => undefined }) {
+// toProject(pid, { name, buf, asIs }): a plan's art reference copied into a project, once its talk joins one (engine/planrefs.mjs)
+export function planRoutes({ dataDir, hooks = {}, paint = null, make = null, onPicture = null, builtInTemplates = [], planner = null, godot = () => undefined, toProject = null }) {
   const store = planStore(join(dataDir, 'plans'))
   const env = () => ({ godot: godot() })
   // the planner's reading of the idea, never longer than 40 s and never a reason to fail
@@ -189,14 +191,64 @@ export function planRoutes({ dataDir, hooks = {}, paint = null, make = null, onP
     return view(store.save(was))
   }
 
+  // a plan's talk joined a project: its art references go there too, each once
+  function carry(planId, pid) {
+    const plan = PLAN_ID.test(String(planId || '')) && store.get(planId)
+    if (!plan || !toProject || !planRefs(plan).length) return 0
+    const n = carryPlanRefs(plan, files(plan.id), pid, toProject)
+    if (n) store.save(plan)
+    return n
+  }
+
+  // the owner's art references (engine/planrefs.mjs), as a project's References answer: { ref, refs } and, for
+  // Use as is (POST …/assets { ref }), { refs, assets }. The body is the picture, 60 MB at most, as References.
+  function refsRoute(req, res, url) {
+    const m = url.pathname.match(/^\/api\/plans\/([^/]+)\/(?:refs(?:\/(ar[0-9a-z]{6,16})\/(remove))?|(assets))$/)
+    if (!m) return false
+    const [, id, rid, op, assets] = m
+    const plan = PLAN_ID.test(id) && store.get(id)
+    if (!plan) { json(res, 404, { error: 'no such plan' }); return true }
+    const out = (p, extra = {}) => ({ refs: planRefs(p), assets: planRefs(p).filter(r => r.asIs), plan: view(p), ...extra })
+    if (req.method === 'GET' && !rid && !assets) { json(res, 200, out(plan)); return true }
+    if (req.method !== 'POST') { json(res, 405, { error: 'GET or POST' }); return true }
+    if (rid || assets) {
+      body(req).then(input => {
+        const p = store.get(id)
+        const r = rid ? removePlanRef(p, rid) : planRefAsIs(p, String(input.ref || ''), input.asIs !== false)
+        if (!rid) lockAgain(p)
+        store.save(p)
+        json(res, 200, out(p, { ref: r }))
+      }).catch(err => fail(res, err))
+      return true
+    }
+    const chunks = []
+    let n = 0
+    req.on('data', c => { n += c.length; if (n > 60e6) { req.destroy(); fail(res, Object.assign(new Error('too big'), { status: 413 })) } else chunks.push(c) })
+    req.on('end', () => {
+      if (n > 60e6) return
+      try {
+        const p = store.get(id)
+        const r = addPlanRef(p, files(p.id), { name: url.searchParams.get('name') || 'reference.png', buf: Buffer.concat(chunks) })
+        lockAgain(p)
+        store.save(p)
+        json(res, 200, out(p, { ref: r }))
+      } catch (err) { fail(res, err) }
+    })
+    return true
+  }
+  // a locked style names its references: a change to them is said in it at once
+  const lockAgain = p => { if (p.style?.locked) lockStyle(p, true) }
+
   // true when the request was a plan route (and has been answered)
   handle.fromTalk = fromTalk
+  handle.carry = carry
   // a plan as the board shows it, or null
   handle.get = id => { const p = store.get(id); return p ? view(p) : null }
   handle.act = (id, sub, input) => act(id, sub, input)
   return handle
   function handle(req, res, url) {
     if (servePicture(req, res, url)) return true
+    if (refsRoute(req, res, url)) return true
     if (url.pathname === '/api/plans') {
       if (req.method === 'GET') { json(res, 200, { plans: store.list() }); return true }
       if (req.method === 'POST') {

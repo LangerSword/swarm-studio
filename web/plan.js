@@ -5,6 +5,7 @@
 // runs before that click; the server checks the same number again (engine/plan.mjs lockPlan).
 import { ic, cursor, CREW, painterOf } from './icons.js'
 import { makeBoard } from './board.js'
+import { planRefsHtml, planRefInsp, planRefWire } from './planrefs.js'
 
 export function makePlan({ sw, C, root }) {
   const esc = sw.esc
@@ -61,6 +62,7 @@ export function makePlan({ sw, C, root }) {
     render()
   }
   function take(plan) { P.plan = plan; render() }
+  planRefWire({ root, insp, id: () => (P.draft ? null : P.id), api: sw.api, toast, take, select: k => select(k), selected: () => P.sel })
 
   // ---------- render
   const price = () => P.plan?.price || { credits: 0, runs: 0, images: 0, parts: [], first: { credits: 0 }, rest: { credits: 0 } }
@@ -126,7 +128,7 @@ export function makePlan({ sw, C, root }) {
     const starter = sv && !writing ? `<section class="pj-sec pl-starter" data-sec="starter"><span class="al">Starter</span><div class="abs">${stCard('engine', 'Engine', sv.engine)}${stCard('template', 'Template', sv.template)}${stCard('assets', 'Assets', sv.assets)}</div></section>
       ${sv.systems.length ? `<section class="pj-sec pl-systems" data-sec="systems"><span class="al">Systems</span><div class="abs">${sv.systems.map(x => `<div class="ab pcard st${x.on ? '' : ' off'}" data-key="sys:${esc(x.id)}" tabindex="0" role="button" aria-label="${esc(x.name)}"><b>${esc(x.on ? 'On' : 'Off')}</b><span>${esc(x.name)}</span><i>${esc(x.why)}</i>${sel(`sys:${x.id}`)}</div>`).join('')}</div></section>` : ''}` : ''
     world.innerHTML = `<div class="col"><section class="pj-sec plan-cards" data-sec="cards"><span class="al">Plan</span><div class="abs">${cards}</div></section>${starter}
-      ${writing ? '' : `<section class="pj-sec pl-sheets" data-sec="sheets"><span class="al">Sketches</span><div class="abs">${sheets}</div></section>`}
+      ${writing ? '' : `<section class="pj-sec pl-sheets" data-sec="sheets"><span class="al">Sketches</span><div class="abs">${sheets}</div></section>${planRefsHtml(p, { esc, base, sel })}`}
       ${views && !writing ? `<section class="pj-sec pl-build" data-sec="build"><span class="al">Build</span><div class="abs">${views}</div></section>` : ''}</div>
       ${writing ? '' : `<div class="col"><section class="pj-sec pl-mocks" data-sec="mocks"><span class="al">Mocks</span><div class="abs">${mocks}</div></section>
       ${p.shape?.backdrops === false ? '' : `<section class="pj-sec pl-world" data-sec="world"><span class="al">World</span><div class="abs">${worldSec}</div></section>`}
@@ -168,7 +170,7 @@ export function makePlan({ sw, C, root }) {
   function renderInsp() {
     const p = P.plan
     const c = P.sel?.startsWith('card:') && p?.cards.find(x => `card:${x.id}` === P.sel)
-    const pic = !c && P.sel && p && !P.draft ? (/^(st|sys):/.test(P.sel) ? starterInsp(p, P.sel) : picInsp(p, P.sel)) : ''
+    const pic = !c && P.sel && p && !P.draft ? (/^(st|sys):/.test(P.sel) ? starterInsp(p, P.sel) : planRefInsp(p, P.sel, { esc, base, sel }) || picInsp(p, P.sel)) : ''
     // a draft is changed by saying so in the chat: no inspector until it is locked
     bd.inspector(!P.draft && !!(c || pic))
     if (insp.hidden) return
