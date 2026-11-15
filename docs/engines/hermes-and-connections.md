@@ -80,6 +80,15 @@ Hermes is the host: Swarm Studio is a Hermes plugin (`requires_hermes: ">=0.23"`
 - Launch kit can send one confirmed post to Discord, Slack or Telegram through the person's Hermes gateway (`hermes send --to`), only with `confirm: true` and unchanged text (server/server.mjs:3554-3566).
 - Handing a post to a Hermes posting plugin (AdaptlyPost, Postel, Postroom): Unchecked, no code found (docs/decisions/0005-sharing-person-posts.md:20-22).
 
+### The agent's tools: the asset library and References
+
+- The Hermes agent's `swarm_studio` tool has four actions for them (decision 0025 d, issue #609; commands.py `_library`):
+  - `library_search`: words, a category or a pack, through `GET /api/library`. Each result is answered with its id, credit, licence and source (commands.py `_credit`, engine/assetlib.mjs `rowOf`). It asks nothing: it reads only what is on disk (engine/assetlib.mjs `loadRizz`). assetrizz's catalog arrives with the first game that needs a library picture (engine/library.mjs `library`); until then the answer says only the person's own packs were searched.
+  - `library_import`: a folder or `.zip` of the person's own art as a pack, through `POST /api/library/import`. A credit is required (engine/assetlib.mjs `importPack`).
+  - `library_pick`: a library picture for a game build's slot, through `POST /api/runs/:id/art/picks` (a site or an app build is refused: slots are a game's). It names the picture's credit from `GET /api/library?id=`. An assetrizz picture is downloaded from `raw.githubusercontent.com` at the pinned commit the first time it is used (engine/assetlib.mjs `file`, engine/library.mjs `RAW`).
+  - `reference_add`: a link (`POST /api/projects/:pid/refs/link`; its site is walked behind the SSRF guard, engine/walkguard.mjs) or a file on this computer, sent as itself (`POST /api/projects/:pid/refs`, 60 MB at most, server/refs.mjs), into a project named by name or id.
+- Import, pick and reference_add write or download, so `outward` sends each to Hermes's approval gate with its own rule: `swarm-studio:library:import`, `swarm-studio:library:pick`, `swarm-studio:reference:add:link` and `…:file` (an "always" for links never lets the model read the person's files). A cron job, with nobody to answer, is refused before the studio is touched (commands.py `outward`, `tool`; tests/test_agent_library.py).
+
 ### Other connectors
 
 - ElevenLabs: `ELEVENLABS_API_KEY` passed as `SWARM_ELEVENLABS_KEY`, or a pasted key, or an ElevenLabs MCP (plugin.yaml:15-17, launcher.py:217-223, engine/media.mjs:18-30, 84-86).

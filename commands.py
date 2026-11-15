@@ -98,6 +98,20 @@ def outward(args: dict | None) -> tuple[str, str] | None:
         return f"push the source of {build} to a private GitHub repository (on your login, or the organization builds go to)", "swarm-studio:github:push:private"
     if action == "post":
         return f"post {build} to the Swarm Feed, where anyone can see it", "swarm-studio:post"
+    # the asset library and References (decision 0025 d): each writes to the person's files, and a pick or a link
+    # downloads (an assetrizz picture the first time it is used; a link's site is walked for its look)
+    if action == "library_import":
+        return (f"import {str(a.get('path') or 'a folder')!r} into the asset library as the pack {str(a.get('name') or '(named after it)')!r}, "
+                f"credited to {str(a.get('credit') or '(no credit given)')!r}"), "swarm-studio:library:import"
+    if action == "library_pick":
+        return (f"use the library picture {str(a.get('asset') or '(none: clear it)')!r} for the slot {str(a.get('slot') or '?')!r} of {build} "
+                "(downloaded the first time it is used)"), "swarm-studio:library:pick"
+    if action == "reference_add":
+        # a link and a file are each their own "always": one for links never lets the model read files of yours
+        project = str(a.get("project") or "?")
+        if a.get("url"):
+            return f"add the link {a.get('url')} to the References of the project {project!r} (its site is opened to read its look)", "swarm-studio:reference:add:link"
+        return f"add the file {str(a.get('path') or '?')!r} from this computer to the References of the project {project!r}", "swarm-studio:reference:add:file"
     return None
 
 
@@ -755,13 +769,119 @@ def _video(ref: str, wait: bool, voice: str = "", music: bool = True, style: str
 
 
 # The tool: the same commands for the Hermes agent, with plain arguments.
+# ---------- the asset library and References, for the agent (decision 0025 d, issue #609)
+LIBRARY_ACTIONS = ("library_search", "library_import", "library_pick", "reference_add")
+
+
+def _credit(r: dict) -> str:
+    """A picture's credit and licence, as a build's CREDITS.md carries them."""
+    lic = f", {r['license']}" if r.get("license") else ""
+    src = f" <{r['url']}>" if r.get("url") else ""
+    return f"{r.get('credit') or 'no credit'}{lic}{src}"
+
+
+def _project(ref: str) -> dict:
+    ref = str(ref or "").strip()
+    projects = [p for p in _api("/api/projects").get("projects", []) if not p.get("trashed")]
+    if not ref:
+        names = ", ".join(str(p.get("name") or p["id"]) for p in projects[:8])
+        raise RuntimeError(f"say which project: its name or id ({names})")
+    low = ref.lower()
+    # by id; else the projects named exactly so; else those whose name has the words. Two of the same name are never
+    # guessed between: the answer lists them with their ids, so the reference goes where the person meant.
+    for match in ([p for p in projects if p["id"] == ref], [p for p in projects if str(p.get("name") or "").lower() == low],
+                  [p for p in projects if low in str(p.get("name") or "").lower()]):
+        if len(match) == 1:
+            return match[0]
+        if len(match) > 1:
+            raise RuntimeError(f"{len(match)} projects match {ref!r}; say which by its id: " + ", ".join(f"{p.get('name')} ({p['id']})" for p in match[:8]))
+    raise RuntimeError(f"no project called {ref!r}")
+
+
+def _upload(path: str, raw: bytes, timeout: float = 120.0) -> dict:
+    """POST a file's bytes as the body (References take the file itself, not JSON)."""
+    import urllib.request
+    up = launcher.ensure_server()
+    if not up.get("running"):
+        raise RuntimeError(up.get("error") or "the canvas server is not running")
+    req = urllib.request.Request(launcher.base_url() + path, data=raw, method="POST")
+    req.add_header("content-type", "application/octet-stream")
+    req.add_header("x-swarm-token", launcher.token())
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as res:
+            return json.loads(res.read().decode() or "{}")
+    except urllib.error.HTTPError as exc:
+        try:
+            raise RuntimeError(json.loads(exc.read().decode()).get("error") or str(exc)) from None
+        except ValueError:
+            raise RuntimeError(str(exc)) from None
+
+
+def _library(action: str, a: dict) -> str:
+    """The four library and References actions. Each answer names where a picture came from: its credit and licence."""
+    from pathlib import Path
+    from urllib.parse import quote, urlencode
+    if action == "library_search":
+        q = {"q": str(a.get("text") or ""), "limit": "12"}
+        if a.get("category"):
+            q["category"] = str(a["category"])
+        if a.get("pack"):
+            q["pack"] = str(a["pack"])
+        found = _api("/api/library?" + urlencode(q)).get("results", [])
+        # assetrizz's catalog comes with the first game that needs a library picture (engine/library.mjs); until then
+        # a search finds the person's own packs only, and says so
+        rizz = any(not p.get("own") for p in _api("/api/library/packs").get("packs", []))
+        later = "" if rizz else "\n(assetrizz's catalog is not on this computer yet: it comes with the first game that needs a library picture. Your own packs were searched.)"
+        if not found:
+            return "Nothing in the asset library matches. Try other words, or another category." + later
+        rows = [f"{r['id']}: {r.get('subject') or ''} ({r.get('category')}, pack {r.get('pack')}{', yours' if r.get('own') else ''}) · credit: {_credit(r)}" for r in found]
+        return "From the asset library (use an id with library_pick):\n" + "\n".join(rows) + later
+    if action == "library_import":
+        if not str(a.get("credit") or "").strip():
+            return "Say whose art it is (credit): it goes with every picture a build takes from the pack."
+        p = _api("/api/library/import", {k: str(a.get(k) or "") for k in ("path", "name", "credit", "license", "url")}, timeout=600.0)
+        return f"Imported the pack {p.get('name')} ({p.get('id')}): {p.get('count')} pictures, credit: {_credit(p)}. Find them with library_search, pack {p.get('id')}."
+    if action == "library_pick":
+        r = _pick_run(str(a.get("build") or ""))
+        if not r:
+            return "No such build. See /swarm files."
+        if r.get("kind") and r.get("kind") != "game":
+            return f"“{r['title']}” is a {r.get('kind')}, not a game: picture slots are a game's. Add the picture to its project's References instead (reference_add)."
+        asset = str(a.get("asset") or "").strip()
+        got = _api(f"/api/runs/{quote(r['id'])}/art/picks", {"slot": str(a.get("slot") or ""), "asset": asset or None, "what": str(a.get("what") or "")})
+        if not asset:
+            return f"Cleared the pick for {a.get('slot')} in “{r['title']}”: that picture is painted again."
+        row = next(iter(_api("/api/library?" + urlencode({"id": asset})).get("results", [])), None)
+        credit = f" Credit: {_credit(row)}." if row else ""
+        return f"“{r['title']}” uses {asset} for {a.get('slot')}.{credit} {got.get('note') or ''}".strip()
+    # reference_add: a link, or a file on this computer
+    p = _project(str(a.get("project") or ""))
+    base = f"/api/projects/{quote(p['id'])}/refs"
+    use = str(a.get("text") or "")
+    if a.get("url"):
+        got = _api(base + "/link", {"url": str(a["url"]), "use": use}, timeout=30.0)
+        ref = got.get("ref") or {}
+        return f"Added {ref.get('url') or a['url']} to the References of {p.get('name') or p['id']}. The crew reads its look now; Studio › References shows it."
+    path = str(a.get("path") or "").strip()
+    if not path:
+        return "Give a link (url) or a file on this computer (path)."
+    f = Path(path).expanduser()
+    if not f.is_file():
+        return f"No such file: {path}"
+    if f.stat().st_size > 60_000_000:
+        return "That file is over 60 MB, more than References take."
+    got = _upload(base + "?" + urlencode({"name": f.name, "use": use, "source": "upload"}), f.read_bytes())
+    ref = got.get("ref") or {}
+    return f"Added {ref.get('name') or f.name} to the References of {p.get('name') or p['id']} (from {f})."
+
+
 TOOL_SCHEMA = {
     "name": "swarm_studio",
-    "description": "Control Swarm Studio after a build: list, search (by name, brief, theme, tag, folder, host) or open builds, file builds in folders, read the trace of every model call an agent made (the prompt and raw answer, to see why a section came out as it did), show a build's details, play the prototype, run the visual review (a vision model checks each page and agents fix issues live), pass on a person's comment so an agent rewrites that part of the design live, `seo`: the crew's SEO pass on a build (text: what the person wants, e.g. 'target people searching for ramen in Porto' or 'a better description for the menu page'; it edits each page's search title, description and copy where needed and says what changed; every build already ships titles, descriptions, share cards, JSON-LD, robots.txt and sitemap.xml), export a build as files (static HTML, a React + Tailwind project, an ABA spec and blueprint), publish it as a live website (GitHub Pages, Vercel, Cloudflare Pages or this computer; waits and returns the URL; `hosts` shows where the person is signed in), cut a promo video of a build with a local Kokoro voiceover and music (MP4, waits until it is rendered and returns the file path), turn the prototype's motion on or off, set the models, image generation and lite mode. `app` turns a build into a working full-stack app (React + shadcn, server routes, an admin page) or, with text, changes the app; it waits until the app runs and returns its local URL. For a game: call `game_questions`, ask the person those questions one at a time in chat (offer the chips, keep their words), then `game` with `answers` and `text` (their idea); it writes an original spec and builds a playable game. `deploy` puts the app on Vercel. `github` is a build's source on GitHub through the person's gh login (move: status, push or pull): push sends the app's or game's own git history to a private repository (made on the first push, the same one after; never a force push, and refused when a file looks like a key or the repository has commits the project lacks: pull first), pull brings new commits in as the project's next version. The Swarm Feed (the community site): `connect` links this Hermes to the person's feed account (it returns a code and a link they approve in their browser; call it again, or with text 'status', to see if they did), `post` shares a published build in the feed with its files (text: a caption; jam: a jam id to enter), `remix` starts a new build from a feed build (build: its b_… id; text: what to change), `login` opens a one-time link that signs their browser in. `stop` stops everything the crew are doing (or one build's project, with build): the build, pictures, review and fixes, a film, an app or game build, Auto; what is built is kept. Use it when the person asks to stop.",
+    "description": "Control Swarm Studio after a build: list, search (by name, brief, theme, tag, folder, host) or open builds, file builds in folders, read the trace of every model call an agent made (the prompt and raw answer, to see why a section came out as it did), show a build's details, play the prototype, run the visual review (a vision model checks each page and agents fix issues live), pass on a person's comment so an agent rewrites that part of the design live, `seo`: the crew's SEO pass on a build (text: what the person wants, e.g. 'target people searching for ramen in Porto' or 'a better description for the menu page'; it edits each page's search title, description and copy where needed and says what changed; every build already ships titles, descriptions, share cards, JSON-LD, robots.txt and sitemap.xml), export a build as files (static HTML, a React + Tailwind project, an ABA spec and blueprint), publish it as a live website (GitHub Pages, Vercel, Cloudflare Pages or this computer; waits and returns the URL; `hosts` shows where the person is signed in), cut a promo video of a build with a local Kokoro voiceover and music (MP4, waits until it is rendered and returns the file path), turn the prototype's motion on or off, set the models, image generation and lite mode. `app` turns a build into a working full-stack app (React + shadcn, server routes, an admin page) or, with text, changes the app; it waits until the app runs and returns its local URL. For a game: call `game_questions`, ask the person those questions one at a time in chat (offer the chips, keep their words), then `game` with `answers` and `text` (their idea); it writes an original spec and builds a playable game. `deploy` puts the app on Vercel. `github` is a build's source on GitHub through the person's gh login (move: status, push or pull): push sends the app's or game's own git history to a private repository (made on the first push, the same one after; never a force push, and refused when a file looks like a key or the repository has commits the project lacks: pull first), pull brings new commits in as the project's next version. The Swarm Feed (the community site): `connect` links this Hermes to the person's feed account (it returns a code and a link they approve in their browser; call it again, or with text 'status', to see if they did), `post` shares a published build in the feed with its files (text: a caption; jam: a jam id to enter), `remix` starts a new build from a feed build (build: its b_… id; text: what to change), `login` opens a one-time link that signs their browser in. `stop` stops everything the crew are doing (or one build's project, with build): the build, pictures, review and fixes, a film, an app or game build, Auto; what is built is kept. Use it when the person asks to stop. The asset library and References (decision 0025 d): `library_search` finds pictures in the asset library (assetrizz and the person's own packs) by words (text), with category or pack, and returns each with its id, credit and licence; `library_import` adds a folder or .zip of the person's own art as a pack (path, name, credit required, license, url); `library_pick` uses a library picture for a build's picture slot instead of painting it (build, slot such as item-glide-kite, asset: an id from library_search, what); `reference_add` adds a link (url) or a file on this computer (path) to a project's References (project: its name or id; text: what the person likes about it). Import, pick and reference_add ask the person first.",
     "parameters": {
         "type": "object",
         "properties": {
-            "action": {"type": "string", "enum": ["files", "folders", "folder", "trace", "info", "open", "play", "review", "fix", "seo", "export", "publish", "hosts", "video", "motion", "models", "images", "lite", "app", "game_questions", "game", "deploy", "github", "connect", "post", "remix", "login", "stop", "help"]},
+            "action": {"type": "string", "enum": ["files", "folders", "folder", "trace", "info", "open", "play", "review", "fix", "seo", "export", "publish", "hosts", "video", "motion", "models", "images", "lite", "app", "game_questions", "game", "deploy", "github", "connect", "post", "remix", "login", "stop", "library_search", "library_import", "library_pick", "reference_add", "help"]},
             "build": {"type": "string", "description": "for open/info/review/fix/seo/export/publish/video: a number from `files` (1 = latest) or a build id; default the open or latest build"},
             "text": {"type": "string", "description": "for app: what to change in the app (omit for the first build); for game: the person's game idea; for folder: the folder name ('none' to take it out); for trace: words to filter calls (a layer, page, agent or kind like build/fix/review), or 'call <id>' for one call in full, or on/off; for files: search words (tag:x, folder:x, on:vercel, has:video work too); for video: the person's idea for it; for fix: what to change, in the person's words (\"make the hero darker\", \"shorter footer\")"},
             "role": {"type": "string", "enum": ["planner", "builders", "reviewer"], "description": "for models: which role to change; omit to list"},
@@ -777,6 +897,17 @@ TOOL_SCHEMA = {
             "move": {"type": "string", "enum": ["status", "push", "pull"], "description": "for github: status (where the build's source is on GitHub, changes not pushed, new commits; the default), push (the person is asked first), or pull (what is new there becomes the project's next version; nothing of it is run)"},
             "repo": {"type": "string", "description": "for github push: owner/name to link a repository that exists (it must be empty or already this project's), or a bare name for a new one; omit to use the project's own or make one named after it"},
             "public": {"type": "boolean", "description": "for github push: true to make a new repository public (default false: private)"},
+            "category": {"type": "string", "description": "for library_search: a library category (icons, characters, backgrounds, props, tiles, ui, vfx, portraits, weapons, ...)"},
+            "pack": {"type": "string", "description": "for library_search: one pack's id (a result's pack)"},
+            "path": {"type": "string", "description": "for library_import: a folder or .zip of pictures on this computer; for reference_add: a file on this computer (a picture, clip, sound, PDF, text or Markdown)"},
+            "name": {"type": "string", "description": "for library_import: the pack's name"},
+            "credit": {"type": "string", "description": "for library_import: whose art it is (required; it goes with every picture a build takes from the pack)"},
+            "license": {"type": "string", "description": "for library_import: the pack's licence"},
+            "url": {"type": "string", "description": "for library_import: where the pack came from; for reference_add: the link to keep"},
+            "slot": {"type": "string", "description": "for library_pick: the build's picture slot, such as item-glide-kite, place-harbour-roofs, prop-lamp or title"},
+            "asset": {"type": "string", "description": "for library_pick: a picture id from library_search; omit to clear the slot's pick"},
+            "what": {"type": "string", "description": "for library_pick: what the picture is for, in a few words"},
+            "project": {"type": "string", "description": "for reference_add: the project's name or id"},
             "target": {"type": "string", "enum": ["github", "vercel", "cloudflare", "local"], "description": "for publish: github (a public GitHub Pages link through the gh login, the default), vercel or cloudflare (the person's own account, once connected on the canvas), or local (hosted on this computer)"},
         },
         "required": ["action"],
@@ -792,6 +923,11 @@ def tool(args: dict | None = None, **_: object) -> str:
     if out and _unattended():
         # Hermes's approval gate already refuses here; this keeps the refusal plain if it was skipped
         return f"Swarm Studio: not done. To {out[0]} needs a person's OK, and this cron job has nobody to give it. Ask in a chat instead."
+    if action in LIBRARY_ACTIONS:
+        try:
+            return _library(action, a)
+        except RuntimeError as exc:
+            return f"Swarm Studio: {exc}"
     if action in ("video", "fix", "seo", "publish", "app", "game", "game_questions", "deploy", "github"):
         try:
             if action == "github":
