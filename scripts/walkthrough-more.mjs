@@ -293,6 +293,14 @@ async function board(env) {
   await fold(env)
   return s
 }
+// a card on the scaffold's board; on a phone it is picked from Layers (the board opens off its cards there)
+async function card(env, key, name) {
+  if (!env.phone) return click(env.page, `.project.scaffold [data-key="${key}"]`)
+  await click(env.page, '.sc-layers-btn')
+  await env.page.locator('.project.scaffold .pj-side').getByText(name, { exact: true }).first().click()
+  await env.wait(400)
+  if (await shown(env.page, '.scaffold.files-on .sc-layers-btn')) await tap(env.page, '.sc-layers-btn')
+}
 const insp = (page, root = '.project') => vis(page, `${root} .pj-insp:not([hidden])`)
 // a page picked on the Overview, then one of its sections in the inspector
 async function section(env) {
@@ -391,9 +399,9 @@ const LIST = [
   ...[['brand', 'Brand'], ['references', 'References'], ['assets', 'Assets'], ['plan', 'Plan'], ['proposal', 'Lock']].map(([k, name]) => ({ id: `m-studio-${k}`, flow: STU, uses: 'rich', title: `The Studio scaffold on ${name}`, run: env => scaffold(env, k), settle: 2500 })),
   ...[['brand', 'Brand'], ['references', 'References'], ['assets', 'Assets'], ['plan', 'Plan'], ['proposal', 'Lock']].map(([k, name]) => ({ id: `m-studio-chip-${k}`, flow: STU, uses: 'rich', title: `The Studio scaffold: ${name} pressed on the step path`, run: async env => { await scaffold(env, ''); await click(env.page, `.sc-path .sc-chip[data-step="${k}"]`); await env.wait(900) }, settle: 1800 })),
   { id: 'm-studio-whole', flow: STU, uses: 'rich', title: 'The Studio scaffold, the whole board', run: env => scaffold(env, ''), settle: 2200 },
-  { id: 'm-studio-ref', flow: STU, uses: 'rich', title: 'A reference picked: its inspector', run: async env => { await scaffold(env, 'references'); await click(env.page, '.project.scaffold [data-key="ref:rwalk1"]'); await insp(env.page, '.project.scaffold') }, settle: 1200 },
-  { id: 'm-studio-asset', flow: STU, uses: 'rich', title: 'An asset picked: its role', run: async env => { await scaffold(env, 'assets'); await click(env.page, '.project.scaffold [data-key="asset:awalk1"]'); await insp(env.page, '.project.scaffold') }, settle: 1200 },
-  { id: 'm-studio-page', flow: STU, uses: 'rich', title: 'A planned page picked', run: async env => { await scaffold(env, 'plan'); await click(env.page, '.project.scaffold [data-key="page:0"]'); await insp(env.page, '.project.scaffold') }, settle: 1200 },
+  { id: 'm-studio-ref', flow: STU, uses: 'rich', title: 'A reference picked: its inspector', run: async env => { await scaffold(env, 'references'); await card(env, 'ref:rwalk1', 'mood.png'); await insp(env.page, '.project.scaffold') }, settle: 1200 },
+  { id: 'm-studio-asset', flow: STU, uses: 'rich', title: 'An asset picked: its role', run: async env => { await scaffold(env, 'assets'); await card(env, 'asset:awalk1', 'logo.png'); await insp(env.page, '.project.scaffold') }, settle: 1200 },
+  { id: 'm-studio-page', flow: STU, uses: 'rich', title: 'A planned page picked', run: async env => { await scaffold(env, 'plan'); await card(env, 'page:0', 'Home'); await insp(env.page, '.project.scaffold') }, settle: 1200 },
   { id: 'm-studio-layers', flow: STU, uses: 'rich', only: 'phone', title: 'The Studio scaffold: Layers', run: async env => { await scaffold(env, 'brand'); await click(env.page, '.sc-layers-btn'); await vis(env.page, '.scaffold.files-on') } },
   { id: 'm-studio-loading', flow: STU, uses: 'rich', title: 'The Studio scaffold while it loads', run: async env => { const s = await rich(env); await hold(env, pathIs(`/api/studio/${STUDIO}`)); await env.page.goto(`${s.BASE}/?room=studio&project=${STUDIO}`); await vis(env.page, '.project.scaffold .wait-in', 15000) } },
 
@@ -439,7 +447,7 @@ const LIST = [
     const s = await main(env); await overviewOf(env, s, s.ids.site)
     const { page } = env
     await click(page, '.pj-dock [data-tool="scribble"]')
-    const b = await page.locator('.pj-world .ab.page').first().boundingBox()
+    const b = await page.locator('.pj-world .ab[data-key="page:home"]').first().boundingBox()
     await page.mouse.move(b.x + b.width * 0.25, b.y + b.height * 0.25); await page.mouse.down()
     await page.mouse.move(b.x + b.width * 0.6, b.y + b.height * 0.5, { steps: 8 }); await page.mouse.up()
     await vis(page, '.pj-ask .pj-mkchip')
