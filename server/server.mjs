@@ -73,6 +73,7 @@ import { sourceRoutes } from './sourcehub.mjs'
 import { savedOwner } from '../engine/ghowner.mjs'
 import { joinHistory } from '../engine/sourcehub.mjs'
 import { pictureMessages, linksIn, readPage, pageRead, withRefs } from '../engine/chatmedia.mjs'
+import { wantsResearch, researchBrief, research } from '../engine/research.mjs'
 import { refStore } from '../engine/refs.mjs'
 import { workshopRoutes } from './workshops.mjs'
 import { setupRoutes } from './setup.mjs'
@@ -1798,6 +1799,24 @@ function matchLook(pid, ref, run) {
   })()
   return now
 }
+// Research before planning (engine/research.mjs): only when the person's own words ask to look something up, or
+// they press Research. Hermes searches and reads (bridge.py /web); the planner's model picks the searches and what
+// to take from each page. Each finding is kept in the project's References, with its link and what was taken; a
+// build outside a project gets them in its brief, and they join the project the build starts. The canvas hears
+// { type: 'research', state: 'looking' | 'done', … } so the person sees it happen.
+const researching = new Set()
+async function lookUp({ ask, kind = 'site', pid = null, signal = null }) {
+  broadcast({ type: 'research', state: 'looking', ask, project: pid })
+  const chat = models.planner.apiKey && modelFor('planner') ? async (messages, { signal: s } = {}) => (await streamChat(provider('planner'), {
+    trace: { kind: 'research' }, model: modelFor('planner'), maxTokens: 900, temperature: 0.2, signal: s,
+    extra: { reasoning_effort: 'none', reasoning: { enabled: false } }, messages
+  })).text : null
+  const got = await research({ ask, kind, chat, signal, web: (body, s) => hermes.call('/web', body, 40000, { grace: 5000 }).then(r => (s?.aborted ? { ok: false, error: 'stopped' } : r)) })
+  const kept = []
+  if (pid) for (const f of got.findings) try { kept.push(refs.addFinding(pid, f)) } catch {}
+  broadcast({ type: 'research', state: 'done', ask, project: pid, findings: got.findings, searched: got.searched, read: got.read, note: got.note, kept: kept.map(r => r.id) })
+  return got
+}
 // What you have (decision 0015): a file or a site brought to the Studio's first step is read in the background,
 // one read per reference at a time, and what it says fills in the walk: the idea while the Studio has none, and
 // the brand's story where it is still empty. The planner's model reads it; with none, its first words do.
@@ -3109,6 +3128,32 @@ const server = createServer((req, res) => {
     return
   }
 
+  // Research (engine/research.mjs), pressed by the person: what they typed, else the project's idea, is looked up
+  // now and kept in its References; the next build reads it. One at a time per project.
+  const researchAt = /^\/api\/projects\/([\w-]{1,64})\/research$/.exec(url.pathname)
+  if (researchAt && req.method === 'POST') {
+    const pid = researchAt[1]
+    if (!projects.get(pid) && !studios.get(pid)) return void res.writeHead(404, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'no such project' }))
+    if (researching.has(pid)) return void res.writeHead(409, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'already looking things up for this project' }))
+    let body = ''
+    req.on('data', c => (body += c))
+    req.on('end', async () => {
+      let input = {}
+      try { input = JSON.parse(body || '{}') } catch {}
+      const st = studios.get(pid)
+      const ask = String(input.ask || '').trim().slice(0, 500) || String(st?.idea || projects.get(pid)?.title || '').trim()
+      if (!ask) return void res.writeHead(400, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'say what to look up' }))
+      researching.add(pid)
+      try {
+        const got = await lookUp({ ask, kind: st?.kind || 'site', pid })
+        res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ ...got, refs: refs.shown(pid) }))
+      } catch (err) {
+        res.writeHead(500, { 'content-type': 'application/json' }).end(JSON.stringify({ error: String(err?.message || err).slice(0, 200) }))
+      } finally { researching.delete(pid) }
+    })
+    return
+  }
+
   if (url.pathname === '/api/run' && req.method === 'POST') {
     let body = ''
     req.on('data', c => (body += c))
@@ -3128,6 +3173,9 @@ const server = createServer((req, res) => {
         return
       }
       const typed = String(input.brief).trim(), chatId = typeof input.chat === 'string' && CHAT_ID.test(input.chat) ? input.chat : null
+      // research before planning: the person's words ask for it ("look up…", "look at how X does it"), or Research
+      const lookFor = input.research === true ? wantsResearch(typed) || typed : wantsResearch(typed)
+      delete input.research
       // redo: this project from scratch, new pages and a new look; its old versions stay restorable
       const redo = input.redo === true
       // sure: a script's explicit "I'm sure" (hermes swarm --build, remix, the evals); never a model's (decision 0020)
@@ -3141,6 +3189,12 @@ const server = createServer((req, res) => {
       // and the art director matches the new pictures to them (art.styleGuide reads the brief)
       // links in the person's own words (before anything is added to the brief): pages named as what to make
       const askedLinks = linksIn(String(input.brief || ''), 2)
+      let looked = null
+      if (lookFor) looked = await lookUp({ ask: lookFor, kind: 'site', pid: typeof input.project === 'string' ? input.project : null }).catch(() => null)
+      // outside a project the findings go in the brief itself; inside one, References' brief carries them (refs.brief)
+      if (looked?.findings.length && typeof input.project !== 'string') input.brief = `${String(input.brief).trim()}
+
+${researchBrief(looked.findings)}`
       if (typeof input.project === 'string') {
         const ups = projects.uploadsOf(input.project).filter(u => /^image\//.test(u.type)).slice(0, 12)
         if (ups.length) input.brief = `${String(input.brief).trim()}\n\nThe owner uploaded these pictures. Use them where they fit, as they are (<img src="…">, no data-gen), and make every new picture match their look:\n${ups.map(u => `- ${u.name}: ${u.src}`).join('\n')}`
@@ -3200,8 +3254,11 @@ const server = createServer((req, res) => {
       if (goChat?.go && !next) await chats.update(chatId, c => { if (c.go) c.go.run = run.id }).catch(() => {})
       // "Tell the crew…" inside a project: the new run is that project's next version
       if (pid) projects.claim(run.id, pid)
+      // what a build outside a project looked up joins the project it starts, so the person can keep or remove it
+      const home = pid || projects.projectOf(run.id)
+      if (!pid && home && looked?.findings.length) for (const f of looked.findings) try { refs.addFinding(home, f) } catch {}
       // which references this build read (issue #543): the Overview shows them with its pages
-      if (pid) try { writeFileSync(join(runsDir, run.id, 'refs-used.json'), JSON.stringify(refs.used(pid))) } catch {}
+      if (pid || (home && looked?.findings.length)) try { writeFileSync(join(runsDir, run.id, 'refs-used.json'), JSON.stringify(refs.used(home))) } catch {}
       // the words go into a chat: the talk that led here, else a new one (or the project's newest)
       const chat = chatFor({ chat: chatId, text: typed, kind: 'site', project: pid })
       chatBuilt(chat, run.id, pid, typed)

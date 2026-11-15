@@ -11,7 +11,10 @@
 // A reference brought to the Studio's first step (source `import`, decision 0015) carries `found`: what the crew
 // read in it (engine/importer.mjs), { state: reading | ready | failed, idea, what, who, pages, note }.
 //
-// kind: image, video, audio, file or link. source: upload, chat, feed, link, plan, film or import. `use` is what
+// A link the crew looked up before planning (source `research`, engine/research.mjs) carries `found`:
+// { state: 'ready', took, query, at }: what was taken from that page. It is never walked for a look or read again.
+//
+// kind: image, video, audio, file or link. source: upload, chat, feed, link, plan, film, import or research. `use` is what
 // it is for ("hero mood", "the menu"); `removed` keeps the time it was removed, so undo brings it back.
 // The project's uploads (projects/<pid>/uploads) are references too, with source `upload`: `all()`
 // lists them beside the store, so every door (the crew's brief, Home › Assets) reads one list.
@@ -23,15 +26,18 @@ const PID = /^[\w-]{1,64}$/
 const REF_ID = /^r[0-9a-z]{4,16}$/
 const FILE = /^[\w][\w .()+-]{0,118}\.[a-z0-9]{1,8}$/i
 export const REF_TYPES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif', svg: 'image/svg+xml', mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', m4a: 'audio/mp4', pdf: 'application/pdf', txt: 'text/plain', md: 'text/markdown' }
-const SOURCES = new Set(['upload', 'chat', 'feed', 'link', 'plan', 'film', 'import'])
+const SOURCES = new Set(['upload', 'chat', 'feed', 'link', 'plan', 'film', 'import', 'research'])
 const kindOf = name => { const t = REF_TYPES[extname(name).slice(1).toLowerCase()] || ''; return t.startsWith('image/') ? 'image' : t.startsWith('video/') ? 'video' : t.startsWith('audio/') ? 'audio' : 'file' }
 const clip = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n)
 
 // how many of each kind reach the crew's brief, and which: the first ones given
-const LIMIT = { pics: 12, looks: 3, links: 8, docs: 6 }
+const LIMIT = { pics: 12, looks: 3, links: 8, docs: 6, found: 6 }
+export const isFinding = r => r.kind === 'link' && r.source === 'research'
 function briefParts(live) {
-  const links = live.filter(r => r.kind === 'link')
+  const links = live.filter(r => r.kind === 'link' && !isFinding(r))
   return {
+    // what the crew looked up (engine/research.mjs): the newest first, they are the ones this build asked for
+    found: live.filter(r => isFinding(r) && r.found?.took).sort((a, b) => b.added - a.added).slice(0, LIMIT.found),
     pics: live.filter(r => r.kind === 'image').slice(0, LIMIT.pics),
     looks: links.filter(r => lookBrief(r)).slice(0, LIMIT.looks),
     plain: links.filter(r => !lookBrief(r)).slice(0, LIMIT.links),
@@ -100,6 +106,14 @@ export function refStore({ projectsDir, uploadsOf = () => [], known = () => true
     write(pid, [...read(pid), r])
     return view(pid, r)
   }
+  // a page the crew looked up (engine/research.mjs): the same page again updates what was taken from it
+  function addFinding(pid, f = {}) {
+    need(pid)
+    const all = read(pid), have = all.find(r => isFinding(r) && r.url === f.url)
+    const found = { state: 'ready', took: clip(f.took, 400), query: clip(f.query, 200), at: Date.now() }
+    if (have) { have.found = found; have.removed = null; have.added = Date.now(); write(pid, all); return view(pid, have) }
+    return change(pid, addLink(pid, { url: f.url, name: f.title, source: 'research', use: f.query ? `looked up: ${f.query}` : '' }).id, r => { r.found = found })
+  }
   function change(pid, id, fn) {
     need(pid)
     if (!REF_ID.test(String(id || ''))) throw Object.assign(new Error('no such reference'), { status: 404 })
@@ -155,6 +169,9 @@ export function refStore({ projectsDir, uploadsOf = () => [], known = () => true
     if (g.looks.length) out.push(...g.looks.map(r => lookBrief(r)))
     if (g.plain.length) out.push(`Links the owner gave as references:\n${g.plain.map(r => `- ${r.url}${r.use ? ` (for ${r.use})` : ''}`).join('\n')}`)
     // documents the owner gave (a PDF, a text or Markdown file): what the crew read in them (issue #543)
+    if (g.found.length) out.push(`What the crew looked up on the web before planning. Use these facts where they fit; never copy a source's wording, layout, logo or pictures, and never present a fact as the owner's unless the brief says so:
+${g.found.map(r => `- ${r.name} (${r.url}): ${r.found.took}`).join('
+')}`)
     if (g.docs.length) out.push(`Documents the owner gave. Build from what they say (the facts, the names, the pages, who it is for); never copy their layout or quote them at length:\n${g.docs.map(docLine).join('\n')}`)
     return out.join('\n\n')
   }
@@ -162,12 +179,13 @@ export function refStore({ projectsDir, uploadsOf = () => [], known = () => true
   // exactly what reaches it: { id: { what: ['colours', 'type', …], not: 'why nothing (more) is taken' } }
   function taken(pid) {
     const live = list(pid), g = briefParts(live), out = {}
-    const inBrief = new Set([...g.pics, ...g.looks, ...g.plain, ...g.docs].map(r => r.id))
+    const inBrief = new Set([...g.pics, ...g.looks, ...g.plain, ...g.docs, ...g.found].map(r => r.id))
     for (const r of live) {
       const L = r.look, f = r.found
       if (!inBrief.has(r.id)) {
-        out[r.id] = { what: [], not: r.kind === 'video' || r.kind === 'audio' ? 'The crew does not take anything from clips or sounds yet.' : `Only the first ${LIMIT[r.kind === 'link' ? (lookBrief(r) ? 'looks' : 'links') : r.kind === 'image' ? 'pics' : 'docs']} of these reach the crew.` }
+        out[r.id] = { what: [], not: r.kind === 'video' || r.kind === 'audio' ? 'The crew does not take anything from clips or sounds yet.' : isFinding(r) ? (r.found?.took ? `Only the newest ${LIMIT.found} things looked up reach the crew.` : 'Nothing was taken from it.') : `Only the first ${LIMIT[r.kind === 'link' ? (lookBrief(r) ? 'looks' : 'links') : r.kind === 'image' ? 'pics' : 'docs']} of these reach the crew.` }
       } else if (r.kind === 'image') out[r.id] = { what: ['its look'] }
+      else if (isFinding(r)) out[r.id] = { what: ['what was looked up'], not: 'Never its wording, layout, logo or pictures.' }
       else if (r.kind === 'link' && g.looks.includes(r)) {
         const t = L.tokens || {}, w = L.words || {}
         out[r.id] = { what: ['style', t.palette?.length && 'colours', t.fonts?.display?.name && 'type', w.layout && 'layout', t.radius && 'corners', w.motion && 'motion'].filter(Boolean), not: 'Never its words, names, logo or pictures.' }
@@ -196,5 +214,5 @@ export function refStore({ projectsDir, uploadsOf = () => [], known = () => true
   // what a build starting now reads: the references that reach its brief, with what it takes from each
   const used = pid => { const t = taken(pid); return list(pid).filter(r => t[r.id]?.what?.length).map(r => ({ id: r.id, name: r.name, kind: r.kind, what: t[r.id].what })) }
 
-  return { list, shown, all, taken, used, addFile, addLink, remove, restore, setUse, setLook, setFound, setMatch, file, brief, useText, dir }
+  return { list, shown, all, taken, used, addFile, addLink, addFinding, remove, restore, setUse, setLook, setFound, setMatch, file, brief, useText, dir }
 }

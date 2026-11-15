@@ -49,7 +49,8 @@ Rules:
 - A distinctive, characterful palette and font pairing that fits the product and the page type. Follow what you are told about the last builds' colours. No purple gradients. Good contrast.
 - Theme direction names the page type's layout in a few words, so builders keep to it.
 - When you are given skills (Open Design's), after the pages add at most one line naming the ones this site needs, by id, none if none fits: {"type":"skills","ids":["<skill id>"]}. Their text goes to the page planners.
-- When the person picked a design template, the site follows it: its layout, its sections and its voice.`
+- When the person picked a design template, the site follows it: its layout, its sections and its voice.
+- When the brief says what the crew looked up on the web, use those facts where they fit the pages; never copy a source's wording or layout.`
 
 export const PAGE_PLANNER_SYSTEM = `You are a page planner in a design swarm. You plan the sections ("layers") of ONE page of a website; builder agents then build every layer in parallel from your plan, so each layer must carry all of its own copy.
 
