@@ -143,6 +143,8 @@ try {
           rec.reached = true
           // from here on nothing un-reaches the step: a check that cannot measure says so in its own field
           rec.checks = await afterStep(page, { audit: rec.audit })
+          // caught while a build runs: what is on screen differs from run to run, so axe is reported, not held
+          if (step.uses === 'live' || ['planning', 'building'].includes(rec.checks.state?.state)) rec.moving = true
           if (AxeBuilder) rec.axe = await axe(page, AxeBuilder).catch(err => ({ violations: [], error: String(err.message || err).split('\n')[0].slice(0, 160) }))
           // controls a person only finds by hovering (the owner's rule: nothing behind a hover); a mouse only,
           // and last, since it moves the pointer over the page

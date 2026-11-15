@@ -88,18 +88,20 @@ test('the ratchet: a count may go down, never up; a step with no entry counts fr
   assert.deepEqual(ratchet(base, [{ ...two, reached: false }]), { fresh: [], fixed: [] })
 })
 
-test('an axe rule is new on a step that had none of it; one node more of a rule it had is not', () => {
-  const ax = n => shot('a', { axe: { violations: [{ id: 'label', impact: 'critical', help: 'Labels', count: n, nodes: [] }] } })
+test('axe is held by its node count, except on a step caught while a build runs', () => {
+  const ax = (n, extra = {}) => shot('a', { axe: { violations: [{ id: 'label', impact: 'critical', help: 'Labels', count: n, nodes: [] }] }, ...extra })
   const base = accept(null, [ax(1)])
-  assert.deepEqual(ratchet(base, [ax(2)]), { fresh: [], fixed: [] })
-  assert.equal(ratchet(base, [shot('a', { axe: { violations: [{ id: 'button-name', impact: 'critical', help: 'Names', count: 1, nodes: [] }] } })]).fresh[0].key, 'axe:button-name')
-  assert.deepEqual(ratchet(base, [shot('a')]).fixed.map(f => f.key), ['axe:label'])
+  assert.deepEqual(ratchet(base, [ax(2)]).fresh.map(f => [f.key, f.was, f.now]), [['axe:label', 1, 2]])
+  assert.deepEqual(ratchet(base, [ax(2, { moving: true })]), { fresh: [], fixed: [] })
+  assert.deepEqual(ratchet(base, [shot('a', { moving: true })]), { fresh: [], fixed: [] }, 'nor is a rule that went away there called fixed')
+  // its other checks are held as anywhere
+  assert.equal(ratchet(base, [ax(1, { moving: true, checks: { raw: [RAW] } })]).fresh[0].key, 'raw')
 })
 
 test('waits and layout shift are reported and never gate; the phone and the desk are counted apart', () => {
-  const s = shot('a', { checks: { wait: [{ path: '/api/x', ms: 2000, during: 'step' }], shift: 0.4 } })
+  const s = shot('a', { checks: { wait: [{ path: '/api/x', ms: 2000, during: 'step' }], shift: 0.4, loadShift: 0.2 } })
   assert.deepEqual(ratchet(null, [s]).fresh, [])
-  assert.deepEqual(countsOf([s]), { 'desk:a': { wait: 1, shift: 1 } })
+  assert.deepEqual(countsOf([s]), { 'desk:a': { wait: 1, shift: 1, load: 1 } })
   const phone = { ...shot('a', { checks: { raw: [RAW] } }), width: 'phone' }
   assert.equal(ratchet(accept(null, [shot('a', { checks: { raw: [RAW] } })]), [phone]).fresh[0].step, 'phone:a')
 })

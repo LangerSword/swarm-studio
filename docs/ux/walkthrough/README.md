@@ -12,12 +12,13 @@ writes `defects.json`, and `scripts/walkthrough-board.mjs` writes `board.html` w
 
 | Kind | Mark | What it finds | Fails the run |
 | --- | --- | --- | --- |
-| `axe:<rule>` | A | A standard rule broken (axe-core, WCAG 2.0 to 2.2 A and AA) in the Studio's own UI: a control with no name, contrast, a form field with no label. Built pages and art are left out, as in CI's `ui-audit`. | yes |
+| `axe:<rule>` | A | A standard rule broken (axe-core, WCAG 2.0 to 2.2 A and AA) in the Studio's own UI: a control with no name, contrast, a form field with no label. Built pages (iframes) are left out, as in CI's `ui-audit`. | yes, by count; reported only on a step caught while a build runs |
 | `raw` | E | Raw error text ("HTTP 500", `{"error"`, a stack) in the chat or a toast. The Log and a Details panel may print it. | yes |
 | `state` | S | A screen that disagrees with the build's one state (`GET /api/runs/<id>/state`): the deck's strip, the planner's last line in the chat, the Overview's tags, a Projects card. A failed or partly built build that reads "3 pages built", "All 3 pages are built" or "Designed" is one. | yes |
 | `dead` | D | A click after which nothing changed: no change in the page, no request, the same address, for a second. Only for actions a step wraps in `env.acted`. | yes |
 | `wait` | W | A request still going a second after it was asked for, with no crew cursor, skeleton, progress or busy mark on screen. | no, reported |
-| `shift` | L | Layout shift over 0.1 in the state the step shows (the browser's own `layout-shift` entries). The first three seconds after a page load are kept apart as `loadShift`. | no, reported |
+| `shift` | L | Layout shift over 0.1 in the state the step shows (the browser's own `layout-shift` entries, three seconds or more after the page loaded). | no, reported |
+| `load` | O | Layout shift over 0.1 in a page's first three seconds. Today every load of the Studio has it (0.19 to 0.39: the top bar moves as it fills), so it is said once per step that loads a page. | no, reported |
 
 The hand-written audit (`scripts/walkthrough-audit.js`) keeps the house rules a standard engine has no rule for:
 tooltips, targets under 40 px (44 on touch), blue, purple or green in the chrome, internal words, sentences at
@@ -36,7 +37,7 @@ Where each rule lives:
   defect, the ratchet. `tests/walkthrough-checks.test.mjs` holds them.
 - `scripts/walkthrough-probe.mjs`: what is measured in the page.
 - `shots.json`: each step has `axe` (rule, impact, count, up to five nodes with their boxes) and `checks`
-  (`raw`, `state`, `dead`, `wait`, `shift`, `loadShift`). A check that could not measure says so in
+  (`raw`, `state` with what it read off the screen in `state.read`, `dead`, `wait`, `shift`, `loadShift`). A check that could not measure says so in
   `checks.errors`; it never marks the step "not reached".
 
 ## A click that does nothing, a wait with no cursor: `env.acted`
@@ -59,10 +60,11 @@ A count may go down, never up.
 - The run exits 1 only when a step it captured has more of a failing kind than the baseline accepts. Each is
   printed as `NEW: <step> <kind> was → now`.
 - A step with no entry counts from nothing: a defect on a new step is new.
-- An axe rule is new on a step only when the step had none of it. Its node count is recorded and not held: a state
-  caught while a build runs shows one node more or less from run to run (`m-ov-tell-busy` did, in two runs of the
-  same code). So a second unnamed button on a screen that already has one is not caught by the exit code; the
-  board shows the count.
+- A step caught while a build runs (a step with `uses: 'live'`, or one whose build is planning or building) is
+  not held for axe: what is on screen then differs from run to run (`m-ov-tell-busy` had a rule one run and not
+  the next, on the same code). Its axe findings are recorded and shown; its other checks are held as anywhere.
+- **A step that is not reached has no checks and is not compared.** A step that throws on its own truth
+  assertion is "not reached": the run prints it with ✗ and still exits 0. Read the ✗ lines.
 - Only the steps of this run are compared, and only the ones reached.
 - A count that went down is printed as `fixed:`; `--update-baseline` keeps it down.
 - `--update-baseline` accepts what this run found for the steps it captured, and keeps the rest.

@@ -19,13 +19,13 @@ const within = (p, ms) => Promise.race([p, wait(ms).then(() => { throw new Error
 
 // in the page, from its first script on: the layout shift so far (as CLS counts it: none within half a second of
 // the person's own input), every DOM change, and where the last click landed. A shift in the page's first three
-// seconds is its load settling (the Studio's top bar moves as it fills, on every load): that is kept apart as
-// `load`, so `shift` is what moved in the state the step shows
+// seconds is counted apart as `load` (the Studio's top bar moves as it fills, on every load: a defect of its
+// own, said once per step that loads a page), so `shift` is what moved in the state the step shows
 const INIT = `(() => {
   if (window.__walk) return
-  const w = window.__walk = { shift: 0, load: 0, boxes: [], muts: 0, click: null }
+  const w = window.__walk = { shift: 0, load: 0, boxes: [], loadBoxes: [], muts: 0, click: null }
   try {
-    new PerformanceObserver(list => { for (const e of list.getEntries()) { if (e.hadRecentInput) continue; if (e.startTime < 3000) { w.load += e.value; continue } w.shift += e.value; for (const s of e.sources || []) { const r = s.currentRect; if (r && w.boxes.length < 6) w.boxes.push([Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)]) } } }).observe({ type: 'layout-shift', buffered: true })
+    new PerformanceObserver(list => { for (const e of list.getEntries()) { if (e.hadRecentInput) continue; const early = e.startTime < 3000, into = early ? w.loadBoxes : w.boxes; if (early) w.load += e.value; else w.shift += e.value; for (const s of e.sources || []) { const r = s.currentRect; if (r && into.length < 6) into.push([Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)]) } } }).observe({ type: 'layout-shift', buffered: true })
   } catch {}
   const start = () => new MutationObserver(l => { w.muts += l.length }).observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true })
   if (document.documentElement) start(); else document.addEventListener('readystatechange', start, { once: true })
@@ -107,7 +107,8 @@ async function stateCheck(page) {
   if (!/^https?:$/.test(url.protocol)) return null
   const seen = await page.evaluate(SEEN)
   const get = path => fetch(url.origin + path, { headers: { 'x-swarm-token': seen.token }, signal: AbortSignal.timeout(4000) }).then(r => (r.ok ? r.json() : null)).catch(() => null)
-  const wrong = []
+  const wrong = [], read = {}
+  const short = t => String(t).replace(/\s+/g, ' ').trim().slice(0, 140)
   const judge = (b, parts) => { for (const w of stateDisagrees(b, Object.fromEntries(Object.entries(parts).map(([k, v]) => [k, v?.text ?? null])))) wrong.push({ ...w, box: parts[w.where]?.box }) }
   // the open build: its strip, its chat and its Overview
   const run = q.get('room') === 'game' || q.get('replay') ? null : q.get('version') || q.get('run')
@@ -117,17 +118,18 @@ async function stateCheck(page) {
     const parts = { strip: seen.replay ? null : seen.strip, chat: seen.chat, page: seen.page }
     // a build going on may move between the two reads: only a state that held still is judged
     const b = (await get(`/api/runs/${run}/state`))?.state || null
-    if (a && b && a.state === b.state) { state = a.state; judge(a, parts) }
+    if (a && b && a.state === b.state) { state = a.state; judge(a, parts); for (const [k, v] of Object.entries(parts)) if (v?.text) read[k] = short(v.text) }
   }
   // Projects: every card against its newest build
   if (seen.cards.length) {
     const list = await get('/api/projects')
     for (const c of seen.cards) {
       const p = list?.projects?.find(x => x.id === c.id)
-      if (p?.state?.site) judge({ state: p.state.site }, { card: c })
+      if (p?.state?.site) { judge({ state: p.state.site }, { card: c }); (read.cards ||= []).push(`${p.state.site}: ${short(c.text)}`) }
     }
   }
-  return run || seen.cards.length ? { ...(run ? { run, state } : {}), ...(seen.cards.length ? { cards: seen.cards.length } : {}), wrong } : null
+  // `read` is what was judged, so a check that found nothing wrong can be told from one that read nothing
+  return run || seen.cards.length ? { ...(run ? { run, state } : {}), read, wrong } : null
 }
 
 /**
@@ -140,8 +142,8 @@ export async function afterStep(page, { audit } = {}) {
   const safe = async (name, fn, or) => { try { return await within(fn(), 8000) } catch (err) { errors[name] = String(err.message || err).split('\n')[0].slice(0, 160); return or } }
   const out = { raw: (audit?.raw || []).filter(r => RAW_ZONES.includes(r.zone)), state: null, wait: [], dead: [], shift: 0, loadShift: 0, acts: 0 }
   out.state = await safe('state', () => stateCheck(page), null)
-  const mark = await safe('shift', () => page.evaluate(() => (window.__walk ? { shift: window.__walk.shift, load: window.__walk.load, boxes: window.__walk.boxes } : null)), null)
-  if (mark) { out.shift = Math.round(mark.shift * 1000) / 1000; out.loadShift = Math.round(mark.load * 1000) / 1000; if (mark.boxes.length) out.shiftBoxes = mark.boxes }
+  const mark = await safe('shift', () => page.evaluate(() => (window.__walk ? { shift: window.__walk.shift, load: window.__walk.load, boxes: window.__walk.boxes, loadBoxes: window.__walk.loadBoxes } : null)), null)
+  if (mark) { out.shift = Math.round(mark.shift * 1000) / 1000; out.loadShift = Math.round(mark.load * 1000) / 1000; if (mark.loadBoxes.length) out.loadBoxes = mark.loadBoxes; if (mark.boxes.length) out.shiftBoxes = mark.boxes }
   if (st) {
     // how many actions the step had watched (env.acted)
     out.acts = st.watched
@@ -158,13 +160,13 @@ export async function afterStep(page, { audit } = {}) {
 /** Before a step: what the last one left is forgotten (the page's own counts start again with its next load too). */
 export async function beforeStep(page) {
   if (page.__walk) { page.__walk.acts.length = 0; page.__walk.watched = 0 }
-  await page.evaluate(() => { if (window.__walk) { window.__walk.shift = 0; window.__walk.load = 0; window.__walk.boxes = [] } }).catch(() => {})
+  await page.evaluate(() => { if (window.__walk) { window.__walk.shift = 0; window.__walk.load = 0; window.__walk.boxes = []; window.__walk.loadBoxes = [] } }).catch(() => {})
 }
 
 // ---------- the standard rules: axe-core, WCAG 2.0 to 2.2 A and AA, as CI's ui-audit runs it (docs/ux/AUDIT.md)
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']
-// built pages, pictures and art are the person's content, not the Studio's UI (scripts/walkthrough-audit.js CONTENT)
-const CONTENT = ['iframe', '.ab', '.frame', '.slot', '.pj-world .sk', '[data-content]']
+// built pages are the person's content, not the Studio's UI: left out, as CI's ui-audit leaves them out
+const CONTENT = ['iframe']
 const NODES = 5
 /**
  * @param {any} AxeBuilder the default export of @axe-core/playwright

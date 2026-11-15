@@ -65,7 +65,8 @@ export const KINDS = {
   dead: { letter: 'D', name: 'A click that did nothing', gate: true },
   axe: { letter: 'A', name: 'Standard rule (axe-core)', gate: true },
   wait: { letter: 'W', name: 'A wait with no crew cursor', gate: false },
-  shift: { letter: 'L', name: 'Layout shift over 0.1', gate: false }
+  shift: { letter: 'L', name: 'Layout shift over 0.1 in the state shown', gate: false },
+  load: { letter: 'O', name: 'Layout shift over 0.1 while the page loads', gate: false }
 }
 export const SHIFT_MAX = 0.1
 // raw text is a defect in the chat and in a toast; the Log and a Details panel may print it
@@ -90,6 +91,7 @@ export function defectsOf(shot) {
   }
   add('wait', (c.wait || []).map(w => ({ text: `${w.path} for ${(w.ms / 1000).toFixed(1)} s${w.during === 'act' ? ' after a click' : ''}` })))
   if (typeof c.shift === 'number' && c.shift > SHIFT_MAX) out.push({ key: 'shift', kind: 'shift', count: 1, text: `layout shift ${c.shift.toFixed(3)}`, marks: (c.shiftBoxes || []).map(box => ({ box, text: 'moved' })) })
+  if (typeof c.loadShift === 'number' && c.loadShift > SHIFT_MAX) out.push({ key: 'load', kind: 'load', count: 1, text: `layout shift ${c.loadShift.toFixed(3)} in the page’s first three seconds`, marks: (c.loadBoxes || []).map(box => ({ box, text: 'moved' })) })
   return out
 }
 
@@ -105,8 +107,8 @@ export function countsOf(shots) {
  * The ratchet: a count per kind per step may go down, never up. A step the baseline does not have counts from
  * nothing, so a defect on a new step is new. Only the steps given are compared (a run of a few steps says
  * nothing of the rest), and only the kinds that gate (KINDS[...].gate): waits and layout shift are reported.
- * An axe rule is new on a step only when the step had none of it: a state caught while a build runs shows one
- * node more or less from run to run, so its node count is recorded and not held.
+ * A step caught while a build runs (`moving`) is not held for axe: what is on screen then differs from run to
+ * run (a rule there one run and gone the next), so its axe findings are recorded and reported only.
  * @param {{ steps?: Record<string, Record<string, number>> } | null} baseline  @param {any[]} shots
  * @returns {{ fresh: { step: string, key: string, was: number, now: number, text: string }[], fixed: { step: string, key: string, was: number, now: number }[] }}
  */
@@ -115,8 +117,8 @@ export function ratchet(baseline, shots) {
   for (const s of shots) {
     if (!s.reached) continue
     const step = stepKey(s), was = base[step] || {}, found = defectsOf(s)
-    for (const d of found) if (KINDS[d.kind]?.gate && (d.kind === 'axe' ? !was[d.key] : d.count > (was[d.key] || 0))) fresh.push({ step, key: d.key, was: was[d.key] || 0, now: d.count, text: d.text })
-    for (const [key, n] of Object.entries(was)) { const now = found.find(d => d.key === key)?.count || 0; if (key.startsWith('axe:') ? !now : now < n) fixed.push({ step, key, was: n, now }) }
+    for (const d of found) if (KINDS[d.kind]?.gate && !(d.kind === 'axe' && s.moving) && d.count > (was[d.key] || 0)) fresh.push({ step, key: d.key, was: was[d.key] || 0, now: d.count, text: d.text })
+    for (const [key, n] of Object.entries(was)) { const now = found.find(d => d.key === key)?.count || 0; if (now < n && !(key.startsWith('axe:') && s.moving)) fixed.push({ step, key, was: n, now }) }
   }
   return { fresh, fixed }
 }
