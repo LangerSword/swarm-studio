@@ -1709,7 +1709,9 @@ const plans = planRoutes({
   dataDir, builtInTemplates: [join(root, 'games', 'ares', 'plan.json')], paint: planPaint, make: { character: planMakeCharacter, key: () => planMeshyKey() },
   // the planner reads the idea's genre family; Godot asked for is said in the plan, and so is a missing Godot
   planner: () => models.planner.apiKey ? { provider: provider('planner'), model: modelFor('planner') } : null,
-  godot: () => godotHere
+  godot: () => godotHere,
+  // a game's art references join its project when its talk does: a look to match to References, one used as is to Assets
+  toProject: (pid, { name, buf, asIs }) => (asIs ? projectAssets.addFile(pid, { name }, buf) : refs.addFile(pid, { name, source: 'plan' }, buf))
 })
 // The planner conversation (docs/specs/27-plan-conversation.md): decide together in the left chat, then lock.
 // A locked game chat makes its plan through the Plan board's routes above.

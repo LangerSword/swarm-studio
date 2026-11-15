@@ -120,6 +120,13 @@ export function PlanSections({ plan: p, sel, cell, writing, onSelect, onPick }: 
             })}
           </Section>
         )}
+        {/* the game's art references (issue #543): pictures dropped on the board, matched like a picked sheet */}
+        {!isWriting && (p.refs ?? []).some(r => !r.removed) && (
+          <Section name="arefs" label="Art references" className="max-w-[700px] gap-x-4 gap-y-[30px]">
+            {(p.refs ?? []).filter(r => !r.removed).map(r => slot(`ar:${r.id}`, 'sheet', r.name, { state: 'done', src: r.src },
+              r.asIs ? <b className="absolute top-2 left-2 inline-flex items-center gap-1 rounded-full bg-text px-2 py-0.5 font-body text-[11px] font-semibold text-void"><Icon name="pin" size={12} />As is</b> : null))}
+          </Section>
+        )}
         {!isWriting && (flat ? (shown || made.size > 0) : shown) && (
           <Section name="build" label="Build" className="max-w-[760px] gap-x-[22px] gap-y-[30px]">
             {flat

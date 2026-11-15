@@ -100,3 +100,5 @@ body.cosmos-plan .crew-layer, body.cosmos-plan .cbox { display: none; }
   .pl-crumb .pl-up, .pl-crumb > .i { display: none; }
   .pl-crumb .pl-name { max-width: 40vw; }
 }
+/* a game's art reference used as is (web/planrefs.js): a tag on its picture */
+.ab.ppic.aref .aref-tag { position: absolute; top: 8px; left: 8px; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; background: var(--text); color: var(--void); font: 600 11px var(--body); }

@@ -14,7 +14,8 @@ import { Button } from '../primitives/Button'
 import { Icon } from '../primitives/Icon'
 import { Menu, MenuItem } from '../primitives/Menu'
 import { useTopBar } from '../shell/Slots'
-import { ApiError, getPlan, post, saveTemplate } from './plan/api'
+import { ApiError, artRef, getPlan, post, saveTemplate } from './plan/api'
+import { useRefDrop } from '../shared/RefDrop'
 import { LockGate } from './plan/LockGate'
 import { firstKey, painting, priceOf, primaryLabel } from './plan/model'
 import { inspectorFor, type InspectorActions } from './plan/PlanInspector'
@@ -89,6 +90,10 @@ export function PlanBoard() {
     },
     act,
     pickCell: (c: number) => setCell(c),
+    artRef: (ref: string, what: 'look' | 'asis' | 'remove') => {
+      if (!id) return
+      artRef(id, ref, what).then(j => { setPlan(j.plan); if (what === 'remove') setSel(null); setRev(r => r + 1) }, err => say((err as Error).message))
+    },
     note: (sheet: string, c: number, note: string) => {
       clearTimeout(noting.current)
       noting.current = setTimeout(() => { if (id) post(id, 'pick', { sheet, cell: c, note }).then(setPlan, err => say(err.message)) }, 450)
@@ -98,6 +103,10 @@ export function PlanBoard() {
 
   const select = useCallback((key: string | null) => { if (key !== sel) setCell(null); setSel(key); setRev(r => r + 1) }, [sel])
   const clear = useCallback(() => select(null), [select])
+  // a picture dropped anywhere on the board joins the game's art references (issue #543; the owner, 2026-11-15:
+  // "Game's art references"), with the question every drop asks: like this, or use as is?
+  const drop = useRefDrop({ at: id ? `/api/plans/${encodeURIComponent(id)}` : null, said: say,
+    done: (_refs, added) => { void load().then(() => { if (added[0]) select(`ar:${added[0].id}`) }) }, asset: () => { void load() } })
   // a sheet's cell, picked or unpicked
   const pick = useCallback((s: Sheet, c: number) => {
     const on = !(s.picks ?? []).includes(c)
@@ -135,7 +144,7 @@ export function PlanBoard() {
 
   const insp = plan && inspectorFor(plan, sel, cell, actions)
   return (
-    <>
+    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col" {...drop.zone}>
       <Board ref={board} label="Plan" selected={!!sel} onClear={clear} toast={toast}
         inspector={insp && <Fragment key={`${sel}:${rev}`}>{insp}</Fragment>}>
         <Working busy={!!id && !plan} label="Plan on its way" skeleton={<PlanSkeleton />}>
@@ -143,6 +152,7 @@ export function PlanBoard() {
         </Working>
       </Board>
       {plan && <LockGate key={`${plan.id}:${gate}`} price={priceOf(plan)} isOpen={gate} onOpenChange={setGate} onLock={lock} />}
-    </>
+      {drop.layer}
+    </div>
   )
 }

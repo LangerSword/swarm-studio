@@ -44,10 +44,12 @@ export function titleFrom(text = '') {
 // the deck talk's names for the two sides (you | hermia) as the record keeps them
 export const whoOf = w => (w === 'hermia' || w === 'planner' ? 'planner' : w === 'crew' ? 'crew' : 'person')
 
-// chatStore(dataDir) or chatStore({ dataDir, now })
+// chatStore(dataDir) or chatStore({ dataDir, now, onMove })
 export function chatStore(arg) {
   const dataDir = typeof arg === 'string' ? arg : arg.dataDir
   const now = (typeof arg === 'object' && arg.now) || Date.now
+  // onMove(chat, pid): a chat joined a project (a game talk's plan carries its art references there)
+  const onMove = (typeof arg === 'object' && arg.onMove) || null
   const dir = join(dataDir, 'chats')
   const projectsDir = join(dataDir, 'projects')
   const trash = join(dir, '.trash')
@@ -143,7 +145,7 @@ export function chatStore(arg) {
       const from = locate(id), to = join(inProject(pid), id)
       if (from && from !== to) { mkdirSync(inProject(pid), { recursive: true }); renameSync(from, to) }
       chat.project = pid
-    })
+    }).then(out => { try { onMove?.(get(id), pid) } catch {} return out })
   }
   // loose chats that built before their run had a project: moved once it has one
   async function settle(projectOf) {
