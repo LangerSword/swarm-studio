@@ -201,7 +201,7 @@ function studio(G) {
   const bring = bringInRoutes({ runsDir, projects, home, record, readEvents, fetch, join: (dir, slug) => joinHistory(dir, slug, G.hub),
     apps: async () => ({ bring: (id, o) => { logs.set(id, readFileSync(join(runsDir, id, 'events.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l))); return real(id, o) } }) })
   let clock = 1000
-  const route = sourceRoutes({ runsDir, dataDir, projects, readEvents, record, bringIn: bring.bringIn, hub: G.hub, gh: G.gh, now: () => (clock += 1000) })
+  const route = sourceRoutes({ runsDir, dataDir, projects, readEvents, record, bringIn: bring.bringIn, hub: G.hub, gh: G.gh, now: () => (clock += 1000), home, hermesHome: join(home, '.hermes') })
   // a run the Studio built: its app/ with a history
   const built = (pid, name, run, files, kind = 'app') => {
     known[pid] ||= { name, runs: [] }; known[pid].runs.push(run)
@@ -210,7 +210,7 @@ function studio(G) {
     return app
   }
   const done = async (pid, piece = 'app') => { await route.jobs.get(`${pid}:${piece}`).done; return route.state(pid, { piece }) }
-  return { route, built, done, known, logs, runsDir, dataDir, jobs, appOf: run => join(runsDir, run, 'app') }
+  return { route, built, done, known, logs, runsDir, dataDir, jobs, home, appOf: run => join(runsDir, run, 'app') }
 }
 
 test('the door: not linked, pushed, changes not pushed, new commits, pulled as the next version, pushed again', async () => {
@@ -498,4 +498,48 @@ test('files that may not come in (a key file, a link) leave the project and the 
   x(['update-ref', 'refs/heads/main', x(['commit-tree', tree, '-m', 'a link'])])
   const linky = await pushSource({ dir, title: 'Shop', want: { repo: 'team/linky' }, hub: G.hub, gh: G.gh }).catch(e => e)
   assert.match(linky.other.bring, /links to other places \(outside\)/)
+})
+
+test('the door: a folder on this computer, a checkout on a branch of its own or a plain folder, written, refused and read back', async () => {
+  const G = github(), S = studio(G)
+  const app = S.built('p1', 'Cedar Cafe', '2020-r1', { 'index.html': 'v1' })
+  const repo = join(S.home, 'code', 'cafe'); put(repo, { 'README.md': 'theirs' }); g(repo, 'init', '-q'); g(repo, 'add', '-A'); g(repo, 'commit', '-qm', 'theirs')
+  try {
+    // never the Studio's own folders, Hermes's home or outside the home folder
+    mkdirSync(join(S.home, '.hermes'), { recursive: true })
+    for (const bad of [S.dataDir, join(S.home, '.hermes'), tmp()]) await assert.rejects(S.route.act('p1', { action: 'push', folder: bad, sub: 'x' }))
+    // a checkout: a branch of its own, nothing pushed
+    await S.route.act('p1', { action: 'push', folder: '~/code/cafe' }); let st = await S.done('p1')
+    assert.equal(st.job.state, 'done', st.job.message); assert.match(st.job.message, /Written to the branch swarm\/cedar-cafe in .*Nothing was pushed anywhere/)
+    assert.deepEqual({ mode: st.link.mode, branch: st.link.branch, repo: st.link.repo, url: st.link.url }, { mode: 'checkout', branch: 'swarm/cedar-cafe', repo: null, url: null })
+    assert.equal(g(repo, 'rev-parse', 'refs/heads/swarm/cedar-cafe'), g(app, 'rev-parse', 'HEAD'))
+    assert.equal(g(repo, 'symbolic-ref', '--short', 'HEAD'), 'main')
+    // linked to a folder, GitHub is not offered until it is unlinked
+    await assert.rejects(S.route.act('p1', { action: 'push', repo: 'me/x' }), /Unlink it first, to put it on GitHub/)
+    // Pull from a checkout reads its working tree, only with the project's branch out there
+    await S.route.act('p1', { action: 'pull' }); st = await S.done('p1')
+    assert.equal(st.job.state, 'failed'); assert.match(st.job.message, /Check out swarm\/cedar-cafe in/)
+    st = await S.route.act('p1', { action: 'unlink' }); assert.equal(st.link, null)
+    // a plain folder: the files in a subfolder; a file not written by the project is asked about first
+    put(join(S.home, 'sites'), { 'cafe/index.html': 'by hand' })
+    await S.route.act('p1', { action: 'push', folder: join(S.home, 'sites'), sub: 'cafe' }); st = await S.done('p1')
+    assert.equal(st.job.state, 'failed'); assert.match(st.job.message, /1 file .* was not written by this project, or changed since: index\.html\. Nothing was written/)
+    assert.deepEqual(st.job.changes.theirs, ['index.html'])
+    assert.equal(readFileSync(join(S.home, 'sites', 'cafe', 'index.html'), 'utf8'), 'by hand')
+    await S.route.act('p1', { action: 'push', folder: join(S.home, 'sites'), sub: 'cafe', confirm: true }); st = await S.done('p1')
+    assert.equal(st.job.state, 'done', st.job.message); assert.match(st.job.message, /1 replaced/)
+    assert.equal(readFileSync(join(S.home, 'sites', 'cafe', 'index.html'), 'utf8'), 'v1')
+    assert.equal(st.link.where, join(S.home, 'sites', 'cafe'))
+    // a later write goes to the same subfolder; nothing new is said so
+    await S.route.act('p1', { action: 'push' }); st = await S.done('p1')
+    assert.match(st.job.message, /Nothing new to write/)
+    // read back: an edit there becomes the project's next version
+    await S.route.act('p1', { action: 'pull' }); st = await S.done('p1')
+    assert.match(st.job.message, /Nothing new in/)
+    put(join(S.home, 'sites'), { 'cafe/index.html': 'edited there' })
+    await S.route.act('p1', { action: 'pull' }); st = await S.done('p1')
+    assert.equal(st.job.state, 'done', st.job.message); assert.match(st.job.message, /Pulled from .*cafe: it is the project's newest version/)
+    assert.equal(readFileSync(join(S.runsDir, st.job.run, 'app', 'index.html'), 'utf8'), 'edited there')
+    assert.ok(!existsSync(join(S.runsDir, st.job.run, 'app', '.swarm-studio.json')), "the record of what it wrote is not brought in")
+  } finally { S.jobs.close() }
 })

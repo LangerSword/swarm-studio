@@ -12,6 +12,11 @@ kind: standalone
 # - the asset library's assetrizz catalog and pictures, from raw.githubusercontent.com/mojomast/assetrizz at one
 #   pinned commit (engine/library.mjs RIZZ_SHA), into $HERMES_HOME/swarm-studio/assetrizz/. The swarm_studio tool's
 #   library_import, library_pick and reference_add ask the person first (Hermes's approval gate).
+# Writes outside $HERMES_HOME only where the person points it (README, "What it does on your machine"), among them a
+# project's source into a folder of their home folder they name (☰ › GitHub › A folder on this computer): a git checkout
+# gets the project's commits on a new branch of its own (a local git fetch; nothing pushed), a plain folder gets the
+# files in a subfolder, and a file there it did not write is replaced only after they say yes. Never the home folder
+# itself, $HERMES_HOME, the studio's data or this plugin's folder; never a file that looks like a key.
 requires_hermes: ">=0.23"
 provides_tools:
   - swarm_design
