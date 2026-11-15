@@ -1,0 +1,183 @@
+{
+  "base": "origin/main",
+  "before": {
+    "fingerprint": "98c29211bafd7b32",
+    "model": "cb/deepseek-v4.1-flash",
+    "reviewer": "ali/qwen3.8-omni-flash",
+    "runs": 2,
+    "at": "2026-11-15T07:08:41.856Z",
+    "sets": {
+      "harbour": {
+        "prompts": "31f73a1541792504",
+        "runs": [
+          {
+            "wallMs": 7578,
+            "tokensIn": 10113,
+            "tokensOut": 7990,
+            "sections": 8,
+            "errors": 0,
+            "p0": 0,
+            "p1": 1,
+            "ids": [
+              "accent-overuse"
+            ],
+            "score": null,
+            "error": "ali/qwen3.8-omni-flash: HTTP 402 {\"error\":{\"code\":\"no_provider_under_bid\",\"message\":\"no provider's ask matches your max-per-mtok bid\",\"min_input_per_mtok\":\"0.0156\",\"min_output_per_mtok\":\"0.04888\",\"pro"
+          },
+          {
+            "wallMs": 7682,
+            "tokensIn": 10113,
+            "tokensOut": 8830,
+            "sections": 8,
+            "errors": 0,
+            "p0": 0,
+            "p1": 0,
+            "ids": [],
+            "score": null,
+            "error": "ali/qwen3.8-omni-flash: HTTP 402 {\"error\":{\"code\":\"no_provider_under_bid\",\"message\":\"no provider's ask matches your max-per-mtok bid\",\"min_input_per_mtok\":\"0.0156\",\"min_output_per_mtok\":\"0.04888\",\"pro"
+          }
+        ],
+        "scored": false,
+        "wallMs": 7630,
+        "tokensIn": 10113,
+        "tokensOut": 8410,
+        "score": null,
+        "findings": 0.06,
+        "p0": 0,
+        "errors": 0
+      },
+      "kiln": {
+        "prompts": "bc9094737137b6c6",
+        "runs": [
+          {
+            "wallMs": 9056,
+            "tokensIn": 11469,
+            "tokensOut": 9778,
+            "sections": 12,
+            "errors": 0,
+            "p0": 0,
+            "p1": 1,
+            "ids": [
+              "accent-overuse"
+            ],
+            "score": null,
+            "error": "ali/qwen3.8-omni-flash: HTTP 402 {\"error\":{\"code\":\"no_provider_under_bid\",\"message\":\"no provider's ask matches your max-per-mtok bid\",\"min_input_per_mtok\":\"0.0156\",\"min_output_per_mtok\":\"0.04888\",\"pro"
+          },
+          {
+            "wallMs": 8427,
+            "tokensIn": 11469,
+            "tokensOut": 11163,
+            "sections": 12,
+            "errors": 0,
+            "p0": 0,
+            "p1": 1,
+            "ids": [
+              "accent-overuse"
+            ],
+            "score": null,
+            "error": "ali/qwen3.8-omni-flash: HTTP 402 {\"error\":{\"code\":\"no_provider_under_bid\",\"message\":\"no provider's ask matches your max-per-mtok bid\",\"min_input_per_mtok\":\"0.0156\",\"min_output_per_mtok\":\"0.04888\",\"pro"
+          }
+        ],
+        "scored": false,
+        "wallMs": 8741.5,
+        "tokensIn": 11469,
+        "tokensOut": 10470.5,
+        "score": null,
+        "findings": 0.08,
+        "p0": 0,
+        "errors": 0
+      }
+    }
+  },
+  "after": {
+    "fingerprint": "ff1e6120824bd8dc",
+    "model": "cb/deepseek-v4.1-flash",
+    "reviewer": "ali/qwen3.8-omni-flash",
+    "runs": 2,
+    "at": "2026-11-15T07:09:20.685Z",
+    "sets": {
+      "harbour": {
+        "prompts": "1b1fe730ba094b89",
+        "runs": [
+          {
+            "wallMs": 6559,
+            "tokensIn": 10113,
+            "tokensOut": 8565,
+            "sections": 8,
+            "errors": 0,
+            "p0": 0,
+            "p1": 1,
+            "ids": [
+              "accent-overuse"
+            ],
+            "score": null,
+            "error": "ali/qwen3.8-omni-flash: HTTP 402 {\"error\":{\"code\":\"no_provider_under_bid\",\"message\":\"no provider's ask matches your max-per-mtok bid\",\"min_input_per_mtok\":\"0.0156\",\"min_output_per_mtok\":\"0.04888\",\"pro"
+          },
+          {
+            "wallMs": 8499,
+            "tokensIn": 10113,
+            "tokensOut": 7770,
+            "sections": 8,
+            "errors": 0,
+            "p0": 0,
+            "p1": 0,
+            "ids": [],
+            "score": null,
+            "error": "ali/qwen3.8-omni-flash: HTTP 402 {\"error\":{\"code\":\"no_provider_under_bid\",\"message\":\"no provider's ask matches your max-per-mtok bid\",\"min_input_per_mtok\":\"0.0156\",\"min_output_per_mtok\":\"0.04888\",\"pro"
+          }
+        ],
+        "scored": false,
+        "wallMs": 7529,
+        "tokensIn": 10113,
+        "tokensOut": 8167.5,
+        "score": null,
+        "findings": 0.06,
+        "p0": 0,
+        "errors": 0
+      },
+      "kiln": {
+        "prompts": "4135c9570f7f151f",
+        "runs": [
+          {
+            "wallMs": 8559,
+            "tokensIn": 11469,
+            "tokensOut": 9748,
+            "sections": 12,
+            "errors": 0,
+            "p0": 0,
+            "p1": 1,
+            "ids": [
+              "accent-overuse"
+            ],
+            "score": null,
+            "error": "ali/qwen3.8-omni-flash: HTTP 402 {\"error\":{\"code\":\"no_provider_under_bid\",\"message\":\"no provider's ask matches your max-per-mtok bid\",\"min_input_per_mtok\":\"0.0156\",\"min_output_per_mtok\":\"0.04888\",\"pro"
+          },
+          {
+            "wallMs": 6998,
+            "tokensIn": 11469,
+            "tokensOut": 9246,
+            "sections": 12,
+            "errors": 0,
+            "p0": 0,
+            "p1": 1,
+            "ids": [
+              "accent-overuse"
+            ],
+            "score": null,
+            "error": "ali/qwen3.8-omni-flash: HTTP 402 {\"error\":{\"code\":\"no_provider_under_bid\",\"message\":\"no provider's ask matches your max-per-mtok bid\",\"min_input_per_mtok\":\"0.0156\",\"min_output_per_mtok\":\"0.04888\",\"pro"
+          }
+        ],
+        "scored": false,
+        "wallMs": 7778.5,
+        "tokensIn": 11469,
+        "tokensOut": 9497,
+        "score": null,
+        "findings": 0.08,
+        "p0": 0,
+        "errors": 0
+      }
+    }
+  },
+  "table": "| set | score | findings per section | P0 | wall time | prompt tokens |\n|---|---|---|---|---|---|\n| harbour | null → null | 0.06 → 0.06 | 0 → 0 | 7.6 s → 7.5 s (-1%) | 10113 → 10113 (0%) |\n| kiln | null → null | 0.08 → 0.08 | 0 → 0 | 8.7 s → 7.8 s (-11%) | 11469 → 11469 (0%) |",
+  "fails": []
+}

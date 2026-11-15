@@ -5,6 +5,7 @@
 // web/canvas/talk.js). The chat owns its turns, the open question, the brief being edited, the chat's id, its tab,
 // the chips in the message box and the two pickers. The screen owns what was built: the crew's lines, the Log, where
 // each layer is on screen, and what Build, a slash command or a plan does next.
+import type { ReactNode } from 'react'
 
 export type ChatKind = 'site' | 'app' | 'game' | 'film' | 'video'
 
@@ -30,6 +31,8 @@ export interface ChatLine {
   step?: boolean
   waiting?: boolean
   sheet?: SheetPick
+  // something to act on in Hermia's turn, drawn under her words (a build's research stop: ResearchStop)
+  card?: ReactNode
   // what a tool Hermia used found (decision 0025 e): its cards, and the saved turn they are on (for a press)
   cards?: ChatCard[]
   cardsTurn?: string

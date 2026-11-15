@@ -32,6 +32,8 @@ export const alias: AliasOptions = [
   { find: '@studio/walkline', replacement: fileURLToPath(new URL('../web/walkline.js', import.meta.url)) },
   // the server's token in its header for the event stream and downloads (web/headerstream.js): never ?k= in an address
   { find: '@studio/headerstream', replacement: fileURLToPath(new URL('../web/headerstream.js', import.meta.url)) },
+  // a build that looked something up stops with what it found, shown before it is used (web/researchstop.js)
+  { find: '@studio/researchstop', replacement: fileURLToPath(new URL('../web/researchstop.js', import.meta.url)) },
   // by path: a bare 'xstate' would be looked up from web/, which has no node_modules
   { find: /^(\.\.?\/)+vendor\/xstate\/xstate\.mjs$/, replacement: fileURLToPath(import.meta.resolve('xstate')) },
   // the sanitiser the current deck runs on every section before a frame shows it (web/clean.js): the Design deck's
