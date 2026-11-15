@@ -136,6 +136,13 @@ test('end to end: "find me a pixel sword" in a project\'s talk shows cards from 
     assert.equal(j.cards.length, 2)
     assert.match(j.cards[0].source, /your pack my_swords: Ana, CC0/)
     assert.equal(j.cards[0].act, undefined)
+    // its picture: on disk already (a pack of one's own), served without the token, like /ref/ and /plans/
+    assert.match(j.cards[0].img, /^\/library\/pic\?id=my_swords%2Fweapons%2F/)
+    const pic = await fetch(`${s.BASE}${j.cards[0].img}`)
+    assert.equal(pic.status, 200)
+    assert.equal(pic.headers.get('content-type'), 'image/png')
+    assert.ok((await pic.arrayBuffer()).byteLength > 8)
+    assert.equal((await fetch(`${s.BASE}/library/pic?id=nope%2Fx.png`)).status, 404)
     assert.equal(j.cards[0].pick, 'Keep this')
     assert.match(j.heard, /\[Shown: 1\./)
     const kept = await fetch(`${s.BASE}/api/helper/pick`, { method: 'POST', headers: head, body: JSON.stringify({ chat: j.chat, turn: j.turn, card: 'c1' }) }).then(r => r.json())

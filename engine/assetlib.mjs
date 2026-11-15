@@ -111,6 +111,13 @@ export function assetLib({ dataDir, fetchImpl = fetch, unzip = (zip, to) => new 
   const search = opts => searchRows(rows(), opts)
   const get = id => rows().find(r => r.id === id) || null
 
+  // the picture's file only when it is already on disk (never fetched): for showing it before anyone chose it
+  function local(id) {
+    const r = get(String(id || ''))
+    if (!r) return null
+    const f = r.own ? resolve(ownDir, r.pack, r.path) : inside(rizzDir, r.path)
+    return f && (!r.own || f.startsWith(resolve(ownDir) + sep)) && existsSync(f) ? f : null
+  }
   // the picture on disk (an assetrizz one is fetched the first time) → { file, row } or null
   async function file(id) {
     const r = get(String(id || ''))
@@ -174,7 +181,7 @@ export function assetLib({ dataDir, fetchImpl = fetch, unzip = (zip, to) => new 
     own = null
     return true
   }
-  return { packs, search, get, file, importPack, removePack, reset: () => { rizz = own = null } }
+  return { packs, search, get, local, file, importPack, removePack, reset: () => { rizz = own = null } }
 }
 
 // ---------- a build's picks (runs/<id>/art-picks.json)

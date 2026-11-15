@@ -3391,6 +3391,15 @@ const server = createServer((req, res) => {
   if (url.pathname === '/api/library/packs' && req.method === 'GET') return json(200, { packs: assets.packs() })
   // Open Design's design templates, for the person to pick one for a build (engine/odlibrary.mjs, decision 0016)
   if (url.pathname === '/api/library/templates' && req.method === 'GET') return json(200, { templates: odTemplates() })
+  // a library picture already on disk, for a chat card's <img> (decision 0025 e): like /ref/ and /plans/ it needs
+  // no token, and it never fetches, so showing what the chat found downloads nothing
+  if (url.pathname === '/library/pic' && req.method === 'GET') {
+    const f = assets.local(url.searchParams.get('id'))
+    if (!f) return void res.writeHead(404).end('not found')
+    // as it is: a card's small picture is not worth a copy in the image service
+    res.writeHead(200, { 'content-type': { '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif' }[extname(f).toLowerCase()] || 'image/jpeg', 'cache-control': 'private, max-age=86400', 'content-security-policy': 'sandbox', 'x-content-type-options': 'nosniff' })
+    return void res.end(readFileSync(f))
+  }
   if (url.pathname === '/api/library/file' && req.method === 'GET') {
     assets.file(url.searchParams.get('id')).then(got => {
       if (!got) return json(404, { error: 'no such picture' })

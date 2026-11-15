@@ -24,7 +24,8 @@ export function libraryTool({ assets, refs, plans }) {
         text: to ? `Here are ${found.length} from the asset library. Press one to keep it with ${to.plan ? 'the game\'s art references' : 'the project\'s References'}.` : `Here are ${found.length} from the asset library.`,
         cards: found.map(r => ({
           title: r.subject || basename(r.path || r.id), source: `${r.own ? 'your pack' : 'assetrizz'} ${r.pack}: ${credit(r)}`,
-          img: `/api/library/file?id=${encodeURIComponent(r.id)}`, note: r.category,
+          // the picture only when it is on disk already: showing a card downloads nothing
+          ...(assets.local?.(r.id) ? { img: `/library/pic?id=${encodeURIComponent(r.id)}` } : {}), note: r.category,
           ...(to ? { act: { id: r.id, ...to }, pick: 'Keep this' } : {})
         }))
       }

@@ -79,11 +79,19 @@ passes in.
   through Hermes's approval.
 - A new host or tool is disclosed in `plugin.yaml` and the README.
 
+## Drawing the cards
+
+- The classic Studio: `web/chatcards.js` under Hermia's message in `web/canvas/talk.js` (every classic chat, the
+  Design deck's included). A reopened chat draws its turns' cards again (`saidOf`).
+- The next UI: `ui/src/chat/ChatCards.tsx` in `Feed.tsx`, pressed through `useTalk().pickCard` (every chat built on
+  `Chat`, the Design deck's `DeckChat` included). The dock is short, so a card is a small picture beside its words.
+- A card's picture is shown only when it is on disk already (`/library/pic?id=`, no token, never fetched), so
+  showing what the chat found downloads nothing; one not on disk shows its words alone.
+- A press that kept something fires `swarm:refs` on the window; the Studio boards (`web/scaffold.js`,
+  `ui/src/screens/studio/useStudio.ts`) reload their References.
+
 ## Not yet
 
-- **Drawing the cards** in the chats, in both Studios: the classic `web/canvas/talk.js` and the next UI's
-  `ui/src/chat/` (`useTalk.ts`, `Chat.tsx`), and the Design deck's chat. That is the next PR. Until it lands the
-  answer's text says what was found, and the cards are there for the clients to draw.
 - **Ask mode** (spec 46) offers no tools: it changes nothing and keeps no chat, so a card could not be pressed.
 - **The prompt evals** (decision 0019) don't cover `engine/talkplan.mjs`. The tool form is checked by
   `tests/helpers.test.mjs` with a scripted planner (`scripts/walkthrough-fixtures.mjs` `studio({ model })`).

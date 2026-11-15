@@ -78,6 +78,8 @@ export function makeScaffold({ sw, C, root }) {
   const proj = p => `/api/projects/${encodeURIComponent(A.pid)}${p}`
   function take(d) { if (d.project?.id === A.pid) { A.d = { ...A.d, ...d }; render() } }
   const fail = err => bd.toast(err.message)
+  // a picture kept from the chat (decision 0025 e, web/chatcards.js): the board shows where it went
+  addEventListener('swarm:refs', () => { if (A.on && A.pid) load() })
   async function load() {
     const pid = A.pid
     try {
