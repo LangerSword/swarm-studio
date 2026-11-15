@@ -507,6 +507,18 @@ const FAILING = [
     if (!pressable) throw new Error('Resume on a failed page’s artboard is covered by something else')
     await truth(env, { raw: true })
   }, settle: 2500 },
+  { id: 'f-fail-overview-resume', flow: FAIL, title: 'Resume pressed on a failed page’s artboard: the build goes on in the Overview (the model has not answered yet)', run: async env => {
+    const s = await failed(env)
+    const before = (await s.api('/api/runs')).length
+    holdBuild(s.ctl)
+    await env.page.locator('.pj-world .ab.page > [data-resume]').first().click()
+    // the next version is the one shown, and nothing of it has failed: the tags are gone while it builds
+    await env.page.locator('.pj-world .ab.page > .pt-tag').first().waitFor({ state: 'detached', timeout: 12000 })
+    let started = false
+    for (let i = 0; i < 20 && !started; i++) { started = (await s.api('/api/runs')).length > before; if (!started) await env.wait(300) }
+    if (!started) throw new Error('Resume was pressed on the Overview and no build started')
+    await env.wait(1500)
+  }, settle: 1500, after: env => letBuild(env.fs?.ctl) },
   { id: 'f-fail-deck', flow: FAIL, title: 'The failed build opened again in the Design deck: the deck and its chat', run: async env => { const s = await failed(env); await deck(env, s, s.failed); await env.wait(1200); await toEnd(env.page); await deckTruth(env, /Partly built/i) }, settle: 2000 },
   { id: 'f-fail-log', flow: FAIL, title: 'The chat’s Log for the failed build', run: async env => { await failed(env); await click(env.page, '.side .tabs [data-tab="log"]'); await truth(env) }, settle: 800 },
   { id: 'f-fail-fix', flow: FAIL, title: 'Fix mode ("/fix", then "Why did the build stop?"): what Fix says, from the Studio’s own facts (no model answers here)', run: async env => {

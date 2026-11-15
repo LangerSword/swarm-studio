@@ -91,3 +91,19 @@ me". The rest is *our wording*.
 - The planner's skipped steps get filled in by the crew, and the build says what it picked.
 - Tests cover: no build without an answer, the recommendation for each kind of prompt, and step by step asking before
   each step.
+
+## Added 2026-11-15: Try again is the same build, so it does not ask again *(our wording)*
+
+A build that failed before any page was planned offers **Try again**. It sent the brief to `/api/run` as a new
+build, so this question answered it and the chat printed "Couldn't start it again: ask" (hole B4 in
+[docs/ux/states/build.md](../ux/states/build.md)). The person already answered for that build, so Try again now
+goes to `POST /api/runs/<id>/again`, which does not ask. It can't be used to skip the question for anything else:
+
+- the server takes it only for a website build whose state says `next: 'again'` (it failed, was halted or was cut
+  off, and has nothing to resume from: `engine/buildstate.mjs`);
+- the words built are that build's own `run:start` brief, never words in the request;
+- it joins the same project, with the look found as a first build finds it (a design system the words name, then the
+  project's locked brand).
+
+Not carried from the first try: a template, page type or picture choice the first request named, the number of
+agents, a loose chat's locked brand sheet, and the chat's record of the build.

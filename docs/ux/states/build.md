@@ -11,7 +11,9 @@ chat turn that starts a build is in [chat-turn.md](chat-turn.md). Publishing a b
 [publish.md](publish.md).
 
 Evidence: code in this worktree, and the walkthrough shots named in the cells (step ids such as
-`f-fail-live`). Nothing was run. "(inferred)" marks a cell read from code paths that no shot shows.
+`f-fail-live`). Nothing was run when the table was first written; the cells changed by the build state's move
+onto the Design deck and the Overview were checked against the walkthrough's `f-fail-*`, `f-change-*` and
+`m-deck-planning` shots, run on 2026-11-15. "(inferred)" marks a cell read from code paths that no shot shows.
 
 ## States
 

@@ -3371,6 +3371,8 @@ ${researchBrief(seen)}`
       // build that exists (it resolved to that build, engine/extend.mjs followUp), a redo of a project that has versions, a Studio project's
       // Build (the walk is the answer), a chat whose person answered "Skip all" (once), or a script's sure
       // build. Anything else asks in the chat and builds nothing; an error while asking still asks.
+      // (Try again is not this route: POST /api/runs/<id>/again builds a failed build's own words again, only
+      // where its state names it, so it asks nothing and starts nothing new.)
       const goChat = chatId ? chats.get(chatId) : null
       const answered = sure || !!next || (redo && !!pid && (projects.get(pid)?.versions?.length || 0) > 0)
         || (!!pid && !!studios.get(pid)) || (goChat?.go?.path === 'all' && !goChat.go.run)
@@ -3810,7 +3812,12 @@ ${researchBrief(seen)}`
     return void hermesGate().then(gate => {
       if (gate) return json(503, gate)
       const pid = projects.projectOf(id)
-      const run = startRun({ brief })
+      // engine: open-design
+      // the look as a first build finds it (above, /api/run): a design system the words name, then the project's
+      // locked brand. A loose chat's locked sheet is not found from a run, so it is not carried.
+      const brand = requestedBrand(undefined, brief) || (pid ? lockedBrand(studios.brands, pid) : null)
+      // end engine: open-design
+      const run = startRun({ brief, ...(brand ? { brand } : {}) })
       if (pid) {
         projects.claim(run.id, pid)
         // the references the first try read are the ones in these words

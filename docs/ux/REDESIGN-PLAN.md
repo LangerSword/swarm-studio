@@ -96,3 +96,7 @@ Five people, twenty minutes each, thinking aloud, on the redesigned flows. What 
   everything a button does; dependencies the app does not install; the defects caught in the capture; the state
   engine. Step 5 ("Draw, area by area") shrinks to the few places a fix needs a new or changed screen (a
   missing failure state, the chat on the Overview). Nothing is removed or restyled to match another product.
+- 2026-11-15 (step 3), made true so far, each with a test and the walkthrough's pictures: a failed project no
+  longer reads "Designed" (PR 641, the build state); "All 3 pages are built" with 4 failed, no Resume on a failed
+  build opened again, and "Try again" answering "Couldn't start it again: ask" (PR 642: the Design deck and the
+  Overview read the same state). The holes still open are listed in [states/build.md](states/build.md).
