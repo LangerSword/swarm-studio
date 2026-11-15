@@ -46,8 +46,11 @@ function setup(answers = {}) {
     return { ok: true, json: async () => a }
   }
   let pinned = 0
-  const room = autoplayRoom({ btn, cover, api, stream: run => `/stream/${run}`, ico: n => `<svg data-n="${n}"></svg>`, cursor: '<span class="cur"></span>', showLive: () => { pinned++ }, botMsg: t => said.push(t), youSaid: t => said.push(`you: ${t}`) })
-  return { room, btn, cover, img, calls, said, pins: () => pinned }
+  // the screen is read with fetch and the token in its header (web/headerstream.js): what was asked for, and closed
+  const asked = [], screen = { closed: 0 }
+  const frames = (url, o) => { asked.push({ url, token: o.token }); return { close: () => { screen.closed++ } } }
+  const room = autoplayRoom({ btn, cover, api, stream: run => `/stream/${run}`, token: 'tok', frames, ico: n => `<svg data-n="${n}"></svg>`, cursor: '<span class="cur"></span>', showLive: () => { pinned++ }, botMsg: t => said.push(t), youSaid: t => said.push(`you: ${t}`) })
+  return { room, btn, cover, img, calls, said, asked, screen, pins: () => pinned }
 }
 const tick = () => new Promise(r => setTimeout(r, 5))
 const live = { run: 'r1', kind: 'game', url: 'http://127.0.0.1:5000/', live: true }
@@ -70,7 +73,7 @@ test('the switch is hidden until the server says it has a player, then one press
   assert.match(s.btn.innerHTML, /data-n="square-stop"><\/svg>Autoplay$/)
   await tick()
   assert.deepEqual(s.calls.at(-1), { path: '/api/runs/r1/autoplay', body: { start: true } })
-  assert.equal(s.img.getAttribute('src'), '/stream/r1')
+  assert.deepEqual(s.asked, [{ url: '/stream/r1', token: 'tok' }], 'the screen is asked for once, the token in its header')
   // the first picture, and a decision
   s.room.event({ run: 'r1', on: true, live: true, say: 'going for the crow' })
   assert.equal(s.cover.querySelector('.app-skel').hidden, true)
@@ -83,6 +86,7 @@ test('the switch is hidden until the server says it has a player, then one press
   s.btn.onclick()
   assert.equal(s.cover.hidden, true)
   assert.equal(s.img.getAttribute('src'), null)
+  assert.equal(s.screen.closed, 1, 'and its stream is closed')
   s.room.event({ run: 'r1', on: true, live: true, say: 'reads on' })
   assert.equal(s.room.now().on, false)
   await tick()
@@ -133,7 +137,7 @@ test('a player that could not start says why in the chat, and one already playin
   t.room.render(live)
   await tick()
   assert.equal(t.cover.hidden, false)
-  assert.equal(t.img.getAttribute('src'), '/stream/r1')
+  assert.deepEqual(t.asked, [{ url: '/stream/r1', token: 'tok' }])
   assert.equal(t.cover.querySelector('.app-auto-say').textContent, 'heads for the door')
 })
 

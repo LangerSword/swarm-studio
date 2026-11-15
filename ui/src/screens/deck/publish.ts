@@ -1,6 +1,7 @@
 // Publish, Post to Feed and Export: the calls the current deck makes (web/canvas/publish.js, design.js exportRunNow),
 // with the page's token (window.SWARM), and copying a link where the Clipboard API is refused.
 import type { Host } from './model'
+import { download } from '@studio/headerstream'
 
 export class ApiError extends Error {}
 
@@ -49,8 +50,8 @@ type Sections = { key: string, html: string }[]
 // the result arrives as publish:* events on the stream (and in the saved build)
 export const publish = (run: string, target: Host, sections: Sections) => call<unknown>(runPath(run, 'publish'), { target, sections })
 export const exportRun = (run: string, sections: Sections) => call<{ pages: number, sections: number, dir: string, zip?: string }>(runPath(run, 'export'), { sections })
-// the export's zip, a download (a link, so it carries the token the way /events does)
-export const zipUrl = (run: string) => `${runPath(run, 'export.zip')}?k=${encodeURIComponent(window.SWARM?.token ?? '')}`
+// the export's zip, saved with the token in its header (web/headerstream.js download), never ?k= in a link
+export const saveZip = (run: string) => download(runPath(run, 'export.zip'), { token: window.SWARM?.token ?? '', name: `${run}.zip` })
 
 // Post to Feed: public or unlisted; not linked yet, it answers `connect` and Connect Hermes starts
 export interface Posted { ok: boolean, url?: string, unlisted?: boolean, message?: string, connect?: boolean }

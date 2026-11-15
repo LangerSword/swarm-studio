@@ -3006,7 +3006,9 @@ const server = createServer((req, res) => {
       res.writeHead(204).end()
       return
     }
-    const given = req.headers['x-swarm-token'] || url.searchParams.get('k')
+    // only in its header: never ?k= in an address, which ends up in logs, history and Referer (catalog review of
+    // e8ae13c4). The streams and downloads that used to need it there read it with fetch (web/headerstream.js)
+    const given = req.headers['x-swarm-token']
     if (url.pathname !== '/api/state' && !tokenOk(given)) {
       res.writeHead(401, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'token required' }))
       return
