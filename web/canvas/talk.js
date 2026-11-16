@@ -345,6 +345,13 @@ function sheetIn(item, sheet, opts, pick) {
     if (o) pick(o)
   }
   item.append(box)
+  // the sheet is taller than the line it arrives under, and the line was already pushed and scrolled: it grows
+  // below the fold, so the picks it asks for sit where nobody looks (#644, after a Godot install). Once the
+  // picture has its height, the feed follows it down if it was at the bottom.
+  const stick = () => { const f = els.feed; if (f && f.scrollHeight - f.scrollTop - f.clientHeight < 400) f.scrollTop = f.scrollHeight }
+  const img = box.querySelector('img')
+  if (img && !img.complete) img.addEventListener('load', stick, { once: true })
+  stick()
 }
 // the open question's options, or Lock and Keep talking under the spec
 // a plan's next step (server/talk.mjs): Lock and every action are buttons in the turn, and run on the server
