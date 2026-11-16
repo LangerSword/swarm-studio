@@ -2198,10 +2198,14 @@ async function chatTruth({ pid = null, run = null, kind = 'site', chat = null } 
     const b = ev ? siteState(v, ev) : null
     if (b) { build = b; id = v; events = ev; break }
   }
+  // an app's design is a build of its own kind: the chat about it is the app's, whichever chat asks. A later
+  // version of its pages counts only while it builds; one that ended is not a website that "is built"
+  if (start?.kind === 'app') {
+    kind = 'app'
+    if (build && !['planning', 'building'].includes(build.state)) { build = null; id = run; events = own }
+  }
   events ||= own
   id ||= run
-  // an app's design is a build of its own kind (it has no website state): the chat about it is the app's
-  if (!build && start?.kind === 'app') kind = 'app'
   const pages = events ? [...new Map(events.filter(e => e.type === 'page').map(e => [e.id, String(e.title || e.id)])).values()] : []
   let app = null
   if (id && (kind === 'app' || events?.some(e => typeof e.type === 'string' && e.type.startsWith('app:')))) {
