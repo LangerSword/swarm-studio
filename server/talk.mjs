@@ -211,7 +211,12 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
 
   // When the install a chat waits on ends, the chat gets the turn that says what happened: installed, with the
   // version that ran and the plan's real next step, or "Nothing happened" with the reason and the way on.
-  const installedLine = r => [r.note || '', `Godot ${r.version || 4} is installed: the game builds as a Godot 4 project.`].filter(Boolean).join(' ')
+  // The templates are the other half of a Web export, and a second, larger download (engine/godotinstall.mjs
+  // installTemplates): the line says which of the two happened, because only one of them lets a game be played
+  const installedLine = r => [r.note || '',
+    `Godot ${r.version || 4} is installed: the game builds as a Godot 4 project.`,
+    r.templates?.ok === false ? `Its Web export templates did not install (${r.templates.why}), so the game cannot be played yet: press Install Godot 4 again to get them.` : ''
+  ].filter(Boolean).join(' ')
   const failedLine = r => `Nothing happened: ${String(r?.why || 'Godot is installed but the Studio cannot find it').replace(/\.$/, '')}.`
   const settling = new Set()
   function settle(id, flight) {
