@@ -306,3 +306,26 @@ test('the Lock chip under the spec is the same lock, and a missing painter is sa
     assert.match(j.turn.text, /The Cast sheet waits on your picks/)
   } finally { h.close() }
 })
+
+test('"the browser is fine" typed while Godot installs chooses the browser, not a talk with the planner', async () => {
+  // #644's leftover: while an install runs the step carries no options (its line is the install's progress), so the
+  // only guard on the browser answer — an option id — was never there, and the words fell through to the planner.
+  // `settle` already gives way when the person went on with the browser meanwhile, so the choice must stick.
+  const f = await night({ install: { ok: true, version: '4.7.2' } })
+  try {
+    await f.post({ said: 'lock' })
+    const j = await f.post({ said: 'install godot' })
+    assert.equal(j.turn.wait, true, 'the install is running')
+    assert.deepEqual((await f.step()).options, [], 'and its step offers no buttons')
+    // typed mid-install: the browser answer, not a question for the planner
+    const said = await f.post({ said: 'the browser is fine' })
+    assert.match(said.turn.text, /^The game builds for the browser\./)
+    assert.equal(f.chatFile().godot, 'web', 'the choice is kept')
+    // the install ending afterwards says nothing more: the person already chose
+    f.landGodot()
+    await until(async () => !(await f.step()).wait)
+    const after = await f.step()
+    assert.doesNotMatch(after.text, /is installed/, 'a settled install does not overrule the person')
+    assert.equal(f.chatFile().godot, 'web')
+  } finally { f.close() }
+})
