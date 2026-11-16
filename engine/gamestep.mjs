@@ -75,7 +75,10 @@ const priceLine = pr => `${plural(pr.images, 'picture')}${pr.credits ? ` and ${p
 export const lockLabel = pr => pr.credits ? `Lock · ${pr.credits} credits` : `Lock · ${plural(pr.images, 'picture')}`
 const o = (id, label, why = '') => ({ id, label, why, made: [] })
 // the line while Godot installs: the route, the size and how far the download is, when the route says
-export const installLine = (i = {}) => `Installing Godot 4 now${i.route === 'brew' ? ', with Homebrew' : i.mb ? `: ${i.mb} MB from Godot's releases` : ''}${i.route !== 'brew' && i.pct ? ` (${i.pct}%)` : ''}.`
+export const installLine = (i = {}) => i.route === 'templates'
+  // the editor is in; its Web export templates are the second, larger download (engine/godotinstall.mjs)
+  ? `Installing Godot's Web export templates now${i.mb ? `: ${i.mb} MB from Godot's releases` : ''}${i.pct ? ` (${i.pct}%)` : ''}.`
+  : `Installing Godot 4 now${i.route === 'brew' ? ', with Homebrew' : i.mb ? `: ${i.mb} MB from Godot's releases` : ''}${i.route !== 'brew' && i.pct ? ` (${i.pct}%)` : ''}.`
 // after an install failed, or a look that found nothing: the one action again, the look, and the way round
 // after a failed install there is one way forward: Try again, or Check again when this kind of computer has no
 // download (route 'none'); "check again" and "browser is fine" still work typed
