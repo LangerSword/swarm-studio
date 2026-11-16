@@ -129,6 +129,19 @@ export function playFail(kind, message) {
 export const mapDoor = now => now.offers.includes('map') && now.offers.length < 2 && now.shown !== 'map'
 
 /**
+ * What the stage shows once Live is let go of: the build's own view, in the words the switch uses.
+ * @param {{ shown: string, auto?: string }} now  @returns {string}
+ */
+export function followName(now) {
+  const v = now.auto || now.shown
+  if (v === 'card') return 'the app card'
+  if (v === 'crew') return 'the crew'
+  if (v === 'art') return 'the art'
+  if (v === 'map') return 'the map'
+  return 'the app'
+}
+
+/**
  * Draw the switch from stageNow. The group shows once there are two views to choose between, or one is pinned. The pinned option
  * is pressed (aria-pressed, filled); while the stage follows the build, the one on now is current
  * (aria-current, a dot before its name), so the two never look the same.
@@ -148,5 +161,10 @@ export function stageSwitch(el, now, pick) {
     b.setAttribute('aria-pressed', String(pinned))
     if (current) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current')
     b.onclick = () => pick(v)
+    // Live pinned is the person playing on their own screen: the pressed tab says what pressing it again
+    // does, so ending Live is findable and not just a guess (the person, 2026-11-16: "need an option to
+    // end live as well"). The way out is wherever the build's own stage would be. In the name, never a
+    // tooltip (standing rule 1).
+    if (v === 'live') b.setAttribute('aria-label', pinned ? `End live · back to ${followName(now)}` : 'Show the app live')
   }
 }

@@ -191,8 +191,18 @@ function crewJob() {
       : { key: `app-${cw.mode || 'code'}|${wallNames().map(n => n[0])}`, names: wallNames(), radio: true, host: appEls.view, spots: '.cw-tile:not(.cw-off)', n: CW_TILES, lines: [cw.mode === 'art' ? 'painting' : 'writing code'], tool: cw.mode === 'art' ? ['image', 'image', 'image', 'text'] : ['text', 'text', 'connect', 'frame'], pin: cwPin }
   }
   if (view === 'app' && appv.state === 'working' && appv.run === shownRun()) {
-    const done = appv.steps.filter(s => s.kind === 'write' || s.kind === 'gate' || s.kind === 'render').slice(-6).map(s => s.text.replace(/^(wrote|writing|write)\s+/i, '').slice(0, 34))
-    return { key: 'app', host: appEls.view, spots: '#app-steps .st:nth-last-child(-n+5), #app-preview, #app-stage', n: 4, lines: done.length ? done : ['setting up the project', 'reading the design', 'planning routes'], tool: ['text', 'frame', 'connect', 'rect'] }
+    // one line per agent, and never the same line twice: a build can report one step ten times in a
+    // row (the engine says "starting the app" every time it reloads it), and four agents each drawing
+    // that same sentence looked like four players doing one job — the person asked why (2026-11-16).
+    // The last few distinct steps, newest first, so the crew shows what actually differs.
+    const seen = new Set()
+    const done = appv.steps
+      .filter(s => s.kind === 'write' || s.kind === 'gate' || s.kind === 'render')
+      .map(s => s.text.replace(/^(wrote|writing|write)\s+/i, '').slice(0, 34))
+      .reverse()
+      .filter(t => (seen.has(t) ? false : (seen.add(t), true)))
+      .slice(0, 6)
+    return { key: `app|${done.join('|')}`, host: appEls.view, spots: '#app-steps .st:nth-last-child(-n+5), #app-preview, #app-stage', n: Math.min(4, Math.max(1, done.length)), lines: done.length ? done : ['setting up the project', 'reading the design', 'planning routes'], tool: ['text', 'frame', 'connect', 'rect'] }
   }
   if (video.busy && video.el) {
     const scenes = video.story.map((sc, i) => `scene ${i + 1}: ${sc.headline}`.slice(0, 34))
@@ -212,12 +222,18 @@ export function crewMembers(n) {
 function crewSpot(job, me) {
   const r = job.host.getBoundingClientRect()
   const spots = [...job.host.querySelectorAll(job.spots)].filter(e => e.offsetParent)
+  // A tag is the arrow, the name and the line being worked on, so it runs to ~250px: cursors kept 160px
+  // apart put their tags on top of each other, which read as one muddled label (the person, 2026-11-16).
+  // Apart enough for two tags to sit beside each other, and never the same point twice.
+  const GAP = 300
   let p
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 12; i++) {
     const t = spots.length && Math.random() < 0.6 ? pick(spots).getBoundingClientRect() : r
     if (!t.width || !t.height) return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
     p = { x: t.left + t.width * (0.1 + Math.random() * 0.8), y: t.top + t.height * (0.15 + Math.random() * 0.7) }
-    if (crew.members.every(m => m === me || Math.hypot(m.tx - p.x, m.ty - p.y) > 160)) break
+    const clear = crew.members.every(m => m === me || Math.hypot(m.tx - p.x, m.ty - p.y) > GAP)
+    // a host too small to hold them 300px apart: the closest of the tries beats stacking them together
+    if (clear) return p
   }
   return p
 }
@@ -283,6 +299,14 @@ function crewTick(now) {
     m.y += (m.ty - m.y) * 0.08
     m.el.classList.toggle('moving', Math.abs(m.tx - m.x) + Math.abs(m.ty - m.y) > 6)
     m.el.style.transform = `translate(${m.x.toFixed(1)}px, ${m.y.toFixed(1)}px)`
+    // A tag hangs to the right of its arrow ("Helper 1 play testing" is ~230px): near the right edge it
+    // ran out of the wall it belongs to and crossed into the tile beside it, over another agent's window
+    // (the person, 2026-11-16). Flipped, it hangs to the left and stays over its own cursor.
+    if (now > (m.flipAt || 0)) {
+      m.flipAt = now + 250
+      const w = m.el.querySelector('.tag')?.getBoundingClientRect().width || 0
+      m.el.classList.toggle('flip', m.x + 16 + w > window.innerWidth - 8)
+    }
     m.el.classList.toggle('press', now > m.pressAt && now < m.pressAt + 160)
   }
   // Hermia's dotted line, from her strip to the helper she is giving an order to
