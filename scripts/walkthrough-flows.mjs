@@ -133,7 +133,12 @@ const WEB_BRIEF = 'A website for a bike repair shop in Leeds, for local riders. 
 const web = env => flowStudio(env, 'web', { talk: WEB_REPLY, brief: WEB_BRIEF })
 
 const WEBSITE = [
-  { id: 'f-web-empty', flow: WEB, title: 'Projects › Chats › New chat: the Design deck with nothing built, the chat empty', run: async env => newChat(env, await web(env)) },
+  { id: 'f-web-empty', flow: WEB, title: 'Projects › Chats › New chat: the Design deck with nothing built; the chat is not blank, Hermia says what to do first', run: async env => {
+    await newChat(env, await web(env))
+    // truth: a new chat opens on Hermia's first line (engine/chatstep.mjs firstLine), with no button that could do nothing
+    await seen(env.page, /Say what to make\. Nothing is built until you say\./)
+    if (await env.page.locator('#feed .talk-acts button').count()) throw new Error('a new chat with nothing said offers a button, and there is nothing yet to build from')
+  } },
   { id: 'f-web-typed', flow: WEB, title: 'The idea typed, not sent yet', run: async env => { await web(env); await type(env, IDEA) } },
   { id: 'f-web-thinking', flow: WEB, title: 'Sent: Hermia thinking (her answer has not come yet)', run: async env => {
     const s = await web(env)
@@ -155,16 +160,20 @@ const WEBSITE = [
     await env.wait(1500)
     await toEnd(env.page)
   } },
-  { id: 'f-web-brief', flow: WEB, title: 'The brief, to read and edit: Build · Brand sheet · Keep talking', run: async env => {
+  { id: 'f-web-brief', flow: WEB, title: 'The brief, to read and edit, with the question before a build as its own answers: Skip all, build now · Step by step · Pick steps to skip · Brand sheet · Keep talking', run: async env => {
     const s = await web(env)
     letGo(s.ctl)
     await vis(env.page, '.talk-brief textarea', 10000)
     await toEnd(env.page)
   }, settle: 900 },
-  { id: 'f-web-ask', flow: WEB, title: 'The brief’s Build pressed: nothing builds yet, the question before a build with its three answers', run: async env => {
+  { id: 'f-web-ask', flow: WEB, title: 'One confirmation: the question before a build (decision 0020) is answered on the brief, there is no Build that only asks again', run: async env => {
     await web(env)
-    await env.page.locator('.talk-brief [data-go]').first().click()
-    await vis(env.page, '#feed [data-pick^="go:"]', 12000)
+    await vis(env.page, '.talk-brief [data-pick^="go:"]', 12000)
+    // truth: the three answers are on the brief, no lone Build is, and the question is not asked a second time
+    const n = await env.page.locator('.talk-brief [data-pick^="go:"]').count()
+    if (n !== 3) throw new Error(`the brief shows ${n} answers to the question before a build, not 3`)
+    if (await env.page.locator('.talk-brief [data-go]').count()) throw new Error('the brief still has a Build that asks the question again')
+    if (/Before I build/.test(await env.page.locator('#feed').innerText())) throw new Error('the question before a build is asked as a second message')
     await toEnd(env.page)
   }, settle: 900 },
   { id: 'f-web-build', flow: WEB, title: '"Skip all, build now" pressed: the build starts, the model has not answered yet', run: async env => {
@@ -217,7 +226,11 @@ const APPCHAT = [
     const s = await app(env)
     await appRoom(env, s)
     await send(env, APP_ASK)
-    await env.wait(3000)
+    // truth: the person's words show, and the answer is the app's state with the typed way to build it
+    await seen(env.page, /The app is not built yet\. Say “build the app” to build it/)
+    const feedText = await env.page.locator('#feed').innerText()
+    if (!feedText.includes(APP_ASK)) throw new Error('the person’s own words are not in the chat')
+    if (/Build the app first/.test(feedText)) throw new Error('the chat still answers "Build the app first"')
     await toEnd(env.page)
   } },
   { id: 'f-app-overview-ask', flow: APP, title: 'The same change typed into the Overview’s bar and sent: a build of the design’s next version starts (the server took it), and this is the Overview five seconds on', run: async env => {
@@ -252,18 +265,21 @@ const APPCHAT = [
     await vis(env.page, '.talk-brief textarea', 10000)
     await toEnd(env.page)
   }, settle: 900 },
-  { id: 'f-app-plan-build', flow: APP, title: 'The brief’s Build pressed: what really starts for an app with no build yet', run: async env => {
+  { id: 'f-app-plan-build', flow: APP, title: 'The brief’s Build pressed on an app with no build yet: the chat says the app is not built and how to build it from the chat (the brief is not carried into the first build)', run: async env => {
     await app(env)
     await env.page.locator('.talk-brief [data-go]').first().click()
     await env.wait(7000)
     await chatOpen(env).catch(() => {})
+    if (/Build the app first/.test(await env.page.locator('#feed').innerText())) throw new Error('the chat still answers "Build the app first"')
     await toEnd(env.page)
   } },
-  { id: 'f-app-question', flow: APP, title: '"/ask What is built so far?": the answer (Hermia reads back the project facts the Studio gave her)', run: async env => {
+  { id: 'f-app-question', flow: APP, title: '"/ask What is built so far?": answered from the app’s own state, the planner is not asked', run: async env => {
     const s = await app(env)
     await appRoom(env, s)
+    const before = s.ctl.calls.length
     await send(env, '/ask What is built so far?')
-    await seen(env.page, /From what the Studio tells me/)
+    await seen(env.page, /The design has 2 pages\. The app is not built yet\./)
+    if (s.ctl.calls.length !== before) throw new Error('the planner was asked a question the state answers')
     await toEnd(env.page)
   }, settle: 900 },
   { id: 'f-app-no-answer', flow: APP, title: 'The planner does not answer a question', run: async env => {
@@ -361,36 +377,44 @@ const CHANGE = [
     await env.wait(3500)
     await toEnd(env.page)
   }, after: env => letBuild(env.fs?.ctl) },
-  { id: 'f-change-state', flow: CHG, title: '"How far is the build?": answered from the project facts the Studio hands the planner (read back, shortened)', run: async env => {
+  { id: 'f-change-state', flow: CHG, title: '"How far is the build?": answered from the build’s one state (engine/buildstate.mjs), in the Studio’s own words', run: async env => {
     const s = await chg(env)
     await env.wait(2500)
     await deck(env, s, s.ids.site2)
     await send(env, 'How far is the build?')
-    await seen(env.page, /Here is what the Studio tells me|gave me nothing/)
+    // truth: the answer is the state's line, and nothing the scripted planner would have said
+    await seen(env.page, /All 3 pages are built\./)
+    if (/Here is what the Studio tells me/.test(await env.page.locator('#feed').innerText())) throw new Error('the planner answered a question the build’s state answers')
     await toEnd(env.page)
   }, settle: 900 },
   { id: 'f-change-no-answer', flow: CHG, title: 'The planner does not answer the question', run: async env => {
     const s = await chg(env)
     s.ctl.talk = null
     await deck(env, s, s.ids.site2)
-    await send(env, 'What is going on?')
+    // (a question about how far the build is would be answered by its state, with no planner to fail)
+    await send(env, 'What would you add to it next?')
     await env.wait(5000)
     await toEnd(env.page)
     await noRaw(env, { must: /The model didn.t answer/ })
     await oneWay(env, 'Try again')
   } },
-  { id: 'f-change-ask-wait', flow: CHG, title: 'Ask mode, "/ask What is going on?": Hermia answering', run: async env => {
+  { id: 'f-change-ask-wait', flow: CHG, title: 'Ask mode, "/ask Who is this site for?": Hermia answering', run: async env => {
     const s = await chg(env)
     await deck(env, s, s.ids.site2)
     hold(s.ctl)
-    await send(env, '/ask What is going on?')
+    // (a question the planner answers: "What is going on?" is answered at once from the build's state, below)
+    await send(env, '/ask Who is this site for?')
     await env.wait(2200)
     await toEnd(env.page)
   } },
-  { id: 'f-change-ask-answer', flow: CHG, title: 'Ask mode: the answer, from the Studio’s own state as it hands it to the planner (read back, shortened)', run: async env => {
+  { id: 'f-change-ask-answer', flow: CHG, title: 'Ask mode: the planner’s answer, then "What is going on?" answered from the build’s one state', run: async env => {
     const s = await chg(env)
     letGo(s.ctl)
     await seen(env.page, /From what the Studio tells me/)
+    const before = s.ctl.calls.length
+    await send(env, 'What is going on?')
+    await seen(env.page, /All 3 pages are built\./)
+    if (s.ctl.calls.length !== before) throw new Error('the planner was asked a question the build’s state answers')
     await toEnd(env.page)
   }, settle: 900 },
   { id: 'f-change-ask-no-answer', flow: CHG, title: 'Ask mode: the planner does not answer', run: async env => {

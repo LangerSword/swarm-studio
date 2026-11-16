@@ -25,6 +25,7 @@ import { CHAT_STEPS } from './walkthrough-chat.mjs'
 import { MORE_STEPS } from './walkthrough-more.mjs'
 import { FLOW_STEPS } from './walkthrough-flows.mjs'
 import { CARD_STEPS } from './walkthrough-cards.mjs'
+import { TRUTH_STEPS } from './walkthrough-truth.mjs'
 import { ERROR_STEPS } from './walkthrough-errors.mjs'
 import { KIND_STEPS } from './walkthrough-kinds.mjs'
 import { watch, acted, beforeStep, afterStep, axe } from './walkthrough-probe.mjs'
@@ -38,7 +39,8 @@ const STEPS = [
   ...FLOW_STEPS,
   ...ERROR_STEPS,
   ...CARD_STEPS,
-  ...KIND_STEPS
+  ...KIND_STEPS,
+  ...TRUTH_STEPS
 ]
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))

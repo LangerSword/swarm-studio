@@ -11,6 +11,7 @@ import { familyOf, sizeOf, titleFrom, FAMILIES, FAMILY_IDS, SIZES, planSummary }
 import { planFromAnswers, planPrice } from './plan.mjs'
 import { askedOf, askOptions, pickOptions, readAnswer, recommend, ASK_TEXT, PICK_TEXT, GO_TEXT, SKIPS } from './askfirst.mjs'
 import { planFacts, nextStep, checkClaims, lockLabel } from './gamestep.mjs'
+import { factsText as chatFactsText, truthTurn } from './chatstep.mjs'
 
 // Talk first: a person who says "don't build yet", "let's talk", "grill me first" or asks the crew a
 // question gets a conversation with the planner (Hermia) in the Design deck's chat, on a project
@@ -118,6 +119,7 @@ export function buildOf(reply) {
 // one turn: Hermia's answer, or (when the person said build) the brief to show them
 // helpers: the chat's tools (engine/helpers.mjs helperKit), offered in the prompt; a reply that calls one returns
 // { tool: { name, args, say } } for the caller to run (decision 0025 e)
+// project: what is there, as the caller knows it; for a saved talk (siteTurn) it is engine/chatstep.mjs factsText
 export async function discuss({ said = [], kind = 'site', chat, project = '', helpers = null }) {
   const messages = toMessages(said)
   if (!messages.length || messages.at(-1).role !== 'user') throw new Error('say something first')
@@ -331,7 +333,8 @@ export async function say(chat, input = {}, opts = {}) {
   } else if (back) delete back.tool
   return back
 }
-async function sayTurn(chat, { said = '', pick = '' } = {}, { model = null, env = {}, now = Date.now(), plan = null, helpers = null } = {}) {
+// facts: a website's or an app's chat is told what is true of its build (engine/chatstep.mjs chatFacts)
+async function sayTurn(chat, { said = '', pick = '' } = {}, { model = null, env = {}, now = Date.now(), plan = null, helpers = null, facts = null } = {}) {
   chat.decisions ||= {}
   chat.turns ||= []
   const last = [...chat.turns].reverse().find(t => t.who === 'planner')
@@ -343,7 +346,7 @@ async function sayTurn(chat, { said = '', pick = '' } = {}, { model = null, env 
   const asked = chat.kind === 'site' && !chat.go ? askedOf(last) : null
   chat.turns.push(turn)
   if (asked) { const back = goTurn(chat, { pick: option ? pick : '', said: option ? '' : text, asked, now }); if (back) return back }
-  if (chat.kind !== 'game') return siteTurn(chat, { model, now })
+  if (chat.kind !== 'game') return siteTurn(chat, { model, now, facts, text })
   if (pick === 'talk') {
     const back = { id: nextId(chat), who: 'planner', at: now, text: 'What should change? Say it in your own words.', refs: [], marks: [], layers: [], made: [], reads: [] }
     chat.turns.push(back)
@@ -440,15 +443,21 @@ function goTurn(chat, { pick = '', said = '', asked, now }) {
   return turn
 }
 
-// a site or app talk: one discuss() turn; its brief is the spec
-async function siteTurn(chat, { model, now }) {
-  if (!model) throw Object.assign(new Error('No planner model yet: pick one in Models.'), { status: 503 })
-  const out = await discuss({ said: chat.turns, kind: chat.kind, chat: model })
+// A site or app talk: one discuss() turn; its brief is the spec. With the facts of its build (engine/chatstep.mjs)
+// the planner is told them first, its answer is said without the sentences they deny, a question about how far
+// the build is gets the state's own words, and the turn ends with the real next step: its options are actions
+// (`do:resume`, `do:again`, `do:app`, `do:brief`), and `act` is set when the typed words were one of them.
+async function siteTurn(chat, { model, now, facts = null, text = '' }) {
+  const ask = () => {
+    if (!model) throw Object.assign(new Error('No planner model yet: pick one in Models.'), { status: 503 })
+    return discuss({ said: chat.turns, kind: chat.kind, chat: model, project: facts && (facts.site || facts.app) ? chatFactsText(facts) : '' })
+  }
+  const out = facts ? await truthTurn({ text, facts, plan: ask }) : await ask()
   const turn = { id: nextId(chat), who: 'planner', at: now, text: out.brief || out.reply, refs: [], marks: [], layers: [], made: [], reads: [] }
   if (out.brief) {
     chat.spec = { brief: out.brief, open: [], art: [], engine: '', time: '', cost: null, lockedAt: null }
     turn.options = [{ id: 'lock', label: 'Lock', why: '', made: [] }, { id: 'talk', label: 'Keep talking', why: '', made: [] }]
-  }
+  } else if (out.step) Object.assign(turn, { options: out.step.options, step: true, ...(out.act ? { act: out.act } : {}), ...(out.step.wait ? { wait: true } : {}) })
   chat.turns.push(turn)
   return turn
 }

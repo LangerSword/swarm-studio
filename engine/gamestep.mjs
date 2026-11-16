@@ -10,10 +10,11 @@
 //   checkClaims(text, facts)    the planner's own words without the sentences that claim what did not happen
 //   readPicks(text, sheet)      "hero 1 is 4, hero 2 is 7" -> the cells (0-based) with the hero's name as the note
 //   goWords(text)               "lock", "do it", "go": the person said to do the next step
-//   installLine(state)          the line while Godot 4 installs; godotOptions(again) the buttons after it failed
+//   installLine(state)          the line while Godot 4 installs; godotOptions(again, route) the one button after it failed
 //
 // Pure functions: no store, no model, no paint.
 import { planPrice, roster, is3d, sprites } from './plan.mjs'
+import { cutClaims } from './claims.mjs'
 
 const named = k => String(k).replace(/^\w/, c => c.toUpperCase())
 const done = e => e?.state === 'done'
@@ -76,7 +77,9 @@ const o = (id, label, why = '') => ({ id, label, why, made: [] })
 // the line while Godot installs: the route, the size and how far the download is, when the route says
 export const installLine = (i = {}) => `Installing Godot 4 now${i.route === 'brew' ? ', with Homebrew' : i.mb ? `: ${i.mb} MB from Godot's releases` : ''}${i.route !== 'brew' && i.pct ? ` (${i.pct}%)` : ''}.`
 // after an install failed, or a look that found nothing: the one action again, the look, and the way round
-export const godotOptions = again => [o('do:godot', again ? 'Try again' : 'Install Godot 4'), o('do:godot:check', 'Check again'), o('do:browser', 'Browser is fine')]
+// after a failed install there is one way forward: Try again, or Check again when this kind of computer has no
+// download (route 'none'); "check again" and "browser is fine" still work typed
+export const godotOptions = (again, route) => again ? [route === 'none' ? o('do:godot:check', 'Check again') : o('do:godot', 'Try again')] : [o('do:godot', 'Install Godot 4'), o('do:godot:check', 'Check again'), o('do:browser', 'Browser is fine')]
 // which cell's number is whose: the cast sheet's picks in order, one per hero
 const pickedFor = (f, s) => s.kind === 'cast' ? f.cast.filter(n => Object.values(s.notes || {}).includes(n)) : []
 const nextHero = (f, s) => s.kind === 'cast' ? f.cast.find(n => !Object.values(s.notes || {}).includes(n)) || null : null
@@ -140,24 +143,22 @@ export function nextStep(chat, plan, env = {}) {
   return { text: `Every picture in the plan is painted.${godot} Next: build the game from the plan.`, options: [o('start:design', 'Read the plan')], done: true }
 }
 
-// ---------- the planner's own words, checked against the plan
-const SENT = /[^.!?]+[.!?]*\s*/g
+// ---------- the planner's own words, checked against the plan (the runner is every chat's: engine/claims.mjs)
 const NOW = /\b(painting|drawing|underway|under way|in progress|on (it|its way)|(start|keep|begin)\w*\s+(on\s+)?(paint|draw)\w*|(paint|draw)\w*\s+(it|them|the\s+\w+)?\s*now)\b/i
 const PAST = /\b(painted|drew|drawn|made|finished|already (did|done|have|got|made|started))\b/i
+const ART = /\b(art|sprite|hero|fighter|character|picture|sheet|sketch|it|them)\b/i
 const LOCK = /\block(ed)?\b/i
 const PICK = /\b(picked|chosen|chose|roster (is )?(set|locked|confirmed))\b/i
 // which sentences say something happened that the facts deny; returns { text, cut: [sentences] }
 export function checkClaims(text, f) {
-  const cut = []
-  const keep = (String(text || '').match(SENT) || []).filter(s => {
-    const anyPicks = f.sheets.some(x => x.picks.length)
-    const anyDone = f.sheets.some(x => x.state === 'done') || f.pieces.done > 0 || f.mocks.done > 0 || f.backdrops.done > 0
-    const bad = (NOW.test(s) && !f.painting.length) || (PAST.test(s) && !anyDone && /\b(art|sprite|hero|fighter|character|picture|sheet|sketch|it|them)\b/i.test(s)) ||
-      (LOCK.test(s) && !f.locked) || (PICK.test(s) && !anyPicks)
-    if (bad) cut.push(s.trim())
-    return !bad
-  })
-  return { text: keep.join('').trim(), cut }
+  const anyPicks = f.sheets.some(x => x.picks.length)
+  const anyDone = f.sheets.some(x => x.state === 'done') || f.pieces.done > 0 || f.mocks.done > 0 || f.backdrops.done > 0
+  return cutClaims(text, [
+    { claims: s => NOW.test(s), ok: () => f.painting.length > 0 },
+    { claims: s => PAST.test(s) && ART.test(s), ok: () => anyDone },
+    { claims: s => LOCK.test(s), ok: () => !!f.locked },
+    { claims: s => PICK.test(s), ok: () => anyPicks }
+  ])
 }
 
 // ---------- the person's words

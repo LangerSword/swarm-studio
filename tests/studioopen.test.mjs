@@ -130,7 +130,7 @@ test('a message with nothing built yet gets a true answer: the thing by name, an
   assert.match(noAppYet({ kind: 'site', state: 'failed', message: 'stopped', steps: [1] }), /app build is stopped partway/)
   assert.match(noAppYet({ kind: 'game', state: 'failed', steps: [1] }), /game build did not finish/)
   assert.match(noAppYet({ kind: 'game', steps: [] }), /no game here yet/)
-  assert.match(noAppYet({ kind: 'site', steps: [] }), /Build the app first/)
+  assert.match(noAppYet({ kind: 'site', steps: [] }), /The app is not built yet\. Say “build the app” to build it/)
 })
 
 test('"go on" in the chat picks a stopped build up again; a question does not', () => {
