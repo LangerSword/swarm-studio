@@ -10,8 +10,9 @@ import { bind, open, problems, readCrumb, reshape, step, threeVersions } from '.
 const side = (page, name) => page.locator('button:not(.chats-btn)').filter({ hasText: new RegExp(`^\\s*${name}`) }).filter({ visible: true }).first()
 // a project's card, found by its title (both Studios draw it as a div with data-id around a <b> of the title)
 const card = (page, name) => page.locator('[data-id]').filter({ has: page.locator('b', { hasText: new RegExp(`^${name}$`) }) }).first()
-// the card's own control to focus: the card itself where it is the button, else its first button
-const focusCard = c => c.evaluate(el => (el.matches('[tabindex]') ? el : el.querySelector('button')).focus())
+// the card's own control to focus: the card itself where it is the button, else its title — which is the one
+// control that opens it (the card also holds Delete and More, and neither opens anything)
+const focusCard = c => c.evaluate(el => (el.matches('[tabindex]') ? el : el.querySelector('.card-open') || el.querySelector('button')).focus())
 // All projects, where every card shows (Recent holds only what was opened)
 const allProjects = page => side(page, 'All projects').click()
 const shown = loc => loc.isVisible().catch(() => false)

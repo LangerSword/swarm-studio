@@ -209,7 +209,9 @@ export function makeHome({ sw, C, root }) {
     const sel = H.sel.has(p.id)
     // the card itself is not a button: it holds the More button and, in Trash, two more. The title is the card's
     // one control, so a keyboard reaches it and a screen reader reads a button that is not wrapping other buttons
-    return `<div class="card${sel ? ' selc' : ''}${p.live ? ' live' : ''}" data-id="${esc(p.id)}" draggable="${!hosted() && !p.plan && H.view !== 'trash'}">
+    // `data-name` is how the checks and the walkthrough find a card by its name. It is not ARIA: the card has no
+    // role of its own any more, and its title button carries the accessible name.
+    return `<div class="card${sel ? ' selc' : ''}${p.live ? ' live' : ''}" data-id="${esc(p.id)}" data-name="${esc(p.title)}" draggable="${!hosted() && !p.plan && H.view !== 'trash'}">
       <div class="cv${stack ? ' stack' : ''}">${cover(p.cover, p.theme, p.title)}${stack ? `<span class="badge" role="img" aria-label="${p.count} versions">${p.count}</span>` : ''}${kinds(p.kinds)}${crew(p)}${acts(p)}</div>
       ${sel ? '<div class="sel"><i></i><i></i><i></i><i></i></div>' : ''}
       <div class="nm"><button type="button" class="card-open"><b>${esc(p.title)}</b></button>${hosted() || p.plan ? '' : `<button class="ib sm more" aria-label="More" aria-haspopup="menu">${ic('more', 16)}</button>`}</div>
