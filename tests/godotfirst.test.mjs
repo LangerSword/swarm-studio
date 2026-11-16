@@ -10,7 +10,10 @@ test('Godot-first only when the spec names Godot and a binary is found', () => {
   assert.equal(godotFirst({ target: 'Godot' }, { SWARM_GODOT: bin }), true)
   assert.equal(godotFirst({ answers: { target: 'godot 4' } }, { SWARM_GODOT: bin }), true)
   assert.equal(godotFirst({ target: 'web' }, { SWARM_GODOT: bin }), false)
-  assert.equal(godotFirst({ target: 'godot' }, { PATH: '' }), false)
+  // "no binary found" is stood in, not looked for: the machine running this may really have Godot installed
+  // (a CI runner after a real install did), and then there is no way to ask the filesystem for "none"
+  assert.equal(godotFirst({ target: 'godot' }, {}, () => null), false)
+  assert.equal(godotFirst({ target: 'godot' }, {}, () => '/somewhere/godot'), true)
 })
 
 test('seedGodot writes the skeleton, the Web preset and copies the art', () => {
