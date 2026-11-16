@@ -192,10 +192,11 @@ body.cosmos-project .topbar { background: var(--void); backdrop-filter: none; }
 .pj-pic .btn { grid-column: 2; justify-self: start; }
 .pj-pic img.sb { filter: grayscale(.55) brightness(.9); opacity: .8; }
 .pj-credit { grid-column: 2; font: 11px/1.3 var(--body); color: var(--dim); overflow-wrap: anywhere; }
-.pj-scope { display: inline-flex; align-items: center; gap: 4px; max-width: 120px; flex: none; padding: 3px 6px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--deep); color: var(--text); font: 11px var(--mono); cursor: pointer; }
+/* the chat's box says what it is about: the picked section, the unsent marks (they sit in the composer's chip row) */
+.pj-scope, .composer .pj-scope { display: inline-flex; align-items: center; gap: 4px; max-width: 120px; flex: none; padding: 3px 6px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--deep); color: var(--text); font: 11px var(--mono); cursor: pointer; }
 .pj-scope[hidden] { display: none; }
 .pj-scope span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pj-insp .pj-lask { display: none; }
+.pj-insp .pj-tochat { display: none; }
 /* a section's code */
 .pj-code { position: fixed; inset: 0; z-index: 260; background: rgb(var(--shade-rgb) / .58); display: grid; place-items: center; padding: 16px; }
 .pj-code-box { width: min(860px, 100%); height: min(640px, 100%); display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border-radius: 12px; background: var(--void); border: 1px solid var(--line); }
@@ -210,33 +211,30 @@ body.cosmos-project .topbar { background: var(--void); backdrop-filter: none; }
   background: var(--deep); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 12px 36px rgb(var(--shade-rgb) / .5); }
 .project.insp-on .pj-dock { left: 50%; }
 .pj-dock .ib { width: 38px; height: 38px; }
-.pj-ask { display: flex; align-items: center; gap: 6px; width: 330px; margin-left: 6px; padding: 0 4px 0 12px; height: 38px; border-radius: 10px; background: var(--surface-2); }
-.pj-ask input { flex: 1; min-width: 0; background: none; border: 0; outline: none; color: var(--text); font: 13px var(--mono); }
-.pj-ask input::placeholder { color: var(--muted); }
-.pj-send { width: 30px; height: 30px; flex: none; border-radius: 8px; border: 0; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; cursor: pointer; }
 .project .hm-toast { position: absolute; bottom: 84px; }
 
 .pj-files-btn { display: none; }
 /* ---------- narrow panes (phones, Hermes Desktop's side pane): the canvas stays the page; Files and
-   Layers slide in as a sheet from the dock's Files button; the dock keeps Move, Frame, Chat and the input */
+   Layers slide in as a sheet from the dock's Files button; the dock keeps its tools, and its Chat tool opens the
+   chat as a sheet (the one place to type) */
 @media (max-width: 760px) {
   .pj-side { position: absolute; left: 0; top: 0; bottom: 0; width: min(320px, 86vw); z-index: 45; box-shadow: 18px 0 40px rgb(var(--shade-rgb) / .45); transform: translateX(-102%); transition: transform .22s var(--ease); visibility: hidden; }
   .project.files-on .pj-side { transform: none; visibility: visible; }
   .pj-files-btn { display: grid; }
   .pj-files-btn[aria-expanded="true"] { background: var(--surface-2); color: var(--text); }
   .pj-insp { position: fixed; left: 0; right: 0; top: auto; bottom: 0; width: auto; max-height: 70vh; border-left: 0; border-top: 1px solid var(--line); border-radius: 16px 16px 0 0; z-index: 140; }
-  .pj-dock, .project.insp-on .pj-dock { left: 8px; right: 8px; bottom: 8px; transform: none; gap: 2px; padding: 4px; }
+  .pj-dock, .project.insp-on .pj-dock { left: 8px; right: 8px; bottom: 8px; transform: none; gap: 2px; padding: 4px; justify-content: space-between; }
   .project.insp-on .pj-dock { display: none; }
-  .pj-insp .pj-lask { display: flex; width: auto; margin: 4px 0 0; flex: none; }
+  /* the dock (and its Chat tool) is under the inspector sheet: a picked section opens the chat itself, and the
+     chat's sheet takes the inspector's place while it is open */
+  .pj-insp .pj-tochat { display: inline-flex; }
   .pj-dock .ib { width: 36px; height: 36px; flex: none; }
-  .pj-dock .ib[data-tool="text"], .pj-dock .ib[data-tool="image"] { display: none; }
-  .pj-ask { flex: 1; width: auto; min-width: 0; margin-left: 2px; }
   body.cosmos-project #play-btn .t, body.cosmos-project #publish-btn .t { display: none; }
   .pj-crumb .pj-up, .pj-crumb > svg { display: none; }
   .pj-crumb .pj-name b { max-width: 34vw; }
 }
+@media (max-width: 700px) { body.cosmos-chat .pj-insp { display: none; } }
 @media (max-width: 760px) and (prefers-reduced-motion: reduce) { .pj-side { transition: none; } }
-@media (max-width: 1100px) { .pj-ask { width: 220px; } }
 @media (prefers-reduced-motion: reduce) { .pj-world.ease { transition: none; } }
 /* canvas.css styles ghost cursors as `.ghost svg`; keep button icons in the button */
 .btn.ghost > svg { position: static; width: 15px; height: 15px; overflow: hidden; }

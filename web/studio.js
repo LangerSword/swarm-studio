@@ -136,6 +136,8 @@ addEventListener('popstate', () => {
   draw()
 })
 
+// whether the last screen drawn was the Overview: its chat opens on the way in, not on every redraw
+let wasOverview = false
 function draw(planId) {
   const { room, version, project, plan } = nav.view
   const m = MODE_OF[room]
@@ -147,6 +149,8 @@ function draw(planId) {
   drawnAt = spot(nav.view)
   queueMicrotask(() => C.work?.paint?.())
   setMode(m)
+  const inOverview = wasOverview
+  wasOverview = room === 'overview'
   if (room !== 'plan') C.planView?.hide()
   if (room !== 'brand') C.brandView?.hide()
   if (room !== 'studio') C.scaffoldView?.hide()
@@ -180,6 +184,11 @@ function draw(planId) {
     if (sw.view !== 'canvas') sw.setView('canvas')
     C.projectView.show(version, project)
     C.homeView.hide()
+    // the chat is the Overview's one place to type (owner, 2026-11-15): open on every way in (Projects, Back from
+    // a room, an address, a build just started). Folded by the person (×), it stays folded until they come in
+    // again; the dock's Chat tool brings it back. On a phone the chat is a sheet over the stage, so it is left
+    // as it was and the dock's Chat tool opens it.
+    if (!inOverview && !matchMedia('(max-width: 700px)').matches) C.chat(true)
   } else {
     C.projectView.hide()
     C.homeView.hide()

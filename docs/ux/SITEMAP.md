@@ -325,7 +325,8 @@ flowchart LR
   PJ --> LEFT["Left panel"]
   PJ --> STG["Stage: artboards in sections"]
   PJ --> INS["Inspector (while something is selected)"]
-  PJ --> DOCK["Dock: Move, Frame, Text, Image, Comment, Tell the crew…"]
+  PJ --> DOCK["Dock: Move, Scribble, Eraser, Frame, Follow, New page, Upload, Chat"]
+  PJ --> CHAT["Chat (left, open on the way in): the one place to type"]
   TOP --> VER["▾ Rename, Duplicate, Versions"]
   TOP --> MORE["☰ Review, Video, Export, Replay"]
   MORE --> RPD["Replay → Design deck"]
@@ -340,7 +341,8 @@ flowchart LR
   PJ --> WB["A website, app or video just started with Make opens in the Design deck (Follow on) while its pages are designed; Back shows the Overview"]
   STG --> FS["Double-click a film → Film studio"]
   INS --> EXP["Size, Style, Used on; Export, Replace"]
-  DOCK --> CREW["The crew: fix the selected page, repaint the selected picture, or build the next version"]
+  DOCK --> FOLD["Chat: fold the chat (×) and bring it back"]
+  CHAT --> CREW["The crew: fix the selected page, repaint the selected picture, or build the next version"]
 ```
 
 The way home is always there and is not a branch: the breadcrumb (`Projects › project ▾`, then Back from a room), the

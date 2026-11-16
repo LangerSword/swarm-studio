@@ -38,6 +38,8 @@ async function makeText(env, text, kind) {
   await page.locator('.hm-make').first().click()
 }
 const deck = (env, run) => open(env, `/?version=${run}&room=deck`, '#viewport')
+// the Overview's chat is its one text box: open on a desk, a sheet behind the dock's Chat tool on a phone
+async function ovChat(env) { if (!(await env.page.locator('#brief').first().isVisible().catch(() => false))) await click(env.page, '.pj-dock [data-tool="comment"]'); await vis(env.page, '#brief') }
 const overview = env => open(env, `/?project=${env.ids.site}&version=${env.ids.site2}`, '.project:not(.plan) .pj-world')
 
 export const STEPS = [
@@ -88,10 +90,10 @@ export const STEPS = [
   { id: 'inspector', flow: 'Overview', title: 'Overview: a page selected', run: async env => { await overview(env); await env.page.locator('.pj-world .ab[data-key^="page:"]').first().click(); await vis(env.page, '.pj-insp') }, settle: 1200 },
   { id: 'scribble', flow: 'Overview', title: 'Overview: Scribble', run: async env => { await overview(env); await click(env.page, '.pj-dock [data-tool="scribble"]') } },
   { id: 'version-menu', flow: 'Overview', title: 'Overview: the name menu', run: async env => { await overview(env); await click(env.page, '.pj-crumb .pj-name'); await vis(env.page, '.hm-menu') } },
-  { id: 'ov-chat', flow: 'Overview', title: 'Overview: the chat', run: async env => { await overview(env); await click(env.page, '.pj-dock [data-tool="comment"]') }, settle: 1200 },
+  { id: 'ov-chat', flow: 'Overview', title: 'Overview: the chat', run: async env => { await overview(env); if (!env.phone) await vis(env.page, '#brief'); await ovChat(env); if (await env.page.locator('.pj-dock input, .pj-dock textarea').count()) throw new Error('the dock still has a text box beside the chat') }, settle: 1200 },
   { id: 'ov-log', flow: 'Overview', title: 'The chat: Log', run: ({ page }) => click(page, '.side .tabs [data-tab="log"]') },
   { id: 'chats-pop', flow: 'Overview', title: 'The chat: Chats', run: async ({ page }) => { await page.locator('.side .tabs [data-tab="chat"]').first().click().catch(() => {}); await click(page, '#chats-btn'); await vis(page, '.chats-pop') } },
-  { id: 'no-hermes-chat', flow: 'Overview', title: 'Tell the crew with no Hermes', run: async env => { await noHermes(env); await open({ ...env, BASE: env.nh.BASE }, `/?project=${env.nh.ids.site}&version=${env.nh.ids.site2}`, '.pj-world'); await env.page.locator('form.pj-ask input[name=q]').first().fill('Make the hero darker'); await env.page.keyboard.press('Enter') }, settle: 6000, after: endNoHermes },
+  { id: 'no-hermes-chat', flow: 'Overview', title: 'Tell the crew with no Hermes', run: async env => { await noHermes(env); await open({ ...env, BASE: env.nh.BASE }, `/?project=${env.nh.ids.site}&version=${env.nh.ids.site2}`, '.pj-world'); await ovChat(env); await env.page.locator('#brief').fill('Make the hero darker'); await env.page.locator('#brief').press('Enter'); await vis(env.page, '#feed .hermes-off', 15000); if (!(await env.page.evaluate(() => document.body.classList.contains('cosmos-project')))) throw new Error('the Studio left the Overview to say Hermes is not connected') }, settle: 1500, after: endNoHermes },
 
   // 5. The Design deck
   { id: 'deck', flow: 'Design deck', title: 'The Design deck', run: env => deck(env, env.ids.site2), settle: 2500 },

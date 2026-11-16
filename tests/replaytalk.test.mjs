@@ -91,7 +91,7 @@ test('the canvas keeps its side of it', () => {
   assert.match(replay, /function canReplay\(\) \{ return .*!BOOT\.hosted \}/)
   // nothing that acts on the build is offered while a replay plays; a comment ends it first
   for (const b of ['reviewBtn', 'exportBtn', 'publishBtn', 'videoBtn']) assert.match(loop, new RegExp(`els\\.${b}\\.disabled = .*\\|\\| rec\\.on\\n`), b)
-  assert.match(read('canvas/marks.js'), /export async function sendComment\(text, target = null\) \{\n[^\n]*\n  if \(rec\.on\) await stopReplay\(\{ any: true \}\)/)
+  assert.match(read('canvas/marks.js'), /export async function sendComment\(text, target = null, \{ quiet = false \} = \{\}\) \{\n[^\n]*\n  if \(rec\.on\) await stopReplay\(\{ any: true \}\)/)
   assert.ok(loop.indexOf('await replaySay(els.brief.value)') > 0 && loop.indexOf('await replaySay(els.brief.value)') < loop.indexOf('await modeSend(modeHelp)'), 'before the chat\'s modes')
   // its lines in the chat are tagged; the mark is said once (role=status), names only, no title attribute
   assert.match(panels, /if \(rec\.event\) \{ item\.classList\.add\('replayed'\)/)
