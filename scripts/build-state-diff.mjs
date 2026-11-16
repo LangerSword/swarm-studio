@@ -3,7 +3,9 @@
 // once a website had its one build state (engine/buildstate.mjs, `siteStateOf` below). It prints only the cards
 // and versions whose words change, and exits 1 when a change is not one of the truthful ones: an app that is
 // designed and not built (it read Website), an app or game build that stopped or waits for its person, a film
-// run that failed. A card that read Live, or an app or game that read built, and changes is a regression.
+// run that failed, and a Live website whose newest build failed, stopped or was left unfinished (it read only Live;
+// now it says both, on the same host: "Website · Failed · Live"). Any other change to a Live card, or to an app or
+// game that read built, is a regression.
 //
 // `differences` is the step before, kept with its test: the words before and after the website's build state
 // (only a website that failed, stopped or was left unfinished may change).
@@ -118,7 +120,8 @@ export function cardOf(id, events, { video = false, piece = null } = {}) {
   }
 }
 
-const words = s => (s ? `${s.kind} · ${s.status}` : '(no card)')
+// `live`: a version is online while the status is the newest build's own word ("Website · Failed · Live")
+const words = s => (s ? `${s.kind} · ${s.status}${s.live ? ' · Live' : ''}` : '(no card)')
 // A change is allowed when the card is a website's whose build is not whole: failed, stopped, partly built, or
 // with no end. `unchanged` is a next version that added nothing: it read Draft, and its sections are all there.
 const ALLOWED = new Set(['partly', 'failed', 'stopped', 'halted', 'replaced', 'unsure', 'unchanged'])
@@ -159,6 +162,8 @@ export function differences(runs, projects = {}) {
 // stopped or waits, a film run that failed or stopped.
 const partOf = c => c.parts?.game || c.parts?.app || null
 function kindAllowed(was, now, c) {
+  // a Live website (or an app's design) whose newest build is not whole: its own word, still Live on the same host
+  if (was.status === 'Live' && now.live && was.host === now.host && ALLOWED.has(now.site) && (was.kind === now.kind || partOf(c)?.state === 'designed')) return true
   // Live stays Live, on the same host: of a Live card only what it is may change (a designed app that was published)
   if ((was.status === 'Live') !== (now.status === 'Live') || was.host !== now.host || / built$/.test(was.status)) return false
   const part = partOf(c)?.state, film = c.parts?.film?.state

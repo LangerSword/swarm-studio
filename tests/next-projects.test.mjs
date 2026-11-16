@@ -48,6 +48,17 @@ test('each view, the search, the filter and the sort pick and order the cards as
   assert.deepEqual(shown(ps, { ...c, filter: 's:Game built' }, {}).map(p => p.id), ['a'])
   assert.deepEqual(filterKinds(ps), ['Website', 'Game']); assert.deepEqual(filterStates(ps), ['Game built', 'Live'])
   assert.equal(shown(Array.from({ length: 30 }, (_, i) => P(`p${i}`)), { ...c, view: 'recent' }, {}).length, 24)
+  // a website build that is not whole can be filtered for (hole B26); one that is also live is found under Live too
+  const more = [
+    P('f', { state: { kind: 'Website', status: 'Failed', host: 'example.github.io', live: true, site: 'failed' } }),
+    P('h', { state: { kind: 'Website', status: 'Partly built', host: null, site: 'partly' } }),
+    P('s', { state: { kind: 'Website', status: 'Stopped', host: null, site: 'halted' } }),
+    P('l', { state: { kind: 'Website', status: 'Live', host: 'x.vercel.app', site: 'done' } })
+  ]
+  assert.deepEqual(filterStates(more), ['Partly built', 'Failed', 'Stopped', 'Live'])
+  const ids = f => shown(more, { ...c, filter: f }, {}).map(p => p.id).sort()
+  assert.deepEqual(ids('s:Failed'), ['f']); assert.deepEqual(ids('s:Partly built'), ['h']); assert.deepEqual(ids('s:Stopped'), ['s'])
+  assert.deepEqual(ids('s:Live'), ['f', 'l'])
 })
 
 test('a stack opens as Version n, newest first; Assets group by folder; purge says what went', () => {

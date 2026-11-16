@@ -13,13 +13,18 @@
 //   nothing  the model answered, and found nothing to add from the message
 //   studio   something of the Studio's own failed (not the model, not Hermes)
 //   retry    not a failure yet: the planner is asked once more
+//   interrupted  a website build whose file had no end when the server started (it stopped mid-build)
 // "Stopped before any page was planned." on its own told nobody anything.
 
-export const CODES = ['person', 'replaced', 'hermes', 'model', 'timeout', 'setup', 'nothing', 'studio', 'retry']
+export const CODES = ['person', 'replaced', 'hermes', 'model', 'timeout', 'setup', 'nothing', 'studio', 'retry', 'interrupted']
 export const STOPS = {
   person: 'Stopped by you.',
   replaced: 'Stopped: a newer build started.',
-  timeout: 'Stopped: the model took too long to answer.'
+  timeout: 'Stopped: the model took too long to answer.',
+  // no end was ever written: Swarm Studio stopped mid-build, or a newer build took over (nobody knows which).
+  // The server writes it when it starts (server/server.mjs closeStoppedBuilds); the same sentence a build with
+  // no end has always read (web/replaytalk.js endWords)
+  interrupted: 'This run stopped before it finished.'
 }
 export const PILL = { person: 'stopped', replaced: 'stopped: replaced', hermes: 'stopped: no Hermes', model: 'stopped: model', timeout: 'stopped: timed out' }
 

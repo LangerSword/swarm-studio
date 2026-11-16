@@ -23,6 +23,11 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { studio } from './walkthrough-fixtures.mjs'
 
+// the mid-build scene is a build saved with no end, its agents still on their sections: the Studio it starts
+// (which takes this process's environment) must not close that build when it starts (server/server.mjs
+// closeStoppedBuilds), or the scene's sections would no longer be drawn
+process.env.SWARM_CLOSE_BUILDS = '0'
+
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const [cmd, ...rest] = process.argv.slice(2)
 const flag = (k, d) => { const i = rest.indexOf(`--${k}`); return i >= 0 ? rest[i + 1] : d }

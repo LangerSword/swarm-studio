@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, realpathSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { savedOwner, ghOrgs, chooseOwner, ownerFor, ownerView } from '../engine/ghowner.mjs'
+import { savedOwner, ghOrgs, chooseOwner, ownerFor, ownerView, siteNow, movedSites, saveMoved, currentSite } from '../engine/ghowner.mjs'
 import { publishGitHub, pickRepo } from '../engine/publish.mjs'
 import { pushSource } from '../engine/sourcehub.mjs'
 import { siteRepos, claimRepo } from '../engine/connect.mjs'
@@ -236,4 +236,40 @@ test('GET and POST /api/github/owner: the view Settings draws, and a choice refu
     assert.equal(savedOwner(data), 'crew')
     assert.equal((await (await post(null)).json()).owner, null)
   } finally { srv.close() }
+})
+
+test('a published site whose repository moved to another owner: where it is now, kept without asking again', async () => {
+  // GitHub answers for the old name with the repository where it lives now, and its Pages address
+  const moved = { 'me/bot-wiki': 'crew/bot-wiki' }
+  const calls = []
+  const gh = async args => {
+    calls.push(args[1])
+    const repo = args[1].match(/^repos\/([^/]+\/[^/]+)$/)?.[1], pages = args[1].match(/^repos\/([^/]+\/[^/]+)\/pages$/)?.[1]
+    if (repo) return repo === 'me/gone' ? { ok: false, out: '', err: 'gh: Not Found (HTTP 404)' } : { ok: true, out: `${moved[repo] || repo}\n`, err: '' }
+    if (pages) { const [o, r] = pages.split('/'); return o === 'crew' ? { ok: true, out: `https://${o}.github.io/${r}\n`, err: '' } : { ok: false, out: '', err: 'gh: Not Found (HTTP 404)' } }
+    return { ok: false, out: '', err: 'unexpected' }
+  }
+  const was = 'https://me.github.io/bot-wiki/'
+  assert.deepEqual(await siteNow({ repo: 'me/bot-wiki', url: was }, gh), { repo: 'crew/bot-wiki', url: 'https://crew.github.io/bot-wiki/', moved: true })
+  // still where it was (GitHub's own spelling of the name is no move): the saved address stands, Pages is not asked
+  calls.length = 0
+  assert.deepEqual(await siteNow({ repo: 'me/other', url: 'https://me.github.io/other/' }, gh), { repo: 'me/other', url: 'https://me.github.io/other/', moved: false })
+  assert.deepEqual(calls, ['repos/me/other'])
+  // GitHub did not say (gone, signed out, no network), or no repository is known: nothing is claimed
+  assert.equal(await siteNow({ repo: 'me/gone', url: was }, gh), null)
+  assert.equal(await siteNow({ repo: '', url: was }, gh), null)
+  assert.equal(await siteNow({ repo: 'vercel:bot-wiki', url: was }, gh), null)
+
+  // kept beside the owner, read with no network; the owner choice is not lost
+  const data = tmp()
+  writeFileSync(join(data, 'github.json'), JSON.stringify({ owner: 'crew' }))
+  assert.deepEqual(movedSites(data), {})
+  saveMoved(data, 'run1', { repo: 'crew/bot-wiki', url: 'https://crew.github.io/bot-wiki/', from: was })
+  assert.equal(savedOwner(data), 'crew')
+  const kept = movedSites(data)
+  assert.equal(currentSite(kept, 'run1', was), 'https://crew.github.io/bot-wiki/')
+  // another build, or a later publish that saved another address, is never overruled
+  assert.equal(currentSite(kept, 'run2', was), was)
+  assert.equal(currentSite(kept, 'run1', 'https://me.github.io/bot-wiki-2/'), 'https://me.github.io/bot-wiki-2/')
+  assert.equal(currentSite({}, 'run1', was), was)
 })
