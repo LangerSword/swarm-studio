@@ -24,6 +24,7 @@ body.cosmos-project .topbar { background: var(--void); backdrop-filter: none; }
 /* ---------- the left panel: Files and Layers */
 .pj-side { width: 272px; flex: none; display: flex; flex-direction: column; border-right: 1px solid var(--line); background: var(--void); min-height: 0; }
 .pj-tabs { display: flex; align-items: center; gap: 2px; padding: 10px 10px 8px 12px; }
+.pj-tablist { display: flex; align-items: center; gap: 2px; }
 .pj-tabs .pj-tab { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 6px 10px; border-radius: 8px; font: 600 13px var(--label); letter-spacing: .1em; text-transform: uppercase; }
 .pj-tabs .pj-tab.on { color: var(--text); background: var(--surface-2); }
 .pj-tabs .pj-find { margin-left: auto; }

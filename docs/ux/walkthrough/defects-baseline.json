@@ -2,8 +2,9 @@
  "note": "Accepted defects per walkthrough step (scripts/walkthrough.mjs): a count may go down, never up. Written by --update-baseline; see docs/ux/walkthrough/README.md.",
  "steps": {
   "desk:deck": {
-   "axe:label-content-name-mismatch": 4,
-   "axe:label": 1,
+   "load": 1
+  },
+  "desk:design-panel": {
    "load": 1
   },
   "desk:f-change-building": {
@@ -112,15 +113,15 @@
    "axe:scrollable-region-focusable": 1
   },
   "desk:home": {
-   "axe:label-content-name-mismatch": 9,
-   "axe:label": 1,
-   "axe:nested-interactive": 5,
    "load": 1
   },
   "desk:kind-menu": {
    "axe:label-content-name-mismatch": 9,
    "axe:label": 1,
    "axe:nested-interactive": 5,
+   "load": 1
+  },
+  "desk:layers": {
    "load": 1
   },
   "desk:m-ov-tell-busy": {
@@ -135,14 +136,9 @@
    "load": 1
   },
   "desk:overview": {
-   "axe:aria-required-children": 2,
-   "axe:label": 1,
    "load": 1
   },
   "desk:setup": {
-   "axe:label-content-name-mismatch": 9,
-   "axe:label": 1,
-   "axe:nested-interactive": 5,
    "load": 1
   }
  }

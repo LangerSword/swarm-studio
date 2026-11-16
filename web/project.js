@@ -52,11 +52,12 @@ export function makeProject({ sw, C, root }) {
   root.hidden = true
   root.innerHTML = `
     <aside class="pj-side" aria-label="Files">
-      <div class="pj-tabs" role="tablist"><button class="pj-tab on" data-tab="files" role="tab">Files</button><button class="pj-tab" data-tab="layers" role="tab">Layers</button>
+      <div class="pj-tabs">
+        <div class="pj-tablist" role="tablist"><button class="pj-tab on" data-tab="files" role="tab" aria-selected="true">Files</button><button class="pj-tab" data-tab="layers" role="tab" aria-selected="false">Layers</button></div>
         <button class="ib sm pj-find" aria-label="Search">${ic('search', 16)}</button><button class="ib sm pj-add" aria-label="Add" aria-haspopup="menu">${ic('plus', 16)}</button></div>
       <label class="pj-search" hidden><input type="search" placeholder="Search" aria-label="Search files"></label>
       <form class="pj-search pj-link" hidden autocomplete="off"><input type="text" inputmode="url" name="u" placeholder="Paste a link" aria-label="Reference link" maxlength="1000"></form>
-      <div class="pj-list" role="tree"></div>
+      <div class="pj-list"></div>
       <div class="pj-layers" hidden></div>
     </aside>
     <div class="pj-stage" tabindex="-1" aria-label="Overview">
@@ -221,7 +222,7 @@ export function makeProject({ sw, C, root }) {
     const g = groups()
     listEl.innerHTML = SECTIONS.filter(([k]) => g[k]).map(([k, label]) => {
       const shut = P.open[k] === false || (k === 'code' && !P.open[k])
-      const rows = shut ? '' : g[k].map(x => `<div class="row${P.sel === x.key ? ' on' : ''}" role="treeitem" tabindex="0" data-key="${esc(x.key)}" draggable="false">${thumbHtml(x)}<span class="nm">${esc(x.name)}</span>${x.sending != null ? `<span class="ring" style="--p:${Math.round(x.sending * 100)}%" role="progressbar" aria-label="Uploading" aria-valuenow="${Math.round(x.sending * 100)}"></span>` : ''}</div>`).join('')
+      const rows = shut ? '' : g[k].map(x => `<div class="row${P.sel === x.key ? ' on' : ''}" tabindex="0" data-key="${esc(x.key)}" draggable="false">${thumbHtml(x)}<span class="nm">${esc(x.name)}</span>${x.sending != null ? `<span class="ring" style="--p:${Math.round(x.sending * 100)}%" role="progressbar" aria-label="Uploading" aria-valuenow="${Math.round(x.sending * 100)}"></span>` : ''}</div>`).join('')
       return `<div class="sec" data-sec="${k}"><button class="sec-h" aria-expanded="${!shut}">${ic(shut ? 'chr' : 'chd', 14)}<span>${label}</span>${k === 'code' ? '' : `<span class="n">${g[k].length}</span>`}</button>${rows}</div>`
     }).join('')
   }
@@ -1261,7 +1262,7 @@ export function makeProject({ sw, C, root }) {
     const t = e.target.closest('[data-tab]')
     if (!t) return
     P.tab = t.dataset.tab
-    root.querySelectorAll('.pj-tabs .pj-tab').forEach(b => b.classList.toggle('on', b === t))
+    root.querySelectorAll('.pj-tabs .pj-tab').forEach(b => { b.classList.toggle('on', b === t); b.setAttribute('aria-selected', String(b === t)) })
     listEl.hidden = P.tab !== 'files'; layersEl.hidden = P.tab !== 'layers'
     if (P.tab === 'layers') { const tree = document.getElementById('tree'); if (tree && tree.parentElement !== layersEl) { P.treeHome = tree.parentElement; layersEl.append(tree) } }
   })

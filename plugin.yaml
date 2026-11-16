@@ -16,6 +16,14 @@ kind: standalone
 #   SHA-512 checked against that release's published sums before it is opened, unpacked into
 #   $HERMES_HOME/swarm-studio/godot/4.7.2/ and run once with --version (that route writes nothing outside the data
 #   folder). No sudo and no password on either route.
+# - Godot's Web export templates, by that same press and never by itself (engine/godotinstall.mjs `installTemplates`):
+#   the same release's Godot_v4.7.2-stable_export_templates.tpz, 1.28 GB, its size and SHA-512 checked against the
+#   release's published sums before it is opened; only the Web templates are kept (about 20 MB) and the archive is
+#   removed. They are written where Godot looks for them for its version, which is OUTSIDE $HERMES_HOME:
+#   ~/Library/Application Support/Godot/export_templates/4.7.2.stable/ on macOS,
+#   ~/.local/share/godot/export_templates/4.7.2.stable/ on Linux, %APPDATA%\Godot\export_templates\4.7.2.stable\
+#   on Windows. A folder that already holds them is left alone. Without them a Godot game cannot be exported to the
+#   web, so the same press installs them; a failed templates download leaves the editor installed and says so.
 # Hermes tools it calls (bridge.py, through ctx.dispatch_tool; no key of its own), only when the person asks:
 # - web_search and web_extract, for the planner's research step (engine/research.mjs): only when the person's words
 #   ask to look something up, they press Research, or they ask in a talk (the planner's web_research tool: cards to

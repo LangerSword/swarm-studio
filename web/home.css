@@ -47,6 +47,8 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .hm-who:hover { background: var(--surface-2); color: var(--text); }
 .hm-who .av { width: 28px; height: 28px; border-radius: 50%; background: var(--surface-2); color: var(--text); display: grid; place-items: center; font: 600 12px var(--body); flex: none; }
 .hm-who .av { position: relative; }
+/* the monogram is drawn, not written: it is decoration, so it never becomes part of the button's visible words */
+.hm-who .av::before { content: attr(data-l); }
 .hm-who.warn .av::after { content: ''; position: absolute; top: -1px; right: -1px; width: 9px; height: 9px; border-radius: 50%; background: var(--red); box-shadow: 0 0 0 2px var(--deep); }
 .hm-who .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .home .hm-rename { width: 100%; background: var(--deep); color: var(--text); border: 1px solid var(--text); border-radius: 6px; padding: 3px 6px; font: inherit; outline: none; }
@@ -88,6 +90,9 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .home .prog { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(255,255,255,.15); border-radius: 0 0 12px 12px; overflow: hidden; }
 .home .prog i { display: block; height: 100%; background: #f4f4f5; transition: width .6s var(--ease); }
 .home .card .nm { display: flex; align-items: center; gap: 6px; margin-top: 10px; min-width: 0; }
+/* the card's title is a real button (the card itself is not one): it carries the name and the focus ring */
+.home .card .card-open { flex: 1; min-width: 0; display: block; margin: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.home .card .card-open:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; border-radius: 4px; }
 .home .card .nm b { flex: 1; min-width: 0; font: 800 16px/1.2 var(--display); text-transform: uppercase; letter-spacing: .02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .home .card .more { opacity: 0; }
 .home .card:hover .more, .home .card:focus-within .more, .home .card .more[aria-expanded="true"] { opacity: 1; }

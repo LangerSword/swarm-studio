@@ -70,7 +70,7 @@ async function go(env, s, addr = '/', root = '.home') {
 }
 const state = async (s, run) => (await s.api(`/api/runs/${run}/state`))?.parts || {}
 // a Projects card by its name: its state line ("App · Designed")
-const cardLine = (env, name) => textOf(env.page, `.home .card[aria-label="${name}"] .st`)
+const cardLine = (env, name) => textOf(env.page, `.home .card[data-name="${name}"] .st`)
 // the Film room six seconds after a press: it shows the film being made, or a reason with its one action; the
 // empty form with no reason on screen is the defect (m-film-working)
 async function filmTruth(env) {

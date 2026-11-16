@@ -84,7 +84,7 @@ try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 820 } })
   page.on('pageerror', e => console.log('  page error:', e.message))
   await page.goto(`${BASE}/`)
-  await page.waitForSelector('.home .card[aria-label="Sandbox Tea"]', { timeout: 15000 })
+  await page.waitForSelector('.home .card[data-name="Sandbox Tea"]', { timeout: 15000 })
 
   console.log('clean(), by the DOM')
   const cleaned = await page.evaluate(async html => (await import('/clean.js')).clean(html), '```html\n' + ATTACKS + '\n```')
@@ -94,7 +94,7 @@ try {
   ok(/<h1>|<a id="js">go<\/a>|<button id="fb">send<\/button>/.test(cleaned) && !cleaned.includes('```'), 'the content itself is kept, and the code fence goes')
 
   console.log('page frames')
-  await page.click('.home .card[aria-label="Sandbox Tea"]')
+  await page.click('.home .card[data-name="Sandbox Tea"]')
   await page.waitForFunction(r => window.swarm.S?.run === r && window.swarm.S.frames.length === 1 && window.swarm.S.frames[0].ready, RUN, { timeout: 15000 }).catch(() => {})
   await wait(1500)
   const frames = await page.evaluate(() => window.swarm.S.frames.map(f => ({ sandbox: f.iframe.getAttribute('sandbox'), doc: f.iframe.contentDocument === null })))
