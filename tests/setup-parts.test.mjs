@@ -75,3 +75,21 @@ test('GET /api/setup/parts says whether a key is set, never what it is', () => {
   writeFileSync(join(bin, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'), '')
   assert.equal(partsLocal({ env: { PATH: bin }, dataDir: dir, root: dir, godot: () => null, chrome: () => null }).ffmpeg, 'path')
 })
+
+test('Setup names the Python that cuts sprites out, and the command that gives it what it lacks', async () => {
+  // the sprites are painted on a flat key colour and cut out by scripts/cutout.py, which needs numpy, scipy and
+  // Pillow in the Python the Studio runs. Nothing installed them, so a whole game shipped with its magenta
+  // background on every sprite (the Pro, 2026-11-15). The probe was there; no row used it.
+  const { GROUPS, statesOf } = await import('../web/setup-parts.js')
+  const find = F => GROUPS.flatMap(g => statesOf(F, g)).find(r => r.p.k === 'cutter')
+  const cut = find({ view: { python: { use: null, tried: [{ py: '/usr/bin/python3', missing: ['numpy', 'scipy', 'PIL'] }, { py: '/opt/py/bin/python3', missing: [] }] } } })
+  assert.ok(cut, 'the Game group has a Sprite cutter row')
+  assert.equal(cut.s.st, 'fail')
+  assert.match(cut.s.why, /Pillow/, 'the module a person knows is named Pillow, not PIL')
+  const fixed = cut.p.fix({ view: { python: { use: null, tried: [{ py: '/usr/bin/python3', missing: ['numpy', 'scipy', 'PIL'] }] } } })
+  assert.match(fixed.cmd, /-m pip install .*Pillow/)
+  // a Python that has all three is the row saying so
+  const okRow = find({ view: { python: { use: '/opt/py/bin/python3', tried: [{ py: '/opt/py/bin/python3', missing: [] }] } } })
+  assert.equal(okRow.s.st, 'ok')
+  assert.equal(okRow.p.fix({ view: { python: { use: '/opt/py/bin/python3', tried: [] } } }), null)
+})
