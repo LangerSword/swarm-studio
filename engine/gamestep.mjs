@@ -10,7 +10,7 @@
 //   checkClaims(text, facts)    the planner's own words without the sentences that claim what did not happen
 //   readPicks(text, sheet)      "hero 1 is 4, hero 2 is 7" -> the cells (0-based) with the hero's name as the note
 //   goWords(text)               "lock", "do it", "go": the person said to do the next step
-//   installLine(state)          the line while Godot 4 installs; godotOptions(again) the buttons after it failed
+//   installLine(state)          the line while Godot 4 installs; godotOptions(again, route) the one button after it failed
 //
 // Pure functions: no store, no model, no paint.
 import { planPrice, roster, is3d, sprites } from './plan.mjs'
@@ -76,7 +76,9 @@ const o = (id, label, why = '') => ({ id, label, why, made: [] })
 // the line while Godot installs: the route, the size and how far the download is, when the route says
 export const installLine = (i = {}) => `Installing Godot 4 now${i.route === 'brew' ? ', with Homebrew' : i.mb ? `: ${i.mb} MB from Godot's releases` : ''}${i.route !== 'brew' && i.pct ? ` (${i.pct}%)` : ''}.`
 // after an install failed, or a look that found nothing: the one action again, the look, and the way round
-export const godotOptions = again => [o('do:godot', again ? 'Try again' : 'Install Godot 4'), o('do:godot:check', 'Check again'), o('do:browser', 'Browser is fine')]
+// after a failed install there is one way forward: Try again, or Check again when this kind of computer has no
+// download (route 'none'); "check again" and "browser is fine" still work typed
+export const godotOptions = (again, route) => again ? [route === 'none' ? o('do:godot:check', 'Check again') : o('do:godot', 'Try again')] : [o('do:godot', 'Install Godot 4'), o('do:godot:check', 'Check again'), o('do:browser', 'Browser is fine')]
 // which cell's number is whose: the cast sheet's picks in order, one per hero
 const pickedFor = (f, s) => s.kind === 'cast' ? f.cast.filter(n => Object.values(s.notes || {}).includes(n)) : []
 const nextHero = (f, s) => s.kind === 'cast' ? f.cast.find(n => !Object.values(s.notes || {}).includes(n)) || null : null
