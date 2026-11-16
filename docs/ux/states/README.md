@@ -64,7 +64,7 @@ Ranked by how wrong the screen is and how easily a person hits it. Holes that sh
 3. **C1 (also C11, C23, B16, PL19, PI5, PU6).** Raw provider errors are shown as Hermia's words, with Build under them (`web/canvas/talk.js:86`, `server/server.mjs:3539`, `engine/llm.mjs:83`). The same raw text is printed by the build, the plan, a picture and a publish.
 4. **B3 and B9.** No Resume when a failed or stopped build is opened again. Resume needs a `run:stopped` that was not the person's (`web/canvas/replay.js:225`), and a build whose sections all failed ends as `run:done` (`server/server.mjs:559`).
 5. **B4.** "Try again" answers "Couldn't start it again: ask". It sends the brief with no "sure", so the ask-before-build rule refuses it (`web/canvas/panels.js:281`, `server/server.mjs:3346`).
-6. **C2, C3, B12, B13, C21.** "An app that is designed and not built" is a state no screen reads. "App" is known only from `app:ready` or `app:done` (`server/board.mjs:52`). So a change typed in the Overview bar starts a website build (`web/route.js:26`, `web/project.js:1338`), the app chat can only say "Build the app first" (`web/canvas/wander.js:48`), and the card says "Website".
+6. **C2, C3, B12, B13, C21.** **The state exists now** (`engine/kindstate.mjs`: `parts.app.state === 'designed'`), and the card and the Overview's board read it (B12); the chat and the Overview bar do not yet (C2, C3, B13, C21). As it was: "An app that is designed and not built" is a state no screen reads. "App" is known only from `app:ready` or `app:done` (`server/board.mjs:52`). So a change typed in the Overview bar starts a website build (`web/route.js:26`, `web/project.js:1338`), the app chat can only say "Build the app first" (`web/canvas/wander.js:48`), and the card says "Website".
 7. **PL1.** "Next: build the game from the plan." has one button, "Read the plan", and no code builds a game from a plan (`engine/gamestep.mjs:130`, `web/kit-game.js:53`).
 8. **B6.** **Closed for a restart** (the server closes such builds when it starts, `run:stopped` with the reason `interrupted`; a build replaced while the server runs is still open). As it was: A build replaced by a newer one, or cut off by a restart, has no end event, and no screen says what happened. The replaced build's own stop is dropped (`server/server.mjs:554`). Read from the code, not seen.
 9. **PU3 and PU2.** **Closed** (the Publish menu and dialog say how much of a build goes live, from the build state; a live card whose newest build is running or not whole says both). As it was: A half-built or failed build can be published with no warning, since the button reads a count of sections (`web/canvas/loop.js:148`). "Live" on the card comes from any publish ever, and is checked before "Building" and "failed" (`server/projects.mjs:81`, `server/projects.mjs:85`).
@@ -102,7 +102,7 @@ Most of the 127 come from six causes. Fixing a root closes its holes in every ta
    Studio's copy of C1 (C23).
 5. **Sentences written before the fact.** The chat says what is about to happen as if it had (C5, B25, PI14,
    PU8), or keeps an old line on screen (B14, PL22).
-6. **"Designed, not built" is missing as a state** for apps, and "the plan is being painted" is missing
+6. **"Designed, not built" was missing as a state** for apps (it is `designed` in `engine/kindstate.mjs` now; the card, the board and the rooms read it, the chat not yet), and "the plan is being painted" is missing
    outside the Plan board (C2, C3, B12, B13, PL13).
 
 ## What is UNCHECKED and matters

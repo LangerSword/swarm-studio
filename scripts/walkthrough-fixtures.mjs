@@ -57,9 +57,12 @@ export async function studio({ quiet = true, noHermes = false, root = ROOT, setu
   const ids = { site: rid(0), site2: rid(1), app: rid(2), game: rid(3), film: rid(4), mid: rid(5), old: rid(6) }
   site(runs, ids.site, { brief: 'Alpha Tea, a tea subscription for night-shift workers', name: 'Alpha Tea', t: T0, pages: [['home', 'Alpha Tea'], ['plans', 'Plans'], ['about', 'About']] })
   site(runs, ids.site2, { brief: 'Alpha Tea, a tea subscription for night-shift workers, with gift boxes', name: 'Alpha Tea', t: T0 + 3600e3, pages: [['home', 'Alpha Tea'], ['plans', 'Plans'], ['gifts', 'Gift boxes']] })
-  site(runs, ids.app, { brief: 'Shift Log, an app where nurses swap shifts', name: 'Shift Log', t: T0 + 7200e3, kind: 'app', pages: [['signin', 'Sign in'], ['board', 'Shift board']], extra: [{ type: 'app:step', step: 'design', state: 'done' }] })
+  // the seeded events have the shapes the server writes: an app that is designed and not built has no app event
+  // at all (engine/appjob.mjs), a film run says kind 'film' (server/film.mjs), and a film that failed says why in
+  // `message` (server/server.mjs, video:failed)
+  site(runs, ids.app, { brief: 'Shift Log, an app where nurses swap shifts', name: 'Shift Log', t: T0 + 7200e3, kind: 'app', pages: [['signin', 'Sign in'], ['board', 'Shift board']] })
   site(runs, ids.game, { brief: 'Lantern Run, a small platformer through a night market', name: 'Lantern Run', t: T0 + 3 * 3600e3, kind: 'game', pages: [['home', 'Lantern Run']], extra: [{ type: 'game:spec', spec: { title: 'Lantern Run', genre: 'platformer', brand: { name: 'Lantern', vars: { '--background': '#111', '--foreground': '#eee' } } } }] })
-  site(runs, ids.film, { brief: 'River Hours, a 30 second film for a riverside cafe', name: 'River Hours', t: T0 + 4 * 3600e3, kind: 'video', pages: [['home', 'River Hours']], extra: [{ type: 'video:start' }, { type: 'video:failed', error: 'no footage model' }] })
+  site(runs, ids.film, { brief: 'River Hours, a 30 second film for a riverside cafe', name: 'River Hours', t: T0 + 4 * 3600e3, kind: 'film', pages: [['home', 'River Hours']], extra: [{ type: 'video:start', model: 'planner', images: 0, style: 'prompt', prompt: 'River Hours, a 30 second film for a riverside cafe', transition: 'wipe', refs: 0 }, { type: 'video:failed', message: 'no footage model' }] })
   site(runs, ids.mid, { brief: 'Cedar Cafe, a small cafe by the river', name: 'Cedar Cafe', t: T0 + 5 * 3600e3, pages: [['home', 'Cedar Cafe'], ['menu', 'Menu'], ['visit', 'Visit']], done: false })
   site(runs, ids.old, { brief: 'Old Pier, a page for a closed pier', name: 'Old Pier', t: T0 + 6 * 3600e3, pages: [['home', 'Old Pier']] })
   writeFileSync(join(runs, ids.site, 'tours.json'), JSON.stringify({ tours: [{ name: 'Mia', who: 'night nurse', emoji: '🙂', goal: 'a tea for after shifts', end: 'okay, that works', steps: [

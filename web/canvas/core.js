@@ -130,14 +130,32 @@ export function setS(v) { S = v }
 const builds = new Map()
 /** @param {string | null} [run] */
 export const buildOf = (run = S?.run) => (run && builds.get(run)) || null
-/** @param {string} run  @param {import('../replaytalk.js').BuildState | null} state */
-export function setBuild(run, state) {
+/** @param {string} run  @param {import('../replaytalk.js').BuildState | null} state  @param {Parts | null} [parts] left out: the parts stay as they were */
+export function setBuild(run, state, parts) {
   if (!run) return
   builds.delete(run)
   builds.set(run, state || null)
   // a handful of builds at most: the oldest told of goes first
   while (builds.size > 24) builds.delete(builds.keys().next().value)
+  if (parts === undefined) return
+  const same = JSON.stringify(kinds.get(run) || null) === JSON.stringify(parts || null)
+  kinds.delete(run)
+  kinds.set(run, parts || null)
+  while (kinds.size > 24) kinds.delete(kinds.keys().next().value)
+  if (!same) for (const fn of partsHooks) try { fn(run) } catch (err) { console.error(err) }
 }
+// The same for every other part of a build (engine/kindstate.mjs): what it is (site, app, game, film) and the
+// one state of its app, its game and its film, sent with the website's state as `parts`. The App, Game and Film
+// rooms read these; a room that wants to draw again when they change adds itself to `partsHooks`.
+/** @typedef {{ kind: string | null, site: any, app: any, game: any, film: any }} Parts */
+/** @type {Map<string, Parts | null>} */
+const kinds = new Map()
+/** @param {string | null} [run]  @returns {Parts | null} */
+export const partsOf = (run = S?.run) => (run && kinds.get(run)) || null
+/** @type {Set<(run: string) => void>} */
+export const partsHooks = new Set()
+/** A build's parts, asked of the server (a room opened on a build the stream never told this page of).  @param {string} run */
+export const readParts = run => api(`/api/runs/${encodeURIComponent(run)}/state`).then(r => (r.ok ? r.json() : null)).then(j => { if (j) setBuild(run, j.state, j.parts || null); return j?.parts || null }).catch(() => null)
 // studio hook: web/studio.js and web/project.js listen to every event through window.swarm.on
 export const cosmosHooks = new Set()
 export const cam = { x: 40, y: 140, s: 0.16, tx: 40, ty: 140, ts: 0.16, auto: true, nextFit: 0 }

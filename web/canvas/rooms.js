@@ -10,7 +10,7 @@ import { mapWindow } from './mapwin.js'
 import { painterOf, cursor } from '../icons.js'
 import { openWorkshop } from '../workshop.js'
 import { intakeAsk, INTAKE_SAY } from '../intake.js'
-import { $, els, api, ico, BASE, S, BOOT, HERMIA, commandOps, Crew, setLabel } from './core.js'
+import { $, els, api, ico, BASE, S, BOOT, HERMIA, commandOps, Crew, setLabel, partsOf, partsHooks, readParts } from './core.js'
 import { toggleVideo, video, shownRun, showRun } from './film.js'
 import { cw, CW_CODE, CW_MAP, wallNames, paintv, artPhase } from './auto.js'
 import { setText, botMsg, feed, push } from './panels.js'
@@ -207,10 +207,15 @@ export function intakeSay(text) {
   return true
 }
 
+// the one state of the app or the game in this room (null: the page was not sent it, as in the hosted studio)
+const appPart = () => { const p = partsOf(appv.run); return p?.game || p?.app || null }
+partsHooks.add(run => { if (run === appv.run && view === 'app') renderApp() })
 async function loadApp() {
   const run = shownRun()
   if (!run) { resetApp(null); return renderApp() }
   if (appv.run !== run) resetApp(run)
+  // with the room's job view, the build's parts (the stream tells of changes; the room asks too, each time it reads its job)
+  if (!rec.on) readParts(run)
   // a replay draws the room from its saved events only: the real app is not read, and never started, while it plays
   if (rec.on) return renderApp()
   try {
@@ -418,7 +423,10 @@ function renderApp() {
   const st = appv.state, working = st === 'working', elsewhere = !!appv.elsewhere
   // a replay's pill reads Replay and how far along it is, never "building" or "running" (web/replaytalk.js)
   appEls.state.className = `app-state pill ${st}${rec.on ? ' replay' : ''}`
-  appEls.state.textContent = appPill({ replay: rec.on, at: rec.at, state: st, url: appv.url, hasApp: appv.hasApp, kind: appv.kind })
+  // the app's or the game's one state, as the server sent it (engine/kindstate.mjs; core.js partsOf): the pill and
+  // a failure's reason are made from it, as the Projects card and the Overview's artboard are
+  const part = rec.on ? null : appPart()
+  appEls.state.textContent = appPill({ replay: rec.on, at: rec.at, state: st, url: appv.url, hasApp: appv.hasApp, kind: appv.kind, part })
   setText(appEls.stage, working ? appv.stage : appv.result ? `${appv.result.turns} turn${appv.result.turns === 1 ? '' : 's'} · ${appv.result.files} files · checks ${appv.result.gatesPassed ? 'passed' : 'not passed'}${appv.deployed ? ` · live at ${appv.deployed}` : ''}` : '')
   const stick = appEls.steps.scrollHeight - appEls.steps.scrollTop - appEls.steps.clientHeight < 60
   appEls.steps.innerHTML = stepsHtml()
@@ -485,6 +493,9 @@ function renderApp() {
           ? artStopCard(appv.result.artStop)
         : st === 'stopped' || (st === 'failed' && appv.message === 'stopped')
           ? `<div class="fail-card stopped"><h2><em>Stopped</em></h2><p class="fail-msg">${esc(stopSummary())}</p><button class="big" data-build>${ico('rotate-ccw')}Go on</button></div>`
+        // it failed, and the state says why in plain words, what to do, and the one way forward the server takes
+        : st === 'failed' && part?.state === 'failed' && part.reason
+          ? `<div class="fail-card"><span class="fail-ico">${ico('x')}</span><h2>The ${appv.kind === 'game' ? 'game' : 'app'} didn't <em>build</em></h2><p class="fail-msg">${esc(part.reason.message)}</p>${part.reason.action ? `<p class="fail-msg">${esc(part.reason.action).replace(/`([^`]+)`/g, '<code>$1</code>')}</p>` : ''}${part.detail && part.detail !== part.reason.message ? `<details class="fail-more"><summary>Show details</summary><pre>${esc(part.detail)}</pre></details>` : ''}${part.next ? `<button class="big" data-build>${ico('rotate-ccw')}Try again</button>` : ''}</div>`
         : st === 'failed'
           ? `<div class="fail-card"><span class="fail-ico">${ico('x')}</span><h2>The ${appv.kind === 'game' ? 'game' : 'app'} didn't <em>build</em></h2><p class="fail-msg">${esc(String(appv.message || 'The engine stopped before the app built.').split('\n')[0].replace(/(\/[\w.@-]+){3,}/g, m => `…/${m.split('/').slice(-2).join('/')}`).slice(0, 220))}</p>${appv.message ? `<details class="fail-more"><summary>Show details</summary><pre>${esc(appv.message)}</pre></details>` : ''}<button class="big" data-build>${ico('rotate-ccw')}Try again</button></div>`
           : (appv.hasApp || appv.openFailed) && appv.message

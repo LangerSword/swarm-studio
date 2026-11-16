@@ -125,7 +125,7 @@ export function mountChatMode({ select, button, talking, box = null, agents = nu
 // A wait in the chat is a crew member at work (owner, 2026-11-13): their cursor, their name and what they
 // are doing, where the answer will be.
 /** @param {any} h */
-function crewWait(h, who, doing) {
+export function crewWait(h, who, doing) {
   const item = h.botMsg(doing, true)
   item.classList.add('crew-wait')
   // the line is theirs, not Hermia's: their cursor and name head it
