@@ -19,6 +19,7 @@ loads them. **Edit the area's file, not `web/canvas.js`.** The table says which 
 | `loop.js` | The frame loop and the keyboard and pointer input, the brief form and slash commands. |
 | `talk.js` | Talks before a build: talk first, the game talk, Chats. |
 | `../chatmode.js` | The chat's modes (spec 46): the switch, the typed switch, and where Ask, Plan and Fix send a message. Not in this folder: it imports only the icons, so node tests it; `loop.js` hands it what it needs. |
+| `../stopreason.js` | Why something stopped or failed, in plain words: the one table (`reasonFromFailure`, `reasonFromTalk`, `reasonFromError`, `isRaw`) the server reads too, through `engine/stopreason.mjs`. Pure (`tests/stopreason.test.mjs`); imports nothing. `panels.js` shows a reason with `failSay` (a line with no speaker and one button) and sends raw lines to the Log with `logErr`. |
 | `../github.js` | A project's source on GitHub (spec 45): the ☰ › GitHub sheet, the typed moves and their words. Not in this folder: it imports only the icons, so node tests it; `loop.js` hands it what it needs and `hook.js` gives it to the Studio (`window.swarm.github`). |
 | `player.js` | Play mode and visitor tours. |
 | `design.js` | The Design panel, editing next to the agents, undo and redo, export. |

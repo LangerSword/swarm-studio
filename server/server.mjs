@@ -16,7 +16,7 @@ import { hermesBridge, imageBody, videoBody } from '../engine/bridge.mjs'
 import { engineTools, webReads } from '../engine/enginetools.mjs'
 import { hermesLlm, roleModel } from '../engine/hermesllm.mjs'
 import { hermesHealth, HERMES_SAYS } from '../engine/hermeshealth.mjs'
-import { reasonFromAbort, reasonFromFailure } from '../engine/stopreason.mjs'
+import { reasonFromAbort, reasonFromFailure, reasonFromTalk, reasonLine } from '../engine/stopreason.mjs'
 import { basename, dirname, extname, join, normalize } from 'node:path'
 import { homedir, tmpdir, userInfo } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -1745,7 +1745,7 @@ async function studioFacts(runId = null, { light = false } = {}) {
   const roleName = role => { const m = modelFor(role); return named(m) || (m && ROLES.includes(m) ? 'through Hermes' : '') }
   return {
     parts: d.partStates(GROUPS, F),
-    run: events ? { id: runId, kind, working: (current?.id === runId && !current.done) || appsNow?.jobs.get(runId)?.state === 'working', built: !!(await apps().then(a => a.state(runId).hasApp).catch(() => false)), failures: d.failuresOf(events) } : null,
+    run: events ? { id: runId, kind, working: (current?.id === runId && !current.done) || appsNow?.jobs.get(runId)?.state === 'working', built: !!(await apps().then(a => a.state(runId).hasApp).catch(() => false)), failures: d.failuresOf(events), build: siteState(runId, events) } : null,
     python,
     hermes: { attached: !!st.attached, message: well && !well.ok ? `${well.message || ''} ${well.action || ''}`.trim() : '' },
     // a role Hermes routes has no model name of its own here: it is set up, and reads "through Hermes", never "none"
@@ -3547,7 +3547,7 @@ ${researchBrief(seen)}`
       import('../engine/talkplan.mjs').then(async d => {
         if (url.pathname === '/api/discuss/read') return json(200, await d.readIntent({ text: String(input.text || '').slice(0, 4000), answerTo: String(input.answerTo || '').slice(0, 300), kind, chat: chat(8, 9000) }))
         const talk = chat(input.brief ? 400 : 600, 60000)
-        if (!talk) return json(503, { error: 'No planner model yet: pick one in Models.' })
+        if (!talk) return json(503, { error: 'No planner model yet: pick one in Models.', reason: reasonFromFailure('No planner model yet') })
         const said = Array.isArray(input.said) ? input.said.slice(-40) : []
         const inRun = typeof input.from === 'string' && RUN_ID.test(input.from) ? input.from : null
         const inPid = typeof input.project === 'string' ? input.project : inRun ? projects.projectOf(inRun) : null
@@ -3647,7 +3647,13 @@ ${researchBrief(seen)}`
         // what the client keeps of this answer for the next turn: the reply and the cards it showed
         if (out.cards) out.heard = out.reply + cardsLine(out.cards)
         json(200, id ? { ...out, chat: id } : out)
-      }).catch(err => json(502, { error: String(err.message || err) }))
+      }).catch(err => {
+        // the planner did not answer: the turn is not Hermia's. The reason and the one thing to do go back in plain
+        // words (engine/stopreason.mjs); the provider's own text stays here, in the server's log and the trace
+        console.warn('discuss:', String(err.message || err).slice(0, 400))
+        const reason = reasonFromTalk(err, { viaHermes: viaHermes('planner') })
+        json(502, { error: reasonLine(reason), reason })
+      })
     })
   }
   // Post to Feed from the canvas, and Connect Hermes when it is not connected yet.
@@ -3841,7 +3847,7 @@ ${researchBrief(seen)}`
         })).text : null
         const out = await d.diagnose({ facts, text: String(input.text || '').slice(0, 1200), chat })
         json(200, { ...out, facts })
-      } catch (err) { json(500, { error: String(err.message || err) }) }
+      } catch (err) { console.warn('doctor:', String(err.message || err).slice(0, 400)); json(500, { error: reasonLine(reasonFromFailure(err.message || err, { talk: true })) }) }
     })
   }
   if (url.pathname === '/api/stop' && req.method === 'POST') {
