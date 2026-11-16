@@ -7,7 +7,7 @@
 //   Harbor Light  version 1 whole and live on GitHub Pages, version 2 (the newest) with every section failed
 //   Tin Kettle    a build the model stopped before any page: nothing is built
 //   Cedar Cafe    the plain fixture's half-built site, saved with no end: the server closes it when it starts
-// Its model never answers, so the build the last steps start keeps planning.
+// Its model never answers, so the builds the last steps start keep going.
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { studio } from './walkthrough-fixtures.mjs'
@@ -154,23 +154,24 @@ export const CARD_STEPS = [
     const line = await lineOf(env.page, 'Harbor Light')
     if (line !== `Website · Building · Live · ${HOST}`) no(`the live project with a build running reads "${line}"`)
   }, settle: 1200 },
-  { id: 'c-chip-planning', flow: CARDS, title: 'That build in the Design deck: the strip and the top bar’s chip say the same (planning, nothing built of its own)', run: async env => {
+  { id: 'c-chip-own', flow: CARDS, title: 'The half-built site resumed (the model has not answered): the strip and the top bar’s chip count this build’s own sections, not the ones it was handed', run: async env => {
     const s = await cards(env)
-    await deck(env, s, s.run)
+    const r = await s.api(`/api/runs/${s.ids.mid}/resume`, {})
+    if (!r?.run) no(`the build did not resume: ${JSON.stringify(r).slice(0, 120)}`)
+    await env.wait(1500)
+    await deck(env, s, r.run)
     await vis(env.page, '.topbar .work-chip')
-    const state = (await s.api(`/api/runs/${s.run}/state`)).state
-    const job = (await s.api('/api/work')).jobs.find(j => j.run === s.run)
-    // the chip's number is the state's: this build's own sections, never the ones it was handed
-    const want = state.state === 'building' && state.planned ? state.done / state.planned : 0
-    if (!job || Math.abs((job.pct ?? -1) - want) > 0.001) no(`the chip is at ${job?.pct} while the build state is ${state.state} ${state.done}/${state.planned} (kept ${state.kept})`)
+    const state = (await s.api(`/api/runs/${r.run}/state`)).state
+    const job = (await s.api('/api/work')).jobs.find(j => j.run === r.run)
+    if (!(state.kept > 0) || state.done !== 0) no(`the resumed build reads kept ${state.kept}, done ${state.done}: it should be handed sections and have built none of its own`)
+    // the chip's number is the state's: this build's own sections (none built yet), never the ones it was handed
+    if (!job || job.pct !== 0) no(`the chip is at ${job?.pct} while the build has built 0 of its own ${state.planned} sections (it was handed ${state.kept})`)
     if (job.stage !== (state.state === 'building' ? 'building pages' : 'planning')) no(`the chip says "${job.stage}" while the build state is ${state.state}`)
     const strip = flat(await env.page.locator('#status').first().innerText())
-    if (state.state === 'planning' && !/Planning/i.test(strip)) no(`the strip reads "${strip}" while the build is planning`)
+    if (state.state === 'building' && !strip.includes(`0/${state.planned}`)) no(`the strip reads "${strip}" while the build has built 0 of its own ${state.planned}`)
     const now = await env.page.locator('.topbar .work-chip .wk-bar').first().getAttribute('aria-valuenow')
-    if (String(now) !== String(Math.round(want * 100))) no(`the chip's bar is at ${now}% while the strip reads "${strip}"`)
+    if (String(now) !== '0') no(`the chip's bar is at ${now}% while the strip reads "${strip}"`)
     await click(env.page, '.topbar .work-chip')
     await vis(env.page, '.wk-pop .wk-row')
-    const row = flat(await env.page.locator('.wk-pop .wk-row').first().innerText())
-    if (state.state === 'planning' && !/Site · planning/i.test(row)) no(`the chip's list reads "${row}" while the build is planning`)
   }, settle: 900, after: endCards }
 ]

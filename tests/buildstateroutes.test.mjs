@@ -193,3 +193,34 @@ test('the board marks the sections the state lists as failed', () => {
   assert.ok(runBoard('r2', SAVED.stopped[0], tmpdir(), false).pages.every(p => p.plan.every(l => !l.failed)))
   assert.equal(runBoard('r3', [start({ kind: 'game' })], tmpdir(), false).build, null)
 })
+
+test('a site whose repository moved: the card and the publish answer give the address kept in github.json, and ask nobody', { timeout: 60000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'bstate-moved-'))
+  const data = join(dir, 'data'), runs = join(data, 'runs')
+  const moved = idOf(50), stays = idOf(51), again = idOf(52)
+  const was = 'https://me.github.io/cedar-cafe/', now = 'https://crew.github.io/cedar-cafe/'
+  const whole = () => [start(), ...plan(), ...all(built), done({ planned: 4, done: 4, failed: 0 })]
+  const save = (id, events) => { mkdirSync(join(runs, id), { recursive: true }); writeFileSync(join(runs, id, 'events.jsonl'), events.map(e => JSON.stringify({ ...e, run: id })).join('\n') + '\n') }
+  save(moved, [...whole(), ev('publish:done', { target: 'github', url: was, repo: 'me/cedar-cafe' })])
+  // no entry for this one: its saved address stands
+  save(stays, [...whole(), ev('publish:done', { target: 'github', url: 'https://me.github.io/other/', repo: 'me/other' })])
+  // found moved, then published again to another address: the newer publish is never overruled
+  save(again, [...whole(), ev('publish:done', { target: 'github', url: was, repo: 'me/cedar-cafe' }), ev('publish:done', { target: 'github', url: 'https://me.github.io/cedar-cafe-2/', repo: 'me/cedar-cafe-2' })])
+  writeFileSync(join(data, 'github.json'), JSON.stringify({ sites: { [moved]: { repo: 'crew/cedar-cafe', url: now, from: was }, [again]: { repo: 'crew/cedar-cafe', url: now, from: was } } }))
+  const env = { ...process.env, SWARM_TOKEN: 't', SWARM_DATA_DIR: data, SWARM_RUNS_DIR: runs, SWARM_OUTPUT_DIR: join(dir, 'out'), HERMES_HOME: join(dir, 'hermes'), SWARM_HERMES_RUNNING: '0' }
+  const { child, base } = await startStudio({ env })
+  const get = path => fetch(base + path, { headers: { 'x-swarm-token': 't' } }).then(r => r.json())
+  try {
+    const cards = await get('/api/runs')
+    const card = id => cards.find(r => r.id === id)
+    assert.equal(card(moved).sites.github, now)
+    assert.deepEqual([card(moved).state.status, card(moved).state.host], ['Live', 'crew.github.io'])
+    assert.equal(card(stays).state.host, 'me.github.io')
+    assert.equal(card(again).sites.github, 'https://me.github.io/cedar-cafe-2/')
+    // what Publish reads for that build (asked without sync: GitHub is not called)
+    assert.equal((await get(`/api/runs/${moved}/publish`)).live.github, now)
+    assert.equal((await get(`/api/runs/${stays}/publish`)).live.github, 'https://me.github.io/other/')
+    // the build's own file still holds what was saved: nothing was written for the move
+    assert.equal((await get(`/api/runs/${moved}/events`)).findLast(e => e.type === 'publish:done').url, was)
+  } finally { child.kill(); try { rmSync(dir, { recursive: true, force: true }) } catch {} }
+})

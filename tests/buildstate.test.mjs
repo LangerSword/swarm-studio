@@ -182,6 +182,10 @@ test('a live website whose newest build failed, stopped or is building says both
   assert.equal(words(stateOf(failedSite, [v1, failedSite])), 'Website · Failed · Live · example.github.io')
   const building = { ...partSite, live: true, buildState: buildState([start(), ...plan(), ...half()], { live: true }) }
   assert.equal(words(stateOf(building, [v1, building])), 'Website · Building · Live · example.github.io')
+  // a film being made on a whole live site is not the site's build: the card stays Live
+  assert.equal(words(stateOf({ ...wholeSite, sites: HOST, work: { what: 'film', stage: 'rendering', pct: 0.4 } })), 'Website · Live · example.github.io')
+  // its pictures being painted are the site's own work
+  assert.equal(words(stateOf({ ...wholeSite, sites: HOST, work: { what: 'site', stage: 'painting pictures', pct: null } })), 'Website · Building · Live · example.github.io')
   // a card that is not live has no `live`
   assert.equal(stateOf(failedSite).live, undefined)
   // an empty live build is still an empty version (the stack's rule), and says Failed

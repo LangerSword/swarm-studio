@@ -96,7 +96,8 @@ export function stateOf(card, cards = [card]) {
   // a website's own build comes first when it is running or not whole: the card reads Building, Partly built,
   // Failed or Stopped, and stays live at its address (`live`, said after it: "Website · Failed · Live · host").
   // Before, Live was tested first and a failed or running newest build read only "Live" (publish.md PU2).
-  const running = !!site && (card.live || card.work)
+  // (running: the site's own work, its layout, pictures or review; a film made on a whole site leaves it Live)
+  const running = !!site && (card.live || card.work?.what === 'site')
   const own = site ? (running ? 'Building' : NOT_WHOLE.has(site.state) ? word : null) : null
   const status = own ? own
     : out ? 'Live'
