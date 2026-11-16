@@ -113,3 +113,18 @@ test('the Map zooms and pans, and offers the way back only once it has been move
   assert.doesNotMatch(css, /\.mp-pic svg \{[^}]*width: 100%/, 'the SVG is not forced to the window width')
   assert.match(css, /\.mp-pic svg \{ display: block; max-width: none; \}/)
 })
+
+// The person, 2026-11-16: "doesnt zoom into cursor's current position like it should when scrolled up and
+// down". The first version scaled the offset as if the transform origin were the window's top-left, and
+// the picture's centre is not even the window's middle (a diagram wider than the window is centred by the
+// grid). Every wheel step slid the diagram sideways; measured, the point under the cursor ran ~1900px away.
+test('zooming keeps the point under the pointer still', () => {
+  const src = readFileSync(new URL('../web/canvas/mapwin.js', import.meta.url), 'utf8')
+  // the layout box, never the scaled bounds: rect() after a transform feeds the scale back into the next step
+  assert.match(src, /picEl\.offsetLeft \+ picEl\.offsetWidth \/ 2/, 'the origin is the layout box centre')
+  assert.doesNotMatch(src, /const C = \{ x: pr\.left/, 'not the scaled rect')
+  assert.doesNotMatch(src, /const C = \{ x: r\.width \/ 2/, 'not the window middle: the grid centres a wider picture')
+  // solved from scratch: t = (p - C)(1 - 1/k)
+  assert.match(src, /view\.x = \(px - C\.x\) \* \(1 - 1 \/ k\)/)
+  assert.match(src, /view\.y = \(py - C\.y\) \* \(1 - 1 \/ k\)/)
+})

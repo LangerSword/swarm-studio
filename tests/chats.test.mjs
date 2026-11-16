@@ -98,4 +98,11 @@ test('the Chats popover lists loose chats when the project has none of its own',
   const src = readFileSync(new URL('../web/canvas/talk.js', import.meta.url), 'utf8')
   assert.match(src, /if \(pid && !groupOf\.length\)/, 'an empty project list falls back')
   assert.match(src, /api\('\/api\/chats'\)/, 'to the loose chats the server keeps')
+  // ...and the fallback has to REACH the popover. The renderer used to walk a fixed list of the four
+  // category names, so a group named '' (the loose chats) was never found, every section kept the class
+  // `empty`, and `.chats-pop .cp-group.empty { display: none }` hid them all: five chats arrived and the
+  // panel showed only "New chat".
+  assert.match(src, /const names = \[\.\.\.new Set\(\[\.\.\.\(pid \? \['Design', 'App', 'Game', 'Video'\] : \[\]\), \.\.\.groups\.map\(g => g\.name\)\]\)\]/,
+    'the rendered names include every group that arrived, including the loose one')
+  assert.match(src, /cp-group\$\{g && g\.chats\.length \? '' : ' empty'\}/, 'a group with rows is not marked empty')
 })

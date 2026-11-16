@@ -502,9 +502,10 @@ if (chatsBtn) chatsBtn.onclick = async () => {
   }
   const groups = pid ? groupOf : [{ name: '', chats: j.chats || [] }]
   const row = c => `<button type="button" class="cp-row${talk.on && talk.chat === c.id ? ' on' : ''}" data-chat="${esc(c.id)}" draggable="${!!pid}"><span>${esc(c.title)}</span>${c.state === 'locked' ? '<small>Locked</small>' : ''}</button>`
-  // every group is a place to drop a chat, so the four always show while dragging
-  const names = pid ? ['Design', 'App', 'Game', 'Video'] : ['']
-  const html = names.map(n => { const g = groups.find(x => x.name === n); return `<section class="cp-group${g ? '' : ' empty'}" data-group="${n}">${n ? `<h4>${n}</h4>` : ''}${(g?.chats || []).map(row).join('')}</section>` }).join('') +
+  // every group is a place to drop a chat, so the four always show while dragging. A group named '' is the
+  // loose chats (no project): it has no heading and no drop target of its own.
+  const names = [...new Set([...(pid ? ['Design', 'App', 'Game', 'Video'] : []), ...groups.map(g => g.name)])]
+  const html = names.map(n => { const g = groups.find(x => x.name === n); return `<section class="cp-group${g && g.chats.length ? '' : ' empty'}" data-group="${n}">${n ? `<h4>${n}</h4>` : ''}${(g?.chats || []).map(row).join('')}</section>` }).join('') +
     `<button type="button" class="cp-row cp-new" data-new>${ico('plus')}<span>New chat</span></button>`
   chatsPop = window.SwarmUI.popover(chatsBtn, html, { className: 'chats-pop', align: 'start' })
   const el = chatsPop.el

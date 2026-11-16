@@ -82,14 +82,30 @@ export function mapWindow({ src, cursor, icons }) {
   const reset = () => { Object.assign(view, { k: 1, x: 0, y: 0, moved: false }); apply() }
   fitBtn.onclick = reset
   // zoom to an absolute factor about a point (the slider, the buttons); the centre when no point is given
+  // Zoom to an absolute factor about a point on screen — the pointer for the wheel and a pinch, the middle
+  // for the slider and the buttons — and keep the diagram's own point under it exactly still.
+  //
+  // The picture is scaled about its OWN centre (transform-origin 50% 50%), and that centre sits at the
+  // window's middle. So a point p of the window lands at C + (p + t - C)/k. Asking that to stay put while k
+  // goes k1 -> k2 gives t2 = (p - C)*k2 - p + C. The first version scaled the offset as if the origin were
+  // the window's top-left corner, so every wheel step slid the diagram sideways: the point under the cursor
+  // ran away by a thousand pixels (the person, 2026-11-16: "doesnt zoom into cursor's current position").
   const zoomTo = (k2, cx, cy) => {
     const r = body.getBoundingClientRect()
     const px = (cx ?? r.left + r.width / 2) - r.left, py = (cy ?? r.top + r.height / 2) - r.top
     const k = Math.min(K.max, Math.max(K.min, k2))
     if (Math.abs(k - view.k) < 1e-6) return
-    // keep the point under the pointer still: the box is centred, so the offset scales with the picture
-    view.x = px - (px - view.x) * (k / view.k)
-    view.y = py - (py - view.y) * (k / view.k)
+    // The picture's centre, unmoved by its own transform. offsetLeft/offsetWidth describe the LAYOUT box,
+    // where getBoundingClientRect() reports the scaled one: reading that back after each step feeds the
+    // previous scale into the next and drifts. And it is not the window's middle either — a picture wider
+    // than the window is centred by the grid, so its centre sits off to one side (measured: 712,224 in a
+    // 898x481 window). Scaling about the wrong point is what sent the diagram under the cursor running.
+    const C = { x: picEl.offsetLeft + picEl.offsetWidth / 2, y: picEl.offsetTop + picEl.offsetHeight / 2 }
+    // Solved from scratch, not from the old offset: f(p) = C + (p - C)/k + t must equal p, so
+    // t = (p - C)(1 - 1/k). Iterating on the previous t compounded rounding and, worse, carried a pan
+    // made at another scale straight into the new one.
+    view.x = (px - C.x) * (1 - 1 / k)
+    view.y = (py - C.y) * (1 - 1 / k)
     view.k = k
     if (Math.abs(k - 1) > 0.001) view.moved = true
     apply()
