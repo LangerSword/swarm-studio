@@ -107,7 +107,7 @@ import { breakdown, merge as mergeRefs, refDir, safeName, kindOf } from '../engi
 import { mediaKeys, mediaSources, mcpScore, clipJobs, KEYS as MEDIA_KEYS, ELEVEN_MCP } from '../engine/media.mjs'
 import { idleOptions, optionOf, idleKey, priceOk, idleStartName, idlePrompt, idleMessages, IDLE_SAY } from '../engine/idle.mjs'
 import { heavyConfig, runHeavy, interpOf } from '../engine/heavy.mjs'
-import { makeImages } from '../engine/images.mjs'
+import { makeImages, imageTools } from '../engine/images.mjs'
 import { snapStore } from './snaps.mjs'
 // engine: godot
 import { installGodot, godotJob as godotJobOf, fileFor as godotFile, GODOT } from '../engine/godotinstall.mjs'
@@ -331,7 +331,11 @@ async function imageChoice() {
 const setup = setupRoutes({
   dataDir,
   roles: () => ({ planner: { ...models.planner, model: modelFor('planner') }, worker: { ...models.worker, model: modelFor('worker') } }),
-  call: (p, model) => streamChat({ baseUrl: p.baseUrl.replace(/\/$/, ''), apiKey: p.apiKey, ...(p.hermes ? { hermes: true } : {}) }, { trace: { kind: 'setup-test' }, model, maxTokens: 16, temperature: 0, messages: [{ role: 'user', content: 'Say ok' }], signal: AbortSignal.timeout(30000) }),
+  // The tiny call starts with a system message: every real call in the Studio does, and a route that
+  // only accepts a system prompt first would otherwise fail here alone (WorkBuddy: code 11128, "first
+  // message is not system prompt"), which reads as "the model didn't work" in a sheet whose one job is
+  // to say whether it does.
+  call: (p, model) => streamChat({ baseUrl: p.baseUrl.replace(/\/$/, ''), apiKey: p.apiKey, ...(p.hermes ? { hermes: true } : {}) }, { trace: { kind: 'setup-test' }, model, maxTokens: 16, temperature: 0, messages: [{ role: 'system', content: 'You are a model check. Answer in one word.' }, { role: 'user', content: 'Say ok' }], signal: AbortSignal.timeout(30000) }),
   image: async () => ({ providers: await loadImageProviders(), imagePick: picks.image || null, pick: picks.pictures || null }),
   media: () => mediaState(),
   feed: PY ? call => pyCommand(call, 60000) : null,
@@ -399,8 +403,12 @@ async function paintArt(choice, guide, { gen, aspect = 'landscape', hero = false
   // a refusal that isn't out of quota: once more after a pause, then on another provider (engine/paintretry.mjs)
   let first = await paintWithBackup(c => once(c, ''), { choice, backup: () => backupImage(choice), quota: OUT_OF_QUOTA, exists: existsSync })
   // engine: hermes
-  // out of quota on a Hermes login: ckff paints it when it has a key, rather than no picture
-  if (OUT_OF_QUOTA.test(String(first?.error || '')) && choice?.provider !== 'ckff' && ckffProvider()) {
+  // out of quota on a Hermes login, OR no image tool on this machine at all: ckff paints it when it has a key,
+  // rather than no picture. `planPaint` (the plan's sheets, mocks and backdrops) already falls back on any
+  // failure; a close-up did not, so on a machine with a ckff key but no image provider in Hermes the sheets
+  // painted and the close-ups failed with "Image generation is unavailable in this environment" (found on the
+  // Pro, 2026-11-15). NO_IMAGE_TOOL is that second case.
+  if ((OUT_OF_QUOTA.test(String(first?.error || '')) || NO_IMAGE_TOOL.test(String(first?.error || ''))) && choice?.provider !== 'ckff' && ckffProvider()) {
     const alt = { provider: 'ckff', model: ckffProvider().default }, other = await once(alt, '')
     if (other?.ok && other.path && existsSync(other.path)) first = { ...other, backup: alt }
   }
@@ -1820,8 +1828,11 @@ const castMod = () => (castP ||= import('../engine/cast.mjs'))
 // high, through the same image login as the builds. Image runs only; no Meshy credits.
 async function planPaint({ prompt, quality = 'medium', aspect = 'landscape', crop = '', refs = [] }) {
   const choice = await imageChoice()
-  // ckff (engine/ckff.mjs) is the fallback when no Hermes image login works (Codex out of quota)
-  const fallback = () => (ckffCreds() && !crop ? ckffPaint({ prompt, aspect, refs }) : null)
+  // ckff (engine/ckff.mjs) is the fallback when no Hermes image login works (Codex out of quota), or when this
+  // machine has no image tool at all. It takes the crop too now (engine/ckff.mjs cropTo, the same centre box
+  // bridge.py takes), so a cut-in is not the one picture a ckff key cannot paint — which is exactly what
+  // happened on the Pro (2026-11-15): the sheets painted, and every 16:9 close-up failed.
+  const fallback = () => (ckffCreds() ? ckffPaint({ prompt, aspect, refs, crop, tools: () => imageTools(dataDir) }) : null)
   if (!choice) return (await fallback()) || { ok: false, error: 'no image model' }
   const model = choice.model
   const args = ['--provider', choice.provider, ...(model ? ['--model', model] : []), '--aspect', aspect, ...(crop ? ['--crop', crop] : [])]
@@ -2429,6 +2440,11 @@ async function libraryFor(it, style, used) {
   return null
 }
 const OUT_OF_QUOTA = /\b(429|402)\b|usage limit|quota|insufficient|no capacity|rate.?limit|billing|credits?\b/i
+// No image tool on this machine at all (Hermes's own words when no image provider is set up): not a refusal to
+// retry, a reason to use the Studio's own key (engine/ckff.mjs) instead. The pattern names no environment
+// variable on purpose: this server never reads Hermes's keys (tests/bridge.test.mjs holds that), and it only
+// matches the sentence Hermes hands back.
+const NO_IMAGE_TOOL = /Image generation is unavailable|no image model|image generation (?:is )?not (?:configured|available)/i
 // Cut a sprite out, then check it: the cut's own numbers first, and a sprite that looks off
 // goes to the reviewer on dark and on magenta. → { ok, path, problems, report }
 async function cutAndCheck(src, it, guide) {
