@@ -227,7 +227,7 @@ test('the Lock chip under the spec is the same lock, and a missing painter is sa
     assert.doesNotMatch(j.turn.text, /is installed/)
     assert.doesNotMatch((await i.step()).text, /is installed/)
   } finally { i.close() }
-  // the install fails: "Nothing happened" with the plain reason, Try again, Check again and Browser is fine
+  // the install fails: "Nothing happened" with the plain reason and one button, Try again
   const f = await night({ install: { ok: false, why: 'this computer could not reach github.com' } })
   try {
     await f.post({ said: 'lock' })
@@ -237,7 +237,7 @@ test('the Lock chip under the spec is the same lock, and a missing painter is sa
     await until(async () => !(await f.step()).wait)
     let s = await f.step()
     assert.equal(s.text, 'Nothing happened: this computer could not reach github.com.')
-    assert.deepEqual(s.options.map(o => [o.id, o.label]), [['do:godot', 'Try again'], ['do:godot:check', 'Check again'], ['do:browser', 'Browser is fine']])
+    assert.deepEqual(s.options.map(o => [o.id, o.label]), [['do:godot', 'Try again']])
     assert.equal(f.chatFile().godot, undefined)
     // "try again" after the failure installs again; a brew note is said with the result
     j = await f.post({ said: 'try again' })
@@ -252,9 +252,13 @@ test('the Lock chip under the spec is the same lock, and a missing painter is sa
     await q.post({ said: 'lock' })
     const j = await q.post({ pick: 'do:godot' })
     assert.equal(j.turn.text, 'Nothing happened: Godot has no download for this kind of computer: get it from godotengine.org, then press Check again.')
-    assert.deepEqual([j.turn.wait, j.turn.options.map(o => o.label)], [undefined, ['Try again', 'Check again', 'Browser is fine']])
+    assert.deepEqual([j.turn.wait, j.turn.options.map(o => o.label)], [undefined, ['Check again']])
     assert.equal(q.chatFile().godot, undefined)
-    assert.equal((await q.post({ said: 'try again' })).turn.text, j.turn.text)
+    // the other ways forward still work typed: "check again" looks, "browser is fine" builds for the browser
+    assert.equal((await q.post({ said: 'check again' })).turn.text.startsWith('Godot 4 is still not on this computer.'), true)
+    await q.post({ pick: 'do:godot' })
+    assert.match((await q.post({ said: 'the browser is fine' })).turn.text, /^The game builds for the browser\./)
+    assert.equal(q.chatFile().godot, 'web')
   } finally { q.close() }
   const q2 = await night({ install: { ok: true, version: '4.7.2' }, instant: true })
   try {

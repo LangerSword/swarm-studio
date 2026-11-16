@@ -105,7 +105,7 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
     if (goWords(said)) return ids[0] === 'do:godot' ? 'do:next' : ids[0] && (ids[0] === 'lock' || ids[0].startsWith('do:')) ? ids[0] : 'do:next'
     if (step.sheet && readPicks(said, step.sheet, planFacts(plan).cast).length) return 'do:typed'
     const engine = wordsDecide(said).engine
-    if (ids.includes('do:browser') && engine === 'web') return 'do:browser'
+    if ((ids.includes('do:browser') || ids.includes('do:godot')) && engine === 'web') return 'do:browser'
     // only an order installs ("install", "install godot", "ok, install it", "try again"): a question, a "don't" or
     // the word Godot alone is talk
     const offered = [...chat.turns].reverse().find(t => t.who === 'planner')?.options || []
@@ -165,7 +165,7 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
       if (quick) {
         const found = !!quick.ok && (godotCheck ? !!godotCheck() : true)
         if (found) chat.godot = 'install'
-        return found ? { plan, said: installedLine(quick) } : { plan, said: failedLine(quick), godot: 'failed' }
+        return found ? { plan, said: installedLine(quick) } : { plan, said: failedLine(quick), godot: 'failed', route: quick.route }
       }
       chat.godot = 'installing'
       settle(chat.id, flight)
@@ -220,7 +220,7 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
       else delete chat.godot
       const step = nextStep(chat, plan, env())
       const text = found ? `${installedLine(r)} ${step.text}` : failedLine(r)
-      chat.turns.push({ id: `t${chat.turns.length + 1}`, who: 'planner', at: Date.now(), text, options: found ? step.options : godotOptions(true), step: true, plan: plan.id, settled: 'godot', ...(found && step.wait ? { wait: true } : {}), ...(found && step.sheet ? { sheet: step.sheet } : {}), refs: [], marks: [], layers: [], made: [], reads: [] })
+      chat.turns.push({ id: `t${chat.turns.length + 1}`, who: 'planner', at: Date.now(), text, options: found ? step.options : godotOptions(true, r?.route), step: true, plan: plan.id, settled: 'godot', ...(found && step.wait ? { wait: true } : {}), ...(found && step.sheet ? { sheet: step.sheet } : {}), refs: [], marks: [], layers: [], made: [], reads: [] })
     })).catch(() => {}).finally(() => settling.delete(id))
   }
 
@@ -247,7 +247,7 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
     // the install this turn started ended in the instant since: the turn still waits, and the next look finds the
     // turn that says how it ended (settle)
     if (chat.godot === 'installing' && action.startsWith('do:godot') && !step.wait) step = { text: installLine(env().install?.state === 'installing' ? env().install : {}), options: [], wait: true, install: { pct: null } }
-    if (out?.godot) step.options = godotOptions(out.godot === 'failed')
+    if (out?.godot) step.options = godotOptions(out.godot === 'failed', out.route)
     if (out?.ask) step.options = [{ id: 'lock', label: lockLabel(plan.price), why: '', made: [] }, { id: 'talk', label: 'Keep talking', why: '', made: [] }]
     const text = [why || out?.said || '', out?.godot ? '' : step.text].filter(Boolean).join(' ')
     Object.assign(turn, { text, options: step.options, step: true, plan: plan.id, ...(step.wait ? { wait: true } : {}), ...(step.install ? { install: step.install } : {}), ...(step.sheet ? { sheet: step.sheet } : {}), ...(step.price || out?.ask ? { price: plan.price } : {}) })
