@@ -103,7 +103,12 @@ test('the Map zooms and pans, and offers the way back only once it has been move
   assert.match(src, /e\.key === '\+'/, 'the keyboard zooms in')
   assert.match(src, /e\.key === '0'/, 'and 0 fits it again')
   // the Recentre button is the way back, and only exists once there is somewhere to come back from (rule 22)
-  assert.match(src, /resetBtn\.hidden = !view\.moved/, 'Recentre appears only after a move')
+  // the visible control: a minus, a slider and a plus, plus Fit once there is somewhere to come back from
+  assert.match(src, /class="mp-out"[^>]*>\u2212<\/button>|class="mp-out"[^>]*>\\u2212<\/button>/, 'a minus')
+  assert.match(src, /class="mp-in"[^>]*>\+<\/button>/, 'a plus')
+  assert.match(src, /type="range" class="mp-range"/, 'a slider')
+  assert.match(src, /fitBtn\.hidden = !view\.moved && Math\.abs\(view\.k - 1\) < 0\.001/, 'Fit appears only after a move')
+  assert.match(src, /rangeEl\.value = String\(toTrack\(view\.k\)\)/, 'the slider reads the same value the wheel sets')
   // the diagram keeps its own size: forced to 100% of the window it could never be read larger
   assert.doesNotMatch(css, /\.mp-pic svg \{[^}]*width: 100%/, 'the SVG is not forced to the window width')
   assert.match(css, /\.mp-pic svg \{ display: block; max-width: none; \}/)
