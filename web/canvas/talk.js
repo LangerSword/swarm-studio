@@ -224,7 +224,9 @@ function gameWatch(was, line = null) {
   const tick = async () => {
     if (!talk.on || talk.chat !== chat) return
     const j = await api(`/api/talk/${encodeURIComponent(chat)}`).then(r => r.ok ? r.json() : null).catch(() => null)
-    if (!talk.on || talk.chat !== chat || !j?.step) return
+    if (!talk.on || talk.chat !== chat) return
+    // a look that failed (the computer slept, the server was busy) is tried again while an install's line is up
+    if (!j?.step) return void (line?.isConnected && setTimeout(tick, 3000))
     if (j.step.wait) {
       const txt = line && j.step.install ? line.querySelector('.txt') : null
       if (txt) txt.textContent = j.step.text

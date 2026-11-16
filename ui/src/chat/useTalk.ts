@@ -225,7 +225,9 @@ export function useTalk({ api = chatApi, from = null, project = null, events, ad
       if (!alive(g)) return
       const s = T.current
       const j = s.chat ? await getJson<{ step?: Step }>(api, `/api/talk/${enc(s.chat)}`).catch(() => null) : null
-      if (!alive(g) || !j?.step) return
+      if (!alive(g)) return
+      // a look that failed (the computer slept, the server was busy) is tried again while an install's line is up
+      if (!j?.step) { if (line) setTimeout(tick, 3000); return }
       if (j.step.wait) { if (line && j.step.install) patch(line, { text: j.step.text }); setTimeout(tick, 3000); return }
       if (line) drop(line)
       if (j.step.text === was) return

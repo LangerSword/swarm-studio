@@ -32,8 +32,10 @@ import { reasonFromTalk, reasonLine, isRaw } from '../engine/stopreason.mjs'
 // env() -> { godot, install }: install is godotInstall.state(); godotInstall.start() -> a promise of the install's
 // end, { ok, version, note? } or { ok: false, why } (engine/godotinstall.mjs godotJob), or null: nothing to install with
 // helpers() -> the chat's tool kit (engine/helpers.mjs, decision 0025 e), or null
-// the order to install, and nothing longer: "install", "install it", "install godot 4", "yes, install it", "try again"
-const INSTALL = /^\s*((ok(ay)?|yes|yeah|sure|please)[,!.\s]+)*(install|download|get)( it| godot( 4)?| the engine)?( now| please| for me)*[\s.!]*$|^\s*(please\s+)?try( it)? again[\s.!]*$/i
+// the order to install, and nothing longer: "install", "install it", "install godot 4", "yes, install it"
+const INSTALL = /^\s*((ok(ay)?|yes|yeah|sure|please)[,!.\s]+)*(install|download)( it| godot( 4)?| the engine)?( now| please| for me)*[\s.!]*$/i
+// "try again" is that order only right after an install failed (her last turn offered Try again)
+const AGAIN = /^\s*(please\s+)?try( it)? again[\s.!]*$/i
 // "check again", "I installed it", "it is installed now": the person says Godot is there, so the Studio looks
 const LOOKED = /\b(check(ed)?( it)? again|look again|(i|i've|i have|already|just) (just |already )?installed|(it'?s|it is|is) (already |now )?installed)\b/i
 
@@ -106,7 +108,8 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
     if (ids.includes('do:browser') && engine === 'web') return 'do:browser'
     // only an order installs ("install", "install godot", "ok, install it", "try again"): a question, a "don't" or
     // the word Godot alone is talk
-    if (ids.includes('do:godot') && INSTALL.test(said)) return 'do:godot'
+    const offered = [...chat.turns].reverse().find(t => t.who === 'planner')?.options || []
+    if (ids.includes('do:godot') && (INSTALL.test(said) || (AGAIN.test(said) && offered.some(o => o.id === 'do:godot' && o.label === 'Try again')))) return 'do:godot'
     return null
   }
 

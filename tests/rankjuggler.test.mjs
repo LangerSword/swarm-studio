@@ -196,7 +196,11 @@ test('the Lock chip under the spec is the same lock, and a missing painter is sa
     await i.post({ said: 'lock' })
     assert.equal(i.job.runs, 0, 'nothing is installed before the person asks')
     // words about Godot are talk, never the order: only "install" (or the button) starts it
-    for (const said of ['what is godot?', 'no godot', "don't install it", 'how do I install it myself?', 'is godot big?', 'yes', 'go']) await i.post({ said })
+    for (const said of ['what is godot?', 'no godot', "don't install it", 'how do I install it myself?', 'is godot big?', 'get it', 'yes', 'go']) await i.post({ said })
+    assert.equal(i.job.runs, 0)
+    // "try again" after a look that found nothing is not the order: no install has failed
+    await i.post({ said: 'check again' })
+    await i.post({ said: 'try again' })
     assert.equal(i.job.runs, 0)
     let j = await i.post({ pick: 'do:godot' })
     assert.deepEqual([j.turn.text, j.turn.wait, j.turn.install, j.turn.options], ['Installing Godot 4 now: 171 MB from Godot\'s releases.', true, { pct: 0 }, []])
@@ -235,9 +239,9 @@ test('the Lock chip under the spec is the same lock, and a missing painter is sa
     assert.equal(s.text, 'Nothing happened: this computer could not reach github.com.')
     assert.deepEqual(s.options.map(o => [o.id, o.label]), [['do:godot', 'Try again'], ['do:godot:check', 'Check again'], ['do:browser', 'Browser is fine']])
     assert.equal(f.chatFile().godot, undefined)
-    // "ok, install it" is the order too; a brew note is said with the result
-    j = await f.post({ said: 'ok, install it' })
-    assert.equal(f.job.runs, 2)
+    // "try again" after the failure installs again; a brew note is said with the result
+    j = await f.post({ said: 'try again' })
+    assert.equal(f.job.runs, 2, '"try again" right after a failed install is the order')
     f.landGodot({ ok: true, version: '4.7.2', note: 'Homebrew asked for a password, so Godot came from its own releases.' })
     await until(async () => !(await f.step()).wait)
     assert.match((await f.step()).text, /^Homebrew asked for a password, so Godot came from its own releases\. Godot 4\.7\.2 is installed: /)

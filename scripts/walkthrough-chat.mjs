@@ -82,7 +82,8 @@ export const CHAT_STEPS = [
   { id: 'gc-godot-wait', flow: FLOW, title: 'Install Godot 4 pressed: Hermia at work on the install, and how far it is', run: async env => {
     await night(env)
     await press(env.page, 'Install Godot 4')
-    await vis(env.page, '.item.bot.crew-wait .cur')
+    // (when the working line does not come, the chat's own last words are the reason this step gives)
+    await vis(env.page, '.item.bot.crew-wait .cur').catch(async () => { throw new Error(`no working line after Install Godot 4; the chat ends: "${(await env.page.locator('#feed').first().innerText().catch(() => '')).replace(/\s+/g, ' ').slice(-160)}"`) })
     await chatSays(env.page, /Installing Godot 4 now: \d+ MB from Godot's releases/, NEVER)
     if (await env.page.locator('.talk-acts button').count()) throw new Error('buttons are offered while the install runs')
   } },
