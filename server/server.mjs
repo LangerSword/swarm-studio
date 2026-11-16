@@ -1799,7 +1799,9 @@ async function studioFacts(runId = null, { light = false } = {}) {
   ])
   const st = hermes.status()
   const F = {
-    view, hermes: { ...st, health: well }, models: { roles: Object.fromEntries(ROLES.map(r => [r, { model: modelFor(r), picked: picks[r] || null }])) },
+    // `python` rides on the view: Setup's Sprite cutter row reads it (web/setup-parts.js), and it is the one
+    // thing that says why a sprite shipped with its key colour still on it
+    view: { ...view, python }, hermes: { ...st, health: well }, models: { roles: Object.fromEntries(ROLES.map(r => [r, { model: modelFor(r), picked: picks[r] || null }])) },
     local: setup.local(), media, publish: conn || login ? { github: login, ...(conn || {}) } : null, conn: connList, gateway: gw ? { platforms: gw } : null
   }
   const events = runId ? readEvents(runId) : null
