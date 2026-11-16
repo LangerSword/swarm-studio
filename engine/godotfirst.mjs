@@ -179,6 +179,8 @@ Finish with the project opening in Godot with no errors and the game playable fr
 const run = (bin, args, ms) => new Promise(ok => execFile(bin, args, { timeout: ms, maxBuffer: 1 << 23, windowsHide: true }, (err, out, errOut) => ok({ code: err?.code ?? 0, text: `${out}\n${errOut}` })))
 
 // Export the project to Web (build/web/index.html). → { ok, dir, error? }
+// Godot's own words when the templates are missing, which is the one export failure a person can fix
+const NO_TEMPLATE = /No export template found at the expected path|Cannot export project with preset .* due to configuration errors/i
 export async function exportWeb(dir, bin = godotBin()) {
   if (!bin) return { ok: false, error: 'no Godot on this machine' }
   const root = portDir(dir, 'godot'), out = join(root, 'build', 'web')
@@ -188,7 +190,11 @@ export async function exportWeb(dir, bin = godotBin()) {
   const r = await run(bin, ['--headless', '--path', root, '--export-release', 'Web', 'build/web/index.html'], 300000)
   const ok = existsSync(join(out, 'index.html')) && existsSync(join(out, 'index.pck'))
   if (ok) unpersist(join(out, 'index.html'))
-  return ok ? { ok, dir: out } : { ok, dir: out, error: godotErrors(r.text)[0] || r.text.trim().split('\n').slice(-3).join(' ').slice(0, 300) }
+  if (ok) return { ok, dir: out }
+  // the one failure with a name and an action: Godot's export templates are a separate download (engine/godotinstall.mjs
+  // installTemplates), so the person is told that instead of Godot's own "No export template found at the expected path"
+  if (NO_TEMPLATE.test(r.text)) return { ok: false, dir: out, missingTemplates: true, error: "Godot's Web export templates are not installed, so it cannot export this game" }
+  return { ok: false, dir: out, error: godotErrors(r.text)[0] || r.text.trim().split('\n').slice(-3).join(' ').slice(0, 300) }
 }
 
 // The export keeps user:// in IndexedDB, which throws in a sandboxed frame (origin null):

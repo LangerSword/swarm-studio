@@ -18,7 +18,7 @@
 //
 // `why` is a plain reason that finishes the sentence "Nothing happened: …"; a raw error goes to the log only.
 import { createHash, randomBytes } from 'node:crypto'
-import { chmodSync, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { once } from 'node:events'
 import { delimiter, join, posix, resolve, sep } from 'node:path'
 import { execFile } from './proc.mjs'
@@ -36,8 +36,35 @@ export const GODOT = {
     'win32-arm64': { name: 'Godot_v4.7.2-stable_windows_arm64.exe.zip', size: 84263370, bin: 'Godot_v4.7.2-stable_windows_arm64_console.exe', sha512: '683f8dd9fb087db79dfbbc52d5b2209df98218a4fef0d10d8478ec2230ae8db6032a36929677479b9f9c5a6aa0c51ee359d7e57eb5abbcb6cef4998526dec5a6' }
   }
 }
+// The Web export templates of the same release, in one file: without them a Web export fails with Godot's own
+// "No export template found at the expected path". It is the release's own .tpz, and the sum is its
+// SHA512-SUMS.txt line (same file, read 2026-11-15). Godot looks for them under its version, so they are put
+// where it looks, not in the Studio's folder: this is the one thing Swarm writes outside the data folder.
+export const TEMPLATES = {
+  name: 'Godot_v4.7.2-stable_export_templates.tpz',
+  size: 1281349702,
+  sha512: 'ca4d71c4d7b81dfc15d1a98baa07534aa95b03fdda78a0075b06672e1648d2e5f40980c9adc28d23e1b92e732ee7bf3461997aa804af74ec2fcd7a93ccb84079',
+  // the two the Web preset needs (variant/thread_support=false: the nothreads pair)
+  web: ['web_nothreads_debug.zip', 'web_nothreads_release.zip'],
+  // only what a Web export needs is unpacked: 1.28 GB comes down, 20 MB is kept
+  keep: /^templates\/(web_[a-z_]+\.zip|version\.txt)$/
+}
 export const fileFor = (platform = process.platform, arch = process.arch, release = GODOT) => release.files[platform === 'darwin' ? 'darwin' : `${platform}-${arch}`] || null
 const mbOf = f => Math.round(f.size / 1e6)
+
+// Where Godot 4 looks for its templates, by platform (Godot's own `EditorPaths::get_export_templates_dir`).
+// version is the editor's, "4.7.2": the folder Godot names is "4.7.2.stable", which is what its version.txt says.
+export function templatesRoot({ platform = process.platform, home = process.env.HOME || process.env.USERPROFILE || '', env = process.env } = {}) {
+  if (platform === 'darwin') return join(home, 'Library', 'Application Support', 'Godot', 'export_templates')
+  if (platform === 'win32') return join(env.APPDATA || join(home, 'AppData', 'Roaming'), 'Godot', 'export_templates')
+  return join(env.XDG_DATA_HOME || join(home, '.local', 'share'), 'godot', 'export_templates')
+}
+// The folder for a release, "4.7.2.stable": Godot reads the `version.txt` inside it, so the name is that file's
+export const templatesFolder = (version, root = templatesRoot()) => join(root, `${version}.stable`)
+// The two Web templates are there and non-empty: what `exportWeb` needs, nothing else (a folder Godot fills itself
+// with every platform counts as missing here only when these two are)
+export const ownTemplates = (version, { root = templatesRoot(), exists = existsSync, sizeOf = f => { try { return statSync(f).size } catch { return 0 } }, files = TEMPLATES } = {}) =>
+  files.web.every(name => exists(join(templatesFolder(version, root), name)) && sizeOf(join(templatesFolder(version, root), name)) > 0)
 
 export const godotHome = dataDir => join(dataDir, 'godot')
 // The Studio's own copy: what current.json names, only inside the Studio's godot folder, only if it is there.
@@ -137,9 +164,63 @@ async function fromArchive({ dataDir, platform, arch, release, fetchImpl, unpack
   } finally { rmSync(work, { recursive: true, force: true }) }
 }
 
+// The Web export templates, once per release: downloaded to the Studio's own folder, checked against the sum the
+// release publishes, then only the Web ones unpacked where Godot looks for them. A folder already holding them is
+// left alone (a person who installed templates by hand keeps theirs).
+//   -> { ok: true, route: 'archive', dir, mb } | { ok: false, route, why }
+export async function installTemplates({ dataDir, platform = process.platform, version = GODOT.version, release = GODOT, root = templatesRoot({ platform }), exists = existsSync, fetchImpl = fetch, runner = run, unpack = unpackZip, TEMPLATES: files = TEMPLATES, onProgress = () => {}, log = () => {} }) {
+  const fail = why => ({ ok: false, route: 'archive', why })
+  if (ownTemplates(version, { root, exists, files })) return { ok: true, route: 'archive', dir: templatesFolder(version, root), mb: 0, note: 'they were already there' }
+  const home = godotHome(dataDir), work = join(home, `.tpl-${randomBytes(4).toString('hex')}`), tpz = join(work, files.name)
+  try {
+    mkdirSync(work, { recursive: true })
+    onProgress({ route: 'templates', mb: mbOf(files), pct: 0 })
+    let res
+    try { res = await fetchImpl(release.base + files.name, { redirect: 'follow', signal: AbortSignal.timeout(HOUR) }) } catch (err) { log(`godot templates: ${err?.cause?.code || err?.message || err}`); return fail('this computer could not reach github.com') }
+    if (!res.ok || !res.body) return fail(`github.com answered ${res.status} for the templates`)
+    const hash = createHash('sha512'), out = createWriteStream(tpz)
+    let got = 0, pct = 0
+    try {
+      for await (const chunk of res.body) {
+        got += chunk.length
+        if (got > files.size) break
+        hash.update(chunk)
+        if (!out.write(chunk)) await once(out, 'drain')
+        const p = Math.floor(got / files.size * 100)
+        if (p !== pct) onProgress({ pct: pct = p })
+      }
+      await new Promise((ok, no) => out.end(err => (err ? no(err) : ok())))
+    } catch (err) {
+      out.destroy()
+      log(`godot templates: ${err?.code || err?.name || err}`)
+      return fail(err?.code === 'ENOSPC' ? 'the disk is full' : err?.name === 'TimeoutError' ? 'the download took over an hour' : 'the download stopped before it finished')
+    }
+    if (got !== files.size || hash.digest('hex') !== files.sha512) return fail('the templates did not match the checksum Godot published, so they were thrown away')
+    // only the Web ones, straight into the folder Godot reads: the archive is a zip of `templates/…`
+    const to = templatesFolder(version, root)
+    const unpacked = join(work, 'out')
+    mkdirSync(unpacked, { recursive: true })
+    if (!(await unpack(tpz, unpacked, { platform, runner }))) return fail('the templates could not be unpacked on this computer')
+    const from = join(unpacked, 'templates')
+    if (!exists(from)) return fail('the download held no templates')
+    mkdirSync(to, { recursive: true })
+    let kept = 0
+    for (const name of readdirSync(from)) {
+      if (!files.keep.test(`templates/${name}`)) continue
+      renameSync(join(from, name), join(to, name))
+      kept++
+    }
+    if (!ownTemplates(version, { root, exists, files })) return fail('the templates did not land where Godot looks for them')
+    return { ok: true, route: 'archive', dir: to, mb: mbOf(files), files: kept }
+  } catch (err) {
+    log(`godot templates: ${err?.code || err?.message || err}`)
+    return fail(err?.code === 'ENOSPC' ? 'the disk is full' : 'the templates could not be put where Godot looks for them')
+  } finally { rmSync(work, { recursive: true, force: true }) }
+}
+
 // find() -> the Godot the Studio would use now (engine/port.mjs godotBin), or null. release is GODOT; a test hands
 // in its own small one, so the checksum is checked on every path.
-export async function installGodot({ dataDir, find = () => null, platform = process.platform, arch = process.arch, env = process.env, exists = existsSync, release = GODOT, runner = run, fetchImpl = fetch, unpack = unpackZip, onProgress = () => {}, log = () => {} }) {
+export async function installGodot({ dataDir, find = () => null, platform = process.platform, arch = process.arch, env = process.env, exists = existsSync, release = GODOT, runner = run, fetchImpl = fetch, unpack = unpackZip, templates = installTemplates, onProgress = () => {}, log = () => {} }) {
   let note = ''
   const brew = platform === 'darwin' ? brewOf(env, exists) : null
   if (brew) {
@@ -147,12 +228,22 @@ export async function installGodot({ dataDir, find = () => null, platform = proc
     const r = await runner(brew, ['install', '--cask', 'godot'], { timeout: 900000, env: { HOMEBREW_NO_AUTO_UPDATE: '1', HOMEBREW_NO_ENV_HINTS: '1', SUDO_ASKPASS: '/usr/bin/false' } })
     const bin = r.ok ? find() : null
     const version = bin ? await versionOf(bin, runner) : null
-    if (version) return { ok: true, route: 'brew', bin, version }
+    if (version) return withTemplates({ ok: true, route: 'brew', bin, version }, { dataDir, platform, version, release, runner, fetchImpl, onProgress, log, templates })
     if (PASSWORD.test(r.out)) note = 'Homebrew asked for a password, so Godot came from its own releases.'
     log(`godot install: brew did not install it${note ? ' (it asked for a password)' : ''}`)
   }
   const r = await fromArchive({ dataDir, platform, arch, release, fetchImpl, unpack, runner, onProgress, log })
-  return r.ok && note ? { ...r, note } : r
+  if (!r.ok) return r
+  return withTemplates(note ? { ...r, note } : r, { dataDir, platform, version: r.version, release, runner, fetchImpl, onProgress, log, templates })
+}
+
+// The editor is installed; the templates are the other half of a Web export, and they are a second, larger
+// download. They never fail the editor's install: the editor works without them, and `templates` says what
+// happened so the chat can offer the one action that is left ("Install the export templates").
+async function withTemplates(installed, { dataDir, platform, version, release, runner, fetchImpl, onProgress, log, templates }) {
+  let t
+  try { t = await templates({ dataDir, platform, version, release, runner, fetchImpl, onProgress, log }) } catch (err) { log(`godot templates: ${err?.message || err}`); t = { ok: false, why: 'the export templates could not be installed' } }
+  return { ...installed, templates: t.ok ? { ok: true, mb: t.mb ?? 0 } : { ok: false, why: t.why || 'the export templates could not be installed' } }
 }
 
 // One install at a time for the whole Studio: a second press, or another chat, joins the one in flight.
