@@ -64,7 +64,9 @@ test("Godot's errors are read from its output", async () => {
   assert.equal(e.length, 2)
   assert.match(e[0], /hero\.gd:12/)
   assert.deepEqual(godotErrors('Godot Engine v4.7.2\nok'), [])
-  assert.equal(godotBin({ PATH: '' }, []), null)
+  // an empty data folder as well: `godotBin` falls back to the copy the Studio installed in it
+  // (engine/port.mjs `ownGodot`), so without this the answer depended on the machine's real one
+  assert.equal(godotBin({ PATH: '', SWARM_DATA_DIR: mkdtempSync(join(tmpdir(), 'port-none-')) }, []), null)
 })
 
 test('on a Mac, Godot is found as the app when it is not on PATH', async () => {
@@ -75,9 +77,10 @@ test('on a Mac, Godot is found as the app when it is not on PATH', async () => {
   const home = mkdtempSync(join(tmpdir(), 'godot-app-'))
   const apps = godotApps(home)
   assert.equal(apps[0], join('/Applications', 'Godot.app', 'Contents', 'MacOS', 'Godot'))
-  assert.equal(godotBin({ PATH: '' }, apps.slice(1)), null)
+  const none = mkdtempSync(join(tmpdir(), 'port-none-'))
+  assert.equal(godotBin({ PATH: '', SWARM_DATA_DIR: none }, apps.slice(1)), null)
   mkdirSync(dirname(apps[1]), { recursive: true })
   writeFileSync(apps[1], '')
-  assert.equal(godotBin({ PATH: '' }, apps.slice(1)), apps[1])
+  assert.equal(godotBin({ PATH: '', SWARM_DATA_DIR: none }, apps.slice(1)), apps[1])
   rmSync(home, { recursive: true, force: true })
 })
