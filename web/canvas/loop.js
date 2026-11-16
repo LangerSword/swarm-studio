@@ -8,7 +8,7 @@ import { zoomToSection } from './zoom.js'
 import { cam, S, els, setLabel, FRAME_W, commandOps, api, $, BOOT, buildOf } from './core.js'
 import { syncSlots, bboxActive, fit, startGesture, gestureStep, toScreen, dockCell, agentTarget, DOCK, runBanter, drawWires, doing, setAuto, focusPage, slotFor } from './deck.js'
 import { lite, litePass, frameBusy, togglePanel, toggleModels } from './settings.js'
-import { renderAgents, setText, renderToolbar, treeSel, renderTree, renderStatus, botMsg, feed, hermesReady, hermesSays, resumeRun } from './panels.js'
+import { renderAgents, setText, renderToolbar, treeSel, renderTree, renderStatus, botMsg, feed, hermesReady, hermesSays, resumeRun, againRun, failSay } from './panels.js'
 import { renderDesign, drawSelBox, exp, design, selectAt, exportRunNow, undo, redo, esc } from './design.js'
 import { drawComment, review, cmt, reviewRun, sendLayers } from './marks.js'
 import { paintReplay, viewing, files, loadFiles, fileMatch, fileInfo, saveMeta, traceView, fileInto, rec, replaySay } from './replay.js'
@@ -399,7 +399,7 @@ els.form.addEventListener('submit', async e => {
 // The chat's mode (web/chatmode.js): a typed switch, and Ask, Plan and Fix take the message. Build, and a
 // send made in code (a Build button under a brief, a project's dock: nextRoute), go on below as ever.
 const modeHelp = {
-  box: els.brief, form: els.form, api, botMsg, feed, hermesReady, hermesSays, appAsk, talkStart, resume: resumeRun, media: mediaBlock, chart: mapShow,
+  box: els.brief, form: els.form, api, botMsg, feed, hermesReady, hermesSays, failSay, appAsk, talkStart, resume: resumeRun, again: againRun, media: mediaBlock, chart: mapShow,
   quiet: () => { slashPop.hidden = true }, next: v => setNextRoute(v), run: () => shownRun(), runNow: () => runNow(), app: () => appv,
   site: () => S.kind !== 'game' && S.frames.length > 0, kind: () => (S.kind === 'game' ? 'game' : 'site'), chat: () => talk.chat,
   // @ts-ignore
