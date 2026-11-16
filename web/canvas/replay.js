@@ -194,7 +194,8 @@ export function fileInfo(f) {
 
 let openSeq = 0
 // the server's one state of a saved website build (engine/buildstate.mjs); null when there is none to read
-const buildRead = id => api(`/api/runs/${encodeURIComponent(id)}/state`).then(r => (r.ok ? r.json() : null)).then(j => j?.state || null).catch(() => null)
+// (its other parts, an app's, a game's or a film's state, are kept as they come: core.js partsOf)
+const buildRead = id => api(`/api/runs/${encodeURIComponent(id)}/state`).then(r => (r.ok ? r.json() : null)).then(j => { if (j?.parts) setBuild(id, j.state, j.parts); return j?.state || null }).catch(() => null)
 // the builds this page just started (showRun, started): one of them can be read before its end is written
 export const startedRuns = new Set()
 export async function openRun(id) {

@@ -252,8 +252,8 @@ body.cosmos-project .topbar { background: var(--void); backdrop-filter: none; }
 .ab.art .pt .sk > * { stroke-dasharray: 260; stroke-dashoffset: 260; animation: pt-draw 7s var(--ease) forwards; animation-delay: var(--ago, 0s); }
 .ab.art .pt .sk > *:nth-child(2) { animation-duration: 9s; } .ab.art .pt .sk > *:nth-child(3) { animation-duration: 11s; }
 @keyframes pt-draw { to { stroke-dashoffset: 0; } }
-.ab.art .pt-tag, .ab.page > .pt-tag { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; padding: 5px 6px 13px; color: var(--text); font: 500 8.5px/1.25 var(--mono); background: color-mix(in srgb, var(--void) 84%, transparent); }
-.ab.art .pt-tag b, .ab.page > .pt-tag b { display: block; font: 700 9px var(--label); letter-spacing: .08em; text-transform: uppercase; }
+.ab.art .pt-tag, .ab.page > .pt-tag, .ab.app > .pt-tag, .ab.film > .pt-tag { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; padding: 5px 6px 13px; color: var(--text); font: 500 8.5px/1.25 var(--mono); background: color-mix(in srgb, var(--void) 84%, transparent); }
+.ab.art .pt-tag b, .ab.page > .pt-tag b, .ab.app > .pt-tag b, .ab.film > .pt-tag b { display: block; font: 700 9px var(--label); letter-spacing: .08em; text-transform: uppercase; }
 .ab.art .pt-bar { position: absolute; left: 6px; right: 6px; bottom: 6px; z-index: 3; height: 3px; border-radius: 3px; overflow: hidden; background: color-mix(in srgb, var(--text) 22%, transparent); }
 .ab.art .pt-bar > i { position: relative; display: block; height: 100%; background: var(--text); border-radius: 3px; transition: width 1.8s linear; overflow: hidden; }
 /* buffering: a brighter run along the bar */

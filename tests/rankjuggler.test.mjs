@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { planRoutes } from '../server/plans.mjs'
 import { talkRoutes } from '../server/talk.mjs'
+import { godotJob } from '../engine/godotinstall.mjs'
 import { planFacts, nextStep, checkClaims, readPicks, goWords } from '../engine/gamestep.mjs'
 import { factsText } from '../engine/talkplan.mjs'
 
@@ -47,6 +48,11 @@ test('the next step on that plan: Lock at the board\'s price, then Godot, then t
   plan.gate.locked = true
   s = nextStep(chat, plan, { godot: false })
   assert.equal(s.text, 'Godot 4 is not installed on this computer. Install Godot 4, or is the browser fine?')
+  // while the install the person asked for runs: a wait with no buttons; one that ended with the server asks again
+  chat.godot = 'installing'
+  s = nextStep(chat, plan, { godot: false, install: { state: 'installing', route: 'archive', mb: 171, pct: 12 } })
+  assert.deepEqual([s.text, s.options, s.wait, s.install], ['Installing Godot 4 now: 171 MB from Godot\'s releases (12%).', [], true, { pct: 12 }])
+  assert.deepEqual(nextStep(chat, plan, { godot: false, install: { state: 'idle' } }).options.map(o => o.id), ['do:godot', 'do:browser'])
   chat.godot = 'web'
   s = nextStep(chat, plan, { godot: false })
   assert.match(s.text, /^The Cast sheet waits on your picks: one number for Hero 1, Hero 2, Hero 3\./)
@@ -67,7 +73,8 @@ test('typed picks: 1-based numbers on the sheet, each with its hero', () => {
 })
 
 // a server on a copy of that night's data, with a stand-in painter and the planner saying the night's false line
-async function night({ model = async () => JSON.stringify({ say: SAID('t20'), decide: {}, ask: null }), godotFound = false, painter = true } = {}) {
+// install: what the stand-in installer answers ({ ok, version } or { ok: false, why }); it ends when n.landGodot() is called
+async function night({ model = async () => JSON.stringify({ say: SAID('t20'), decide: {}, ask: null }), godotFound = false, painter = true, install = null, instant = false } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'rank-'))
   cpSync(FIX, dir, { recursive: true })
   const png = join(dir, 'tiny.png')
@@ -75,7 +82,11 @@ async function night({ model = async () => JSON.stringify({ say: SAID('t20'), de
   let hold = null
   const paint = Object.assign(async () => { if (hold) await hold; return { ok: true, path: png, model: 'stand-in' } }, { ready: async () => painter })
   const plans = planRoutes({ dataDir: dir, paint, godot: () => false })
-  const talks = talkRoutes({ dataDir: dir, plans, env: () => ({ godot: false }), godotCheck: () => godotFound, model: () => model })
+  // found: Godot is on the computer; seen: the Studio has looked since (godotCheck)
+  let land = () => {}, found = godotFound, seen = false
+  const job = godotJob({ install: ({ onProgress }) => { job.runs++; onProgress({ route: 'archive', mb: 171, pct: 0 }); if (instant) { found ||= !!install.ok; return Promise.resolve(install) } return new Promise(r => { land = (how = install) => { found ||= !!how.ok; r(how) } }) } })
+  job.runs = 0
+  const talks = talkRoutes({ dataDir: dir, plans, env: () => ({ godot: seen, install: job.state() }), godotCheck: () => (seen = found), godotInstall: install ? job : null, model: () => model })
   const srv = createServer((req, res) => { const url = new URL(req.url, 'http://x'); if (!plans(req, res, url) && !talks(req, res, url)) res.writeHead(404).end() })
   await new Promise(r => srv.listen(0, r))
   const base = `http://127.0.0.1:${srv.address().port}`
@@ -83,7 +94,7 @@ async function night({ model = async () => JSON.stringify({ say: SAID('t20'), de
   const planFile = () => JSON.parse(readFileSync(join(dir, 'plans', `${PLAN}.json`), 'utf8'))
   const chatFile = () => JSON.parse(readFileSync(join(dir, 'chats', CHAT, 'chat.json'), 'utf8'))
   const step = () => fetch(`${base}/api/talk/${CHAT}`).then(r => r.json()).then(j => j.step)
-  return { post, planFile, chatFile, step, holdPaint: p => { hold = p }, close: () => { srv.close(); rmSync(dir, { recursive: true, force: true }) } }
+  return { post, planFile, chatFile, step, job, plans, landGodot: how => land(how), godotAppears: () => { found = seen = true }, holdPaint: p => { hold = p }, close: () => { srv.close(); rmSync(dir, { recursive: true, force: true }) } }
 }
 const ACTION = /^(lock|talk|do:.+|start:design)$/
 const until = async (fn, ms = 3000) => { const t0 = Date.now(); while (!(await fn())) { if (Date.now() - t0 > ms) throw new Error('timed out'); await new Promise(r => setTimeout(r, 20)) } }
@@ -107,10 +118,14 @@ test('that night, again: "do it" locks the plan, every button does what it says,
     assert.deepEqual(j.turn.options.map(o => [o.id, o.label]), [['do:godot', 'Install Godot 4'], ['do:browser', 'Browser is fine']])
     assert.equal(n.planFile().sheets.length, 1, 'the lock never re-plans: the cast sheet stays')
 
-    // Install Godot 4: it looks for it, says it is still missing and how to get it
-    j = await n.post({ pick: 'do:godot' })
-    assert.match(j.turn.text, /still not on this computer/)
-    assert.deepEqual(j.turn.options.map(o => o.label), ['Check again', 'Browser is fine'])
+    // "go" at the Godot question never starts a download: the question again, with its buttons
+    j = await n.post({ said: 'go' })
+    assert.equal(j.turn.text, 'Godot 4 is not installed on this computer. Install Godot 4, or is the browser fine?')
+    // Check again: it looks, and says only that it is still missing; the three ways on
+    j = await n.post({ said: 'check again' })
+    assert.equal(j.turn.text, 'Godot 4 is still not on this computer.')
+    assert.deepEqual(j.turn.options.map(o => [o.id, o.label]), [['do:godot', 'Install Godot 4'], ['do:godot:check', 'Check again'], ['do:browser', 'Browser is fine']])
+    assert.equal(n.job.runs, 0, 'a look installs nothing')
 
     // Browser is fine: the engine switches and the plan stays locked; then the sheet asks for its picks
     j = await n.post({ pick: 'do:browser' })
@@ -174,12 +189,116 @@ test('the Lock chip under the spec is the same lock, and a missing painter is sa
     assert.match(j.turn.text, /^Nothing happened: sign in an image model first\. Next: the Weapons sketch sheet/)
     assert.equal(p.planFile().sheets.length, 1)
   } finally { p.close() }
+  // Install Godot 4, pressed: the install starts at that press, the turn waits on it and says where it is, and when
+  // it ends the chat says what happened: installed (the version that ran) and the plan's real next step
+  const i = await night({ install: { ok: true, version: '4.7.2' } })
+  try {
+    await i.post({ said: 'lock' })
+    assert.equal(i.job.runs, 0, 'nothing is installed before the person asks')
+    // words about Godot are talk, never the order: only "install" (or the button) starts it
+    for (const said of ['what is godot?', 'no godot', "don't install it", 'how do I install it myself?', 'is godot big?', 'get it', 'yes', 'go']) await i.post({ said })
+    assert.equal(i.job.runs, 0)
+    // "try again" after a look that found nothing is not the order: no install has failed
+    await i.post({ said: 'check again' })
+    await i.post({ said: 'try again' })
+    assert.equal(i.job.runs, 0)
+    let j = await i.post({ pick: 'do:godot' })
+    assert.deepEqual([j.turn.text, j.turn.wait, j.turn.install, j.turn.options], ['Installing Godot 4 now: 171 MB from Godot\'s releases.', true, { pct: 0 }, []])
+    assert.equal(i.chatFile().godot, 'installing')
+    // a second press, or the words, while it runs: the same install, and the line it is at
+    j = await i.post({ said: 'install godot' })
+    assert.match(j.turn.text, /^Installing Godot 4 now/)
+    j = await i.post({ pick: 'do:godot' })
+    assert.equal(i.job.runs, 1)
+    assert.equal((await i.step()).wait, true)
+    i.landGodot()
+    await until(async () => !(await i.step()).wait && i.chatFile().godot === 'install')
+    const s = await i.step()
+    assert.match(s.text, /^Godot 4\.7\.2 is installed: the game builds as a Godot 4 project\. The Cast sheet waits on your picks/)
+    assert.ok(s.options.some(o => o.id.startsWith('do:cell:')))
+    const last = i.chatFile().turns.at(-1)
+    assert.deepEqual([last.who, last.text, last.settled], ['planner', s.text, 'godot'])
+    assert.equal(i.planFile().engine.target, 'godot')
+    // a pick on the board since: the chat opened again says the plan's step as it is now, not the old turn
+    await i.plans.act(i.planFile().id, 'pick', { sheet: 's-f16a4558', cell: 5, on: true, note: 'Hero 2' })
+    assert.match((await i.step()).text, /^The Cast sheet waits on your picks: one number for Hero 1, Hero 3\./)
+    // said once: the next turn is the plan's step alone
+    j = await i.post({ pick: 'do:cell:s-f16a4558:3:Hero 1' })
+    assert.doesNotMatch(j.turn.text, /is installed/)
+    assert.doesNotMatch((await i.step()).text, /is installed/)
+  } finally { i.close() }
+  // the install fails: "Nothing happened" with the plain reason, Try again, Check again and Browser is fine
+  const f = await night({ install: { ok: false, why: 'this computer could not reach github.com' } })
+  try {
+    await f.post({ said: 'lock' })
+    let j = await f.post({ said: 'install godot' })
+    assert.equal(j.turn.wait, true)
+    f.landGodot()
+    await until(async () => !(await f.step()).wait)
+    let s = await f.step()
+    assert.equal(s.text, 'Nothing happened: this computer could not reach github.com.')
+    assert.deepEqual(s.options.map(o => [o.id, o.label]), [['do:godot', 'Try again'], ['do:godot:check', 'Check again'], ['do:browser', 'Browser is fine']])
+    assert.equal(f.chatFile().godot, undefined)
+    // "try again" after the failure installs again; a brew note is said with the result
+    j = await f.post({ said: 'try again' })
+    assert.equal(f.job.runs, 2, '"try again" right after a failed install is the order')
+    f.landGodot({ ok: true, version: '4.7.2', note: 'Homebrew asked for a password, so Godot came from its own releases.' })
+    await until(async () => !(await f.step()).wait)
+    assert.match((await f.step()).text, /^Homebrew asked for a password, so Godot came from its own releases\. Godot 4\.7\.2 is installed: /)
+  } finally { f.close() }
+  // an install that ends at once (no download for this kind of computer) is answered in the same turn
+  const q = await night({ install: { ok: false, route: 'none', why: 'Godot has no download for this kind of computer: get it from godotengine.org, then press Check again' }, instant: true })
+  try {
+    await q.post({ said: 'lock' })
+    const j = await q.post({ pick: 'do:godot' })
+    assert.equal(j.turn.text, 'Nothing happened: Godot has no download for this kind of computer: get it from godotengine.org, then press Check again.')
+    assert.deepEqual([j.turn.wait, j.turn.options.map(o => o.label)], [undefined, ['Try again', 'Check again', 'Browser is fine']])
+    assert.equal(q.chatFile().godot, undefined)
+    assert.equal((await q.post({ said: 'try again' })).turn.text, j.turn.text)
+  } finally { q.close() }
+  const q2 = await night({ install: { ok: true, version: '4.7.2' }, instant: true })
+  try {
+    await q2.post({ said: 'lock' })
+    const j = await q2.post({ said: 'install godot 4' })
+    assert.match(j.turn.text, /^Godot 4\.7\.2 is installed: the game builds as a Godot 4 project\. The Cast sheet waits on your picks/)
+  } finally { q2.close() }
+  // Browser is fine after a failed install still works, and the plan stays locked
+  const b = await night({ install: { ok: false, why: 'the disk is full' } })
+  try {
+    await b.post({ said: 'lock' })
+    await b.post({ pick: 'do:godot' })
+    b.landGodot()
+    await until(async () => !(await b.step()).wait)
+    assert.equal((await b.step()).options[0].label, 'Try again')
+    const j = await b.post({ pick: 'do:browser' })
+    assert.match(j.turn.text, /^The game builds for the browser\./)
+    assert.equal(b.planFile().gate.locked, true)
+  } finally { b.close() }
+  // a failure turn stops being the step once Godot is there (installed by hand, or from another chat)
+  const s2 = await night({ install: { ok: false, why: 'the disk is full' } })
+  try {
+    await s2.post({ said: 'lock' })
+    await s2.post({ pick: 'do:godot' })
+    s2.landGodot()
+    await until(async () => (await s2.step()).text.startsWith('Nothing happened'))
+    s2.godotAppears()
+    const s = await s2.step()
+    assert.match(s.text, /^The Cast sheet waits on your picks/)
+    assert.ok(!s.options.some(o => o.label === 'Try again'))
+  } finally { s2.close() }
   // Godot found after all
   const g = await night({ godotFound: true })
   try {
     await g.post({ said: 'lock' })
     const j = await g.post({ said: 'install godot' })
     assert.match(j.turn.text, /^Godot 4 is installed/)
-    assert.match(j.turn.text, /The Cast sheet waits on your picks/)
+    assert.equal(g.job.runs, 0, 'a Godot the person installed themselves is used as it is')
   } finally { g.close() }
+  const h = await night({ godotFound: true })
+  try {
+    await h.post({ said: 'lock' })
+    const j = await h.post({ said: 'I installed it' })
+    assert.match(j.turn.text, /^Godot 4 is installed: the game builds as a Godot 4 project\. The Cast sheet waits/)
+    assert.match(j.turn.text, /The Cast sheet waits on your picks/)
+  } finally { h.close() }
 })

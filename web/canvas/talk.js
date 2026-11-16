@@ -7,7 +7,7 @@ import { botMsg, feed, failSay, hermesSays } from './panels.js'
 import { esc } from './design.js'
 import { nextRoute, slashPop, slashMatches, slashAt, renderSlash, pickSlash, setNextRoute, setSlashAt } from './loop.js'
 import { runNow, shownRun, showRun } from './film.js'
-import { paintSend } from '../chatmode.js'
+import { paintSend, crewWait } from '../chatmode.js'
 import { chatCards, chatCardsLine } from '../chatcards.js'
 
 // ---------- talk first (engine/talkplan.mjs): the person asked not to build yet, or asked the crew
@@ -289,13 +289,14 @@ async function gameSay({ said = '', pick = '', label = '', again = false, saved 
     if (!talk.on) return
     talk.chat = j.chat.id
     talk.said.push({ who: 'hermia', text: j.turn.text + chatCardsLine(j.turn.cards) })
-    const msg = botMsg(j.turn.text)
+    // an install has no place on the board: its line in the chat is Hermia at work on it, with how far it is
+    const msg = j.turn.install ? crewWait({ botMsg }, 'Hermia', j.turn.text) : botMsg(j.turn.text)
     if (j.turn.cards?.length) talkCards(msg, j.turn.cards, j.turn.id)
     gameActs(msg, j.turn)
     // an action changed the plan (server/talk.mjs): the board opens on it, or shows what changed
     if (j.plan?.id) { const fresh = talk.plan !== j.plan.id; talk.plan = j.plan.id; if (fresh) window.swarmCosmos?.plan?.(j.plan.id, true); else window.swarmCosmos?.planAt?.(j.plan.id, {}) }
     else if (j.draft) window.swarmCosmos?.planDraft?.(j.draft)
-    if (j.turn.wait) gameWatch(j.turn.text)
+    if (j.turn.wait) gameWatch(j.turn.text, j.turn.install ? msg : null)
     // the planner's model did not answer this turn (server/talk.mjs `failed`): the step above is the plan's own;
     // the reason is said beside it, with Try again for the same words
     if (j.failed) { const retry = () => { talk.retry = null; gameSay({ said, pick, again: true, saved: true }) }; talk.retry = retry; failSay(j.failed, { again: retry }) }
@@ -304,13 +305,22 @@ async function gameSay({ said = '', pick = '', label = '', again = false, saved 
   } finally { talk.busy = false; wait.remove() }
 }
 // While something paints, ask for the next step every few seconds; when it moves on, Hermia says it with its buttons
-function gameWatch(was) {
+// (line: the working line of an install, kept at the step's own words while it runs and taken away when it ends)
+/** @param {string} was @param {HTMLElement | null} [line] */
+function gameWatch(was, line = null) {
   const chat = talk.chat
   const tick = async () => {
     if (!talk.on || talk.chat !== chat) return
     const j = await api(`/api/talk/${encodeURIComponent(chat)}`).then(r => r.ok ? r.json() : null).catch(() => null)
-    if (!talk.on || talk.chat !== chat || !j?.step) return
-    if (j.step.wait) return void setTimeout(tick, 3000)
+    if (!talk.on || talk.chat !== chat) return
+    // a look that failed (the computer slept, the server was busy) is tried again while an install's line is up
+    if (!j?.step) return void (line?.isConnected && setTimeout(tick, 3000))
+    if (j.step.wait) {
+      const txt = line && j.step.install ? line.querySelector('.txt') : null
+      if (txt) txt.textContent = j.step.text
+      return void setTimeout(tick, 3000)
+    }
+    line?.remove()
     if (j.step.text === was) return
     els.feed.querySelectorAll('.talk-acts, .talk-sheet').forEach(x => x.remove())
     talk.said.push({ who: 'hermia', text: j.step.text })
@@ -364,8 +374,11 @@ async function gameResume(last) {
   talk.plan = j.chat.plan || null
   // a chat with its plan: the real next step from the plan file, said again if her last words were not it
   if (j.step) {
-    gameActs(turn?.who === 'planner' && turn.text === j.step.text && last ? last : botMsg(j.step.text), j.step)
-    if (j.step.wait) gameWatch(j.step.text)
+    if (j.step.install) gameWatch(j.step.text, crewWait({ botMsg }, 'Hermia', j.step.text))
+    else {
+      gameActs(turn?.who === 'planner' && turn.text === j.step.text && last ? last : botMsg(j.step.text), j.step)
+      if (j.step.wait) gameWatch(j.step.text)
+    }
   } else if (turn?.who === 'planner') gameActs(last, turn)
   if (j.draft && !j.chat.plan) window.swarmCosmos?.planDraft?.(j.draft)
   els.brief.focus({ preventScroll: true })

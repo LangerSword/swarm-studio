@@ -3,7 +3,7 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import * as art from '../engine/artdirect.mjs'
-import { buildState } from '../engine/buildstate.mjs'
+import { kindState } from '../engine/kindstate.mjs'
 
 const snapAt = (runsDir, id) => { try { return `/img/${id}/snap.jpg?v=${Math.round(statSync(join(runsDir, id, 'img', 'snap.jpg')).mtimeMs)}` } catch { return null } }
 
@@ -15,7 +15,9 @@ function refsUsedOf(runsDir, id) {
   try { const j = JSON.parse(readFileSync(join(runsDir, id, 'refs-used.json'), 'utf8')); return Array.isArray(j) ? j.slice(0, 40) : null } catch { return null }
 }
 
-export function runBoard(id, events, runsDir, live = false, thumb = () => null) {
+// `facts`: what the server knows beside the events (engine/kindstate.mjs kindState): the run's piece, its app job
+// at work, its film job, which processes live. Without them the parts are read from the events alone.
+export function runBoard(id, events, runsDir, live = false, thumb = () => null, facts = {}) {
   const start = events.find(e => e.type === 'run:start') || {}
   const pages = events.filter(e => e.type === 'page').map(p => ({ id: p.id, title: p.title }))
   const titleOf = pid => pages.find(p => p.id === pid)?.title || ''
@@ -43,9 +45,12 @@ export function runBoard(id, events, runsDir, live = false, thumb = () => null) 
     }
     if (e.type === 'layer:done' && e.page) for (const l of plan.get(e.page) || []) if (l.id === e.layer) l.done = true
   }
-  // the build's one state (engine/buildstate.mjs; null for an app or a game), and each section it lists as failed:
-  // the Overview says a page's sections failed instead of drawing them as still coming
-  const build = buildState(events, { live })
+  // every part of the build with its one state (engine/kindstate.mjs): what it is, its website build (`build`,
+  // engine/buildstate.mjs; null once an app or a game was built), its app or game, its film. Each section the
+  // website build lists as failed is marked: the Overview says a page's sections failed instead of drawing them
+  // as still coming. An app is an app from its start, built or not: its artboard says which.
+  const parts = kindState(events, { live, ...facts })
+  const build = parts.site
   for (const f of build?.failed || []) for (const l of plan.get(f.page) || []) if (l.id === f.layer) l.failed = true
   for (const p of pages) p.plan = plan.get(p.id) || []
   const video = events.findLast(e => e.type === 'video:done')
@@ -54,7 +59,7 @@ export function runBoard(id, events, runsDir, live = false, thumb = () => null) 
   const films = video ? [{ name: 'Promo', src: `/video/${id}/promo.mp4`, tall, poster: existsSync(join(runsDir, id, 'video', 'p1.webp')) ? `/video/${id}/live/p1.webp` : null, seconds: Number(video.seconds) || null }] : []
   const spec = events.findLast(e => e.type === 'game:spec')?.spec
   const isGame = start.kind === 'game' || !!spec
-  const app = events.some(e => e.type === 'app:ready' || e.type === 'app:done')
+  const app = (parts.kind === 'app' && !start.intake) || events.some(e => e.type === 'app:ready' || e.type === 'app:done')
   const th = events.findLast(e => e.type === 'theme')
   // pictures being made: each slot's latest word (queued, sent back, failed, or the picture itself);
   // the count ("3 of 8") is this batch: the slots asked for within five minutes of the oldest one still waiting
@@ -102,10 +107,10 @@ export function runBoard(id, events, runsDir, live = false, thumb = () => null) 
   return {
     id, title: start.title || pages[0]?.title || '', kind: start.kind || 'site', live: live,
     brief: String(start.brief || '').split('\n\nThe owner uploaded these pictures.')[0].split('\n\nFor this version: ')[0].slice(0, 4000),
-    pages, art: pics, films, style, build,
+    pages, art: pics, films, style, build, parts,
     theme: th?.vars ? { colors: ['--background', '--primary', '--accent', '--foreground'].map(k => th.vars[k]).filter(Boolean), fonts: th.fonts || null } : null,
     // a game's cover: its own picture, else its title screen from the play test
-    game: isGame ? { title: (typeof spec === 'object' && spec?.title) || start.title || 'Game', pitch: (typeof spec === 'object' && String(spec?.pitch || '').slice(0, 200)) || '', cover: pics[0]?.src || snapAt(runsDir, id) } : null,
+    game: isGame ? { title: (typeof spec === 'object' && spec?.title) || start.title || 'Game', pitch: (typeof spec === 'object' && String(spec?.pitch || '').slice(0, 200)) || '', cover: pics[0]?.src || snapAt(runsDir, id), part: parts.game } : null,
     app: app && !isGame, code: existsSync(join(runsDir, id, 'app')),
     painting, paintCount: { done: batch.filter(s => s.state === 'done').length, total: batch.length },
     review,

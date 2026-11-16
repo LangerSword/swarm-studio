@@ -44,10 +44,11 @@ import { nextPage, nextVendor } from './next.mjs'
 import { makeProjects, stateOf, gameProgress } from './projects.mjs'
 import { buildState } from '../engine/buildstate.mjs'
 import { chatFacts, checkSaid, factsText, firstLine, nextStep, truthTurn } from '../engine/chatstep.mjs'
+import { kindState, KIND_EVENTS } from '../engine/kindstate.mjs'
 import { CHAT_ID } from '../engine/chats.mjs'
 import { askTurn, askedOf, askOptions, ASK_TEXT } from '../engine/askfirst.mjs'
 import { wordsRead } from '../engine/talkplan.mjs'
-import { deployName, isScreenName, PIECES } from '../engine/naming.mjs'
+import { deployName, isScreenName, pieceKind, PIECES } from '../engine/naming.mjs'
 import { autoJob, hermesKey } from '../engine/auto.mjs'
 import * as art from '../engine/artdirect.mjs'
 import { runBoard as boardOf } from './board.mjs'
@@ -108,6 +109,9 @@ import { idleOptions, optionOf, idleKey, priceOk, idleStartName, idlePrompt, idl
 import { heavyConfig, runHeavy, interpOf } from '../engine/heavy.mjs'
 import { makeImages } from '../engine/images.mjs'
 import { snapStore } from './snaps.mjs'
+// engine: godot
+import { installGodot, godotJob as godotJobOf, fileFor as godotFile, GODOT } from '../engine/godotinstall.mjs'
+// end engine: godot
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const BOOTED = Date.now()
@@ -532,6 +536,18 @@ const LATE_PICTURE = new Set(['image', 'image:failed', 'image:sent-back'])
 // gets it on the stream while the build runs (`build:state`, below) and with a saved build
 // (GET /api/runs/<id>/state); the Overview with its board (server/board.mjs).
 const siteState = (id, events) => buildState(events, { live: current?.id === id && !current.done })
+// Every part of a build with its one state (engine/kindstate.mjs): what it is (site, app, game, film), the
+// website's state above, and the app's, the game's and the film's, read from the events and this server's own
+// jobs. It travels with the website's state, as `parts`: on the stream (`build:state`, sent before an app or film
+// event that changes it: record, below), with a saved build (GET /api/runs/<id>/state), on every card
+// (/api/runs) and on the Overview's board.
+// what the run or its brief says it is, at its start: an app is an app before anything of it is built
+const pieceFor = (id, events) => { const s = events.find(e => e.type === 'run:start'); return s ? pieceKind({ piece: runMeta(id).piece, kind: s.kind, brief: s.brief, pages: events.filter(e => e.type === 'page').length, video: existsSync(join(runsDir, id, 'video', 'promo.mp4')) }) : null }
+const jobFacts = id => { const j = appsNow?.jobs?.get(id); return { working: j?.state === 'working', stage: j?.stage || '', film: videos.get(id) || null, alive: appAlive, self: process.pid } }
+const partsFor = (id, events, piece = pieceFor(id, events)) => kindState(events, { live: current?.id === id && !current.done, piece, ...jobFacts(id) })
+function sayParts(id, events = readEvents(id)) {
+  if (events) broadcast({ type: 'build:state', run: id, state: siteState(id, events), parts: partsFor(id, events) })
+}
 // the events that can change it: it is sent again only when it did, just before the event that changed it,
 // so the page already holds the state an end event (run:done, run:stopped) is said from. Never recorded:
 // it is read from the events, not one of them.
@@ -676,6 +692,8 @@ function record(id, event) {
   if (!existsSync(file)) return false
   if (!event.type.endsWith(':delta')) appendFileSync(file, JSON.stringify(event) + '\n')
   if (current?.id === id) current.events.push(event)
+  // an app's, a game's or a film's state changed: the pages hold it before the event it is said from
+  if (KIND_EVENTS.has(event.type)) sayParts(id)
   broadcast(event)
   return true
 }
@@ -841,6 +859,11 @@ function runCard(id) {
     } }
     // a website build's one state (engine/buildstate.mjs), at rest and while this server runs it
     card.site = { rest: buildState(events, { live: false }), live: buildState(events, { live: true }) }
+    // what it is, and its app's, game's and film's state at rest (engine/kindstate.mjs); `open`: a build left at
+    // its start, which is at work for as long as the Studio that drives it lives, so it is read again each time
+    card.piece = pieceFor(id, events)
+    card.parts = kindState(events, { piece: card.piece, alive: appAlive, self: process.pid })
+    card.open = events.findLast(e => ['app:start', 'app:done', 'app:failed', 'app:paused'].includes(e.type))?.type === 'app:start'
     cards.set(id, card)
   }
   const meta = runMeta(id)
@@ -862,6 +885,7 @@ function runCard(id) {
     progress: current?.id === id && !current.done ? Math.min(1, (current.events.filter(e => e.type === 'layer:done').length) / Math.max(1, current.events.filter(e => e.type === 'layer:plan').length || 12)) : null,
     work: workOf(id),
     buildState: current?.id === id && !current.done ? card.site.live : card.site.rest,
+    parts: card.open || appsNow?.jobs?.get(id)?.state === 'working' || videos.get(id)?.state === 'working' ? partsFor(id, readEvents(id) || [], card.piece) : card.parts,
     // the cover: its hero picture, else a snapshot of its first page (saved by the canvas), else a film frame
     cover: card.info.cover || snapsOf().cover(id) || snapOf(id) || (existsSync(join(runsDir, id, 'video', 'p1.webp')) ? `/video/${id}/live/p1.webp` : null),
   }
@@ -1176,6 +1200,8 @@ async function videoNow(id, input = {}) {
   const halt = stopSignal(id)
   const job = { state: 'working', pct: 0, stage: 'storyboard', t: Date.now() }
   videos.set(id, job)
+  // the film is being made from this moment (its video:start comes once its material is read): the pages are told
+  sayParts(id, events)
   const send = (type, data) => record(id, { type, t: Date.now(), run: id, ...data })
   const progress = (pct, stage) => {
     if (halt.aborted) return
@@ -1783,9 +1809,23 @@ planPaint.ready = async () => !!ckffCreds() || !!(await imageChoice())
 // whether Godot 4 is on this machine (engine/port.mjs loads the game modules, so it is read once, late)
 let godotHere
 let godotBinOf = null
-import('../engine/port.mjs').then(m => { godotBinOf = m.godotBin; godotHere = !!m.godotBin() }).catch(() => {})
-// "Install Godot 4" in the planner chat looks again (the person may have just installed it); Swarm never downloads it
-const godotCheck = () => { if (godotBinOf) godotHere = !!godotBinOf(); return !!godotHere }
+import('../engine/port.mjs').then(m => { godotBinOf = m.godotBin; godotHere = godotStandIn.on ? godotStandIn.found : !!m.godotBin() }).catch(() => {})
+// "Check again" in the planner chat looks again (the person may have just installed it themselves)
+const godotCheck = () => { if (godotStandIn.on) godotHere = godotStandIn.found; else if (godotBinOf) godotHere = !!godotBinOf(); return !!godotHere }
+// "Install Godot 4" there installs it (engine/godotinstall.mjs): only when the person presses it or types it, one
+// install at a time, and it counts as work so the server neither idles out nor replaces itself under it.
+// SWARM_WALK_GODOT ("fail,ok") is the walkthrough's stand-in (scripts/walkthrough-chat.mjs): each install waits a
+// few seconds and ends as the list says (failed, once the list is used up), this computer counts as having no
+// Godot until one ends ok, and nothing is downloaded or run. The launcher never passes that name
+// (launcher.py KEEP_ENV, engine/proc.mjs SERVER_ENV), so a Studio opened from Hermes is never in it.
+const godotStandIn = { on: !!process.env.SWARM_WALK_GODOT, ends: String(process.env.SWARM_WALK_GODOT || '').split(',').filter(Boolean), found: false }
+const godotJob = godotJobOf({ install: ({ onProgress }) => godotStandIn.on
+  ? new Promise(done => {
+    const ok = godotStandIn.ends.shift() === 'ok'
+    onProgress({ route: 'archive', mb: Math.round((godotFile()?.size || 0) / 1e6), pct: 40 })
+    setTimeout(() => { if (ok) godotStandIn.found = godotHere = true; done(ok ? { ok, route: 'archive', version: GODOT.version } : { ok, route: 'archive', why: 'this computer could not reach github.com' }) }, 6000)
+  })
+  : installGodot({ dataDir, find: () => godotBinOf?.() || null, onProgress, log: line => console.log(`swarm studio: ${line}`) }) })
 // end engine: godot
 // engine: godot
 // engine: meshy
@@ -1801,7 +1841,7 @@ const plans = planRoutes({
 // The planner conversation (docs/specs/27-plan-conversation.md): decide together in the left chat, then lock.
 // A locked game chat makes its plan through the Plan board's routes above.
 const talks = talkRoutes({
-  dataDir, plans, helpers: () => helpers, env: () => ({ godot: godotHere }), godotCheck,
+  dataDir, plans, helpers: () => helpers, env: () => ({ godot: godotHere, install: godotJob.state() }), godotCheck, godotInstall: godotJob,
   // a website's or an app's saved talk is told what is true of its build (chatTruth, engine/chatstep.mjs)
   facts: chat => chatTruth({ pid: chat.project || null, run: chat.run || null, kind: chat.kind, chat }),
   model: () => models.planner.apiKey && modelFor('planner') ? async messages => (await streamChat(provider('planner'), {
@@ -3772,15 +3812,15 @@ ${researchBrief(seen)}`
   if (runBoard && req.method === 'GET') {
     const id = runBoard[1], events = readEvents(id)
     if (!events) return json(404, { error: 'no such build' })
-    const b = boardOf(id, events, runsDir, current?.id === id && !current.done, pictureTh)
+    const b = boardOf(id, events, runsDir, current?.id === id && !current.done, pictureTh, { piece: pieceFor(id, events), ...jobFacts(id) })
     // the game made from this site lives in its own run: it shows here, as part of this version
     const linked = events.findLast(e => e.type === 'game:linked' && e.game)
     if (!b.game && linked && RUN_ID.test(linked.game)) {
       const gev = readEvents(linked.game)
       if (gev) {
-        const g = boardOf(linked.game, gev, runsDir, false, pictureTh)
+        const g = boardOf(linked.game, gev, runsDir, false, pictureTh, { piece: 'game', ...jobFacts(linked.game) })
         const work = workOf(linked.game)
-        b.game = { ...(g.game || { title: linked.title || 'Game', cover: null }), run: linked.game, work }
+        b.game = { ...(g.game || { title: linked.title || 'Game', cover: null }), run: linked.game, work, part: g.parts.game }
         // no title screen yet: the site's key art stands in
         if (!b.game.cover) b.game.cover = b.pages.find(p => p.cover)?.cover || b.art?.[0]?.src || null
         if (work) b.busy = true
@@ -3877,13 +3917,14 @@ ${researchBrief(seen)}`
       json(200, { run: run.id, from: id })
     })
   }
-  // The one state of a website build, for the Design deck opening a saved build: { run, state } (state: null
-  // for an app, a game or a project brought in)
+  // The one state of a build, for a page opening a saved one: { run, state, parts }. state: the website build's
+  // (null for an app, a game or a project brought in); parts: what the build is and each part's own state
+  // (site, app or game, film: engine/kindstate.mjs)
   const runState = url.pathname.match(/^\/api\/runs\/([\w-]{1,64})\/state$/)
   if (runState && req.method === 'GET') {
     const id = runState[1], events = readEvents(id)
     if (!events) return json(404, { error: 'no such build' })
-    return json(200, { run: id, state: siteState(id, events) })
+    return json(200, { run: id, state: siteState(id, events), parts: partsFor(id, events) })
   }
   // Try again: a website build that failed, was halted or was cut off with nothing to resume from is built
   // afresh from its own words, in its project. Only where the build state names it (`next: 'again'`), and the
@@ -5020,6 +5061,9 @@ for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, shutdown)
 function workRunning() {
   if ((current && !current.done) || (current?.working.size || 0) > 0 || auto.state()?.state === 'working') return true
   if ([...videos.values()].some(v => v.state === 'working') || [...publishes.values()].some(p => p.state === 'working') || sourceRoute.busy()) return true
+  // engine: godot
+  if (godotJob.busy()) return true
+  // end engine: godot
   return !!appsNow?.busy()
 }
 function serverBusy() { return clients.size > 0 || workRunning() }

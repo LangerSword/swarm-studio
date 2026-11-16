@@ -10,6 +10,7 @@
 //   checkClaims(text, facts)    the planner's own words without the sentences that claim what did not happen
 //   readPicks(text, sheet)      "hero 1 is 4, hero 2 is 7" -> the cells (0-based) with the hero's name as the note
 //   goWords(text)               "lock", "do it", "go": the person said to do the next step
+//   installLine(state)          the line while Godot 4 installs; godotOptions(again) the buttons after it failed
 //
 // Pure functions: no store, no model, no paint.
 import { planPrice, roster, is3d, sprites } from './plan.mjs'
@@ -73,14 +74,19 @@ export function planFacts(plan, env = {}) {
 const priceLine = pr => `${plural(pr.images, 'picture')}${pr.credits ? ` and ${pr.credits} Meshy credits` : ', no credits'}`
 export const lockLabel = pr => pr.credits ? `Lock · ${pr.credits} credits` : `Lock · ${plural(pr.images, 'picture')}`
 const o = (id, label, why = '') => ({ id, label, why, made: [] })
+// the line while Godot installs: the route, the size and how far the download is, when the route says
+export const installLine = (i = {}) => `Installing Godot 4 now${i.route === 'brew' ? ', with Homebrew' : i.mb ? `: ${i.mb} MB from Godot's releases` : ''}${i.route !== 'brew' && i.pct ? ` (${i.pct}%)` : ''}.`
+// after an install failed, or a look that found nothing: the one action again, the look, and the way round
+export const godotOptions = again => [o('do:godot', again ? 'Try again' : 'Install Godot 4'), o('do:godot:check', 'Check again'), o('do:browser', 'Browser is fine')]
 // which cell's number is whose: the cast sheet's picks in order, one per hero
 const pickedFor = (f, s) => s.kind === 'cast' ? f.cast.filter(n => Object.values(s.notes || {}).includes(n)) : []
 const nextHero = (f, s) => s.kind === 'cast' ? f.cast.find(n => !Object.values(s.notes || {}).includes(n)) || null : null
 // a sheet still waits on the person: done, not skipped, fewer picks than it needs
 const waitsOnPicks = s => s.state === 'done' && !s.skipped && s.picks.length < s.needs
 
-// The one next step. chat.godot is the person's answer to the Godot question ('install' or 'web'); chat.skip the
-// sheets they went on without.
+// The one next step. chat.godot is the person's answer to the Godot question ('install', 'web', or 'installing'
+// while the install they asked for runs); env.install is that install's state (engine/godotinstall.mjs godotJob);
+// chat.skip the sheets they went on without.
 // Returns { text, options, wait?, sheet?, price? }: wait is true while something paints (the board shows the crew on
 // it and the chat checks again); sheet is the sketch sheet to show in the chat while its picks are asked.
 export function nextStep(chat, plan, env = {}) {
@@ -94,8 +100,12 @@ export function nextStep(chat, plan, env = {}) {
     const tested = plan.gate?.tested ? `${plan.gate.tested} is painted: check it on the board. ` : ''
     return { text: `${tested}The plan is not locked yet. Lock it at about ${priceLine(f.price)}.`, options: [o('lock', lockLabel(f.price)), o('talk', 'Keep talking')], price: f.price }
   }
-  if (f.engine === 'godot' && f.godot === false && !chat.godot) {
-    return { text: 'Godot 4 is not installed on this computer. Install Godot 4, or is the browser fine?', options: [o('do:godot', 'Install Godot 4'), o('do:browser', 'Browser is fine')] }
+  if (f.engine === 'godot' && f.godot === false) {
+    // an install the person asked for is running (one for the whole Studio): the chat waits on it, as on a painting
+    const i = env.install
+    if (i?.state === 'installing') return { text: installLine(i), options: [], wait: true, install: { pct: i.pct ?? null } }
+    // 'installing' with no install running is an install that ended with the server: the question is open again
+    if (!chat.godot || chat.godot === 'installing') return { text: 'Godot 4 is not installed on this computer. Install Godot 4, or is the browser fine?', options: [o('do:godot', 'Install Godot 4'), o('do:browser', 'Browser is fine')] }
   }
   for (const s of f.sheets) {
     if (s.skipped) continue

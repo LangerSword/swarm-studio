@@ -1,6 +1,6 @@
 // @ts-check
 // web/canvas.js, split by area (web/canvas/README.md): the promo video and the film's outside services.
-import { S, api, ico, store, els, commandOps } from './core.js'
+import { S, api, ico, store, els, commandOps, partsOf, partsHooks, readParts } from './core.js'
 import { viewing, openRun, claimed, startedRuns } from './replay.js'
 import { feed, setText } from './panels.js'
 import { autoM } from './auto.js'
@@ -81,6 +81,21 @@ export function videoEvent(e) {
   renderVideo()
 }
 
+// The film's one state, as the server sent it (engine/kindstate.mjs; core.js partsOf): the room follows it
+// whichever build the stream is on, so a film that is being made reads as being made, and one that failed or
+// could not start says why and offers the one thing to do, never the empty form again.
+function filmPart(run = video.run) {
+  const f = partsOf(run)?.film
+  if (!f || run !== video.run) return
+  if (f.state === 'making') { if (!video.busy) Object.assign(video, { busy: true, pct: f.pct || 0, stage: f.stage || 'storyboard', message: '', heard: Date.now() }) }
+  else if (f.state === 'failed' || f.state === 'stopped') { if (video.busy || !video.message) Object.assign(video, { busy: false, stage: 'failed', message: f.reason?.message || 'stopped' }) }
+  else if (video.busy && f.state === 'done') return void toggleVideoRead(run)
+  renderVideo()
+}
+partsHooks.add(filmPart)
+// why the film on screen is not there, from its state: { code, message, action }, else the page's own message
+const filmWhy = () => { const f = partsOf(video.run)?.film; return f?.state === 'failed' && f.reason ? f.reason : { code: '', message: video.message, action: '' } }
+
 function renderVideo() {
   const el = video.el
   if (!el) return
@@ -103,7 +118,8 @@ function renderVideo() {
   const liveOn = video.busy && /render|assembl|mixing/.test(video.stage || '')
   if (liveOn && !video.liveAt) video.liveAt = Date.now()
   if (!video.busy) video.liveAt = 0
-  const sig = JSON.stringify([video.run, video.story.length, video.busy, video.src, video.message, video.pick, video.cuts.length, liveOn, !!video.min, !!video.notes, video.notesOpen, videoOpts.refs.length, media.v, media.open])
+  const why = filmWhy()
+  const sig = JSON.stringify([video.run, video.story.length, video.busy, video.src, video.message, why.message, video.pick, video.cuts.length, liveOn, !!video.min, !!video.notes, video.notesOpen, videoOpts.refs.length, media.v, media.open])
   if (el.dataset.sig === sig) {
     const bar = el.querySelector('.vbar i'), txt = el.querySelector('.vstage')
     if (bar) bar.style.width = `${Math.max(3, video.pct)}%`
@@ -127,7 +143,8 @@ function renderVideo() {
       // before the live cut plays, a skeleton in the film's shape, marked busy: Hermia works on it (web/pet.js, #392)
       ? `${liveOn ? `<div class="vlive"><iframe sandbox="allow-scripts" src="/video/${encodeURIComponent(video.run)}/live/index.html?v=${video.liveAt}" aria-label="The video, playing while it renders" scrolling="no"></iframe><span class="vlive-tag">● live: the agents' cut, rendering</span></div>` : '<div class="vskel wait-in" role="status" aria-busy="true" aria-label="The film, on its way"></div>'}<div class="vbar"><i style="width:${Math.max(3, video.pct)}%"></i></div><div class="vstage">${esc(stage)}${video.pct ? ` ${video.pct | 0}%` : ''}</div>`
       : video.message
-        ? `<div class="vstage err">${esc(video.message)}</div><div class="vfoot"><span></span><button class="vagain">Try again</button></div>`
+        // the reason in plain words, what to do about it, and the one action: Set up when Hermes is not there
+        ? `<div class="vstage err">${esc(why.message)}</div>${why.action ? `<div class="vstage">${esc(why.action).replace(/`([^`]+)`/g, '<code>$1</code>')}</div>` : ''}<div class="vfoot"><span></span>${why.code === 'hermes' && window.SwarmSetup ? '<button class="vsetup">Set up</button>' : '<button class="vagain">Try again</button>'}</div>`
         : `${opts}<div class="vfoot"><span></span><button class="vagain">Make the film</button></div>`
   // minimized: only the title and the progress, so the canvas and the crew stay in view
   el.classList.toggle('min', !!video.min && !document.body.classList.contains('view-video'))
@@ -136,6 +153,7 @@ function renderVideo() {
   el.querySelector('.vmin').onclick = e => { e.stopPropagation(); video.min = !video.min; renderVideo() }
   const again = el.querySelector('.vagain')
   if (again) again.onclick = () => makeVideo()
+  el.querySelector('.vsetup')?.addEventListener('click', () => window.SwarmSetup?.open('hermes'))
   const vid = el.querySelector('video')
   // a new cut plays once, out loud, only in the window that asked for it (other
   // open windows of Swarm Studio would play the same sound over it)
@@ -221,6 +239,10 @@ export function allowWire(el, again) {
 setInterval(async () => {
   if (!video.busy || !video.run || Date.now() - (video.heard || 0) < 20000) return
   video.heard = Date.now()
+  // the film's state first: it says whether it is still being made, and why not if it is not
+  const film = (await readParts(video.run))?.film
+  if (film?.state === 'making' || !video.busy) return
+  if (film?.state === 'failed' || film?.state === 'stopped') return filmPart()
   const job = await api(`/api/runs/${encodeURIComponent(video.run)}/video`).then(r => r.json()).catch(() => null)
   if (!job || job.state === 'working') return
   Object.assign(video, { busy: false, stage: 'failed', message: 'The video stopped before it finished (Swarm Studio restarted). Make it again.' })
@@ -259,11 +281,23 @@ export async function makeVideo({ idea = null, style = null } = {}) {
   video.mine = true
   toggleVideo(true)
   const res = await api(`/api/runs/${encodeURIComponent(run)}/video`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ voice: videoOpts.voice || undefined, music: videoOpts.music, template: style || videoOpts.style || undefined, prompt: idea || videoOpts.idea || undefined, refs: videoOpts.refs, clips: videoOpts.clips, film: 'auto' }) })
+  const out = await res.json().catch(() => ({}))
   if (!res.ok) {
-    const out = await res.json().catch(() => ({}))
     Object.assign(video, { run, message: out.error || `HTTP ${res.status}`, busy: false })
-    renderVideo()
+    return renderVideo()
   }
+  // taken: the film is being made from now, whether or not this page hears its events (it may follow another
+  // build's stream). The room says so at once, and its state (filmPart) says how it goes on or why it stopped.
+  if (video.run !== run) Object.assign(video, { run, story: [], board: null, notes: null, src: '', file: '', cuts: [], pick: -1 })
+  if (out.state === 'working' && !video.busy) Object.assign(video, { busy: true, pct: out.pct || 0, stage: out.stage || 'storyboard', message: '', heard: Date.now() })
+  renderVideo()
+}
+// a film that finished while this page heard none of its events: read it as an opened build's is
+async function toggleVideoRead(run) {
+  const st = await api(`/api/runs/${encodeURIComponent(run)}/video`).then(r => r.json()).catch(() => ({}))
+  if (video.run !== run) return
+  Object.assign(video, { busy: st.state === 'working', pct: st.pct || 0, stage: st.stage || '', src: st.src || video.src, file: st.file || video.file, message: '' })
+  renderVideo()
 }
 
 export async function toggleVideo(open = !video.el) {
@@ -278,6 +312,9 @@ export async function toggleVideo(open = !video.el) {
     // a file opened from disk: ask whether it already has a video
     const st = await api(`/api/runs/${encodeURIComponent(run)}/video`).then(r => r.json()).catch(() => ({}))
     Object.assign(video, { run, busy: st.state === 'working', pct: st.pct || 0, stage: st.stage || '', story: [], src: st.src || '', file: st.file || '', message: st.state === 'failed' ? st.message : '' })
+    // and its state: a film that failed before this page was open still says why, with the one thing to do
+    await readParts(run)
+    filmPart(run)
   }
   renderVideo()
 }

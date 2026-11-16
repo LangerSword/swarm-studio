@@ -21,10 +21,10 @@ export interface Turn extends ChatLine { acts?: Acts }
 
 // a game chat's next step, from the plan file (engine/gamestep.mjs nextStep): its options run on the server; wait is
 // true while something paints; sheet is the sketch sheet that waits on picks, drawn in the turn to click
-export type Step = { text: string, options: ChatOption[], wait?: boolean, sheet?: SheetPick }
+export type Step = { text: string, options: ChatOption[], wait?: boolean, sheet?: SheetPick, install?: { pct: number | null } }
 
 type Said = { who: 'you' | 'hermia', text: string, cards?: ChatCard[], turn?: string }
-type Turnish = { id?: string, text: string, options?: ChatOption[], go?: Omit<ChatGo, 'chat'>, step?: boolean, wait?: boolean, sheet?: SheetPick, cards?: ChatCard[] }
+type Turnish = { id?: string, text: string, options?: ChatOption[], go?: Omit<ChatGo, 'chat'>, step?: boolean, wait?: boolean, sheet?: SheetPick, cards?: ChatCard[], install?: { pct: number | null } }
 // what the talk keeps of a tool's cards for the next turn: their titles and sources (engine/helpers.mjs cardsLine)
 const shown = (cards?: ChatCard[]) => (cards?.length ? `
 [Shown: ${cards.map((c, i) => `${i + 1}. ${c.title} (${c.source})`).join('; ')}]` : '')
@@ -188,11 +188,13 @@ export function useTalk({ api = chatApi, from = null, project = null, events, ad
       if (!alive(g)) return
       s.chat = j.chat.id
       s.said.push({ who: 'hermia', text: j.turn.text + shown(j.turn.cards) })
-      add({ who: 'hermia', text: j.turn.text, acts: gameActs(j.turn), ...stepOf(j.turn), ...(j.turn.cards?.length ? { cards: j.turn.cards, cardsTurn: j.turn.id } : {}) })
+      // an install has no place on the board: its line in the chat is Hermia at work on it, with how far it is
+      const line = j.turn.install ? add({ who: 'hermia', text: j.turn.text, working: true })
+        : add({ who: 'hermia', text: j.turn.text, acts: gameActs(j.turn), ...stepOf(j.turn), ...(j.turn.cards?.length ? { cards: j.turn.cards, cardsTurn: j.turn.id } : {}) })
       // an action changed the plan: the board shows it (the lock made it, a sheet is painting, a pick landed)
       if (j.plan?.id) { const fresh = s.plan !== j.plan.id; s.plan = j.plan.id; if (fresh) ev.current.onPlan?.(j.plan.id); else ev.current.onPlanAt?.(j.plan.id, {}) }
       else if (j.draft) ev.current.onPlanDraft?.(j.draft)
-      if (j.turn.wait) watch(g, j.turn.text)
+      if (j.turn.wait) watch(g, j.turn.text, j.turn.install ? line : null)
     } catch (err) {
       if (alive(g)) add({ who: 'hermia', text: (err as Error).message || 'Hermia did not answer. Say it again.' })
     } finally { setBusy(false, g); drop(wait) }
@@ -206,7 +208,8 @@ export function useTalk({ api = chatApi, from = null, project = null, events, ad
     const turn = j.chat.turns.at(-1)
     s.plan = j.chat.plan || null
     // a chat with its plan: the real next step from the plan file, said again if her last words were not it
-    if (j.step) {
+    if (j.step?.install) watch(g, j.step.text, add({ who: 'hermia', text: j.step.text, working: true }))
+    else if (j.step) {
       if (last && turn?.who === 'planner' && turn.text === j.step.text) patch(last, { acts: gameActs(j.step), ...stepOf({ ...j.step, step: true }) })
       else add({ who: 'hermia', text: j.step.text, acts: gameActs(j.step), ...stepOf({ ...j.step, step: true }) })
       if (j.step.wait) watch(g, j.step.text)
@@ -216,13 +219,17 @@ export function useTalk({ api = chatApi, from = null, project = null, events, ad
 
   // While something paints, the chat asks the server for the next step every few seconds; when it has moved on
   // (the picture landed, or failed), Hermia says the new step with its buttons.
-  function watch(g: number, was: string) {
+  // line: the working line of an install, kept at the step's own words while it runs and taken away when it ends.
+  function watch(g: number, was: string, line: string | null = null) {
     const tick = async () => {
       if (!alive(g)) return
       const s = T.current
       const j = s.chat ? await getJson<{ step?: Step }>(api, `/api/talk/${enc(s.chat)}`).catch(() => null) : null
-      if (!alive(g) || !j?.step) return
-      if (j.step.wait) { setTimeout(tick, 3000); return }
+      if (!alive(g)) return
+      // a look that failed (the computer slept, the server was busy) is tried again while an install's line is up
+      if (!j?.step) { if (line) setTimeout(tick, 3000); return }
+      if (j.step.wait) { if (line && j.step.install) patch(line, { text: j.step.text }); setTimeout(tick, 3000); return }
+      if (line) drop(line)
       if (j.step.text === was) return
       clearActs()
       s.said.push({ who: 'hermia', text: j.step.text })
