@@ -149,5 +149,6 @@ test('old against new over a runs folder: only the truthful changes, never a Liv
   assert.deepEqual(of(4), [['App · Designed', 'App · Stopped']])
   assert.deepEqual(of(5), [['Website · Live', 'App · Live']], 'Live stays Live: only what it is changes')
   assert.deepEqual(of(6), [])
-  assert.deepEqual(of(7), [], 'a website with a failed film keeps the website\'s words')
+  // a website with a failed film keeps its own words and says the film failed beside them (#647: it said nothing)
+  assert.deepEqual(of(7), [['Website · Designed', 'Website · Designed · Film failed']], 'a website with a failed film keeps its words and names the film')
 })

@@ -162,6 +162,9 @@ export function differences(runs, projects = {}) {
 // stopped or waits, a film run that failed or stopped.
 const partOf = c => c.parts?.game || c.parts?.app || null
 function kindAllowed(was, now, c) {
+  // a website's or an app's own film failed: the card keeps its own word and adds the film's failure beside it
+  // (#647: a card said nothing about its failed film). Only that suffix may be added, to the word it already had.
+  if (c.parts?.film?.state === 'failed' && now.kind !== 'Video' && String(now.status).endsWith(' · Film failed') && String(now.status).slice(0, -' · Film failed'.length) === String(was.status)) return true
   // a Live website (or an app's design) whose newest build is not whole: its own word, still Live on the same host
   if (was.status === 'Live' && now.live && was.host === now.host && ALLOWED.has(now.site) && (was.kind === now.kind || partOf(c)?.state === 'designed')) return true
   // Live stays Live, on the same host: of a Live card only what it is may change (a designed app that was published)
