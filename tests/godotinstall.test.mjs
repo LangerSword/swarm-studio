@@ -235,12 +235,15 @@ test('templates already there are left alone: no second download', async () => {
 })
 
 test('where Godot looks for templates, on each kind of computer', () => {
-  assert.equal(templatesRoot({ platform: 'darwin', home: '/Users/me' }), '/Users/me/Library/Application Support/Godot/export_templates')
-  assert.equal(templatesRoot({ platform: 'linux', home: '/home/me', env: {} }), '/home/me/.local/share/godot/export_templates')
-  assert.equal(templatesRoot({ platform: 'linux', home: '/home/me', env: { XDG_DATA_HOME: '/d' } }), '/d/godot/export_templates')
-  assert.match(templatesRoot({ platform: 'win32', home: 'C:\\Users\\me', env: { APPDATA: 'C:\\Users\\me\\AppData\\Roaming' } }), /export_templates$/)
+  // the separators are the running computer's, so the paths are built the same way the code builds them
+  assert.equal(templatesRoot({ platform: 'darwin', home: join('/', 'Users', 'me') }), join('/', 'Users', 'me', 'Library', 'Application Support', 'Godot', 'export_templates'))
+  assert.equal(templatesRoot({ platform: 'linux', home: join('/', 'home', 'me'), env: {} }), join('/', 'home', 'me', '.local', 'share', 'godot', 'export_templates'))
+  assert.equal(templatesRoot({ platform: 'linux', home: join('/', 'home', 'me'), env: { XDG_DATA_HOME: join('/', 'd') } }), join('/', 'd', 'godot', 'export_templates'))
+  // Windows: %APPDATA% when it is set, else the same place under the home folder
+  assert.equal(templatesRoot({ platform: 'win32', home: 'C:\\Users\\me', env: { APPDATA: 'C:\\Users\\me\\AppData\\Roaming' } }), join('C:\\Users\\me\\AppData\\Roaming', 'Godot', 'export_templates'))
+  assert.equal(templatesRoot({ platform: 'win32', home: 'C:\\Users\\me', env: {} }), join('C:\\Users\\me', 'AppData', 'Roaming', 'Godot', 'export_templates'))
   // the folder Godot reads is named after the version its own version.txt holds
-  assert.match(templatesFolder('4.7.2', '/r'), /4\.7\.2\.stable$/)
+  assert.equal(templatesFolder('4.7.2', join('/', 'r')), join('/', 'r', '4.7.2.stable'))
 })
 
 test('the editor installs without them, and says so: a Web export then fails for one reason', async () => {
