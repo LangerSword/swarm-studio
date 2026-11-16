@@ -96,7 +96,10 @@ test('titleFrom keeps a short first sentence and cuts a long one at a word', asy
 // project's chats, and a project's list holds only its own: an empty list hid every loose chat.
 test('the Chats popover lists loose chats when the project has none of its own', () => {
   const src = readFileSync(new URL('../web/canvas/talk.js', import.meta.url), 'utf8')
-  assert.match(src, /if \(pid && !groupOf\.length\)/, 'an empty project list falls back')
+  // not "only when the project has none": a project with chats of its own hid the older loose ones too
+  assert.equal(src.includes("if (pid && !groupOf.length)"), false, 'the loose chats are not gated on an empty project list')
+  assert.match(src, /if \(pid\) \{\n\s+\/\//, 'they are fetched for every project')
+  assert.match(src, /filter\(c => !have\.has\(c\.id\)\)/, 'a chat the project already lists is not listed twice')
   assert.match(src, /api\('\/api\/chats'\)/, 'to the loose chats the server keeps')
   // ...and the fallback has to REACH the popover. The renderer used to walk a fixed list of the four
   // category names, so a group named '' (the loose chats) was never found, every section kept the class

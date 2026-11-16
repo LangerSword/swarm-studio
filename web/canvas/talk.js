@@ -496,8 +496,12 @@ if (chatsBtn) chatsBtn.onclick = async () => {
   // earlier ("New game", 20 turns) was nowhere to be found (the person, 2026-11-16: "i cant see my old
   // chat where i asked it to fix something"). The loose ones are always listed, under the project's.
   const groupOf = (j.groups || []).slice()
-  if (pid && !groupOf.length) {
-    const loose = await api('/api/chats').then(r => r.json()).then(o => o.chats || []).catch(() => [])
+  if (pid) {
+    // Not only when the project has none: a project with chats of its own hid the older loose ones just
+    // as well (the person, 2026-11-16: "why is it always same??? i cant find my older chat logs"). A chat
+    // the project already lists is skipped, so nothing appears twice.
+    const have = new Set(groupOf.flatMap(g => (g.chats || []).map(c => c.id)))
+    const loose = (await api('/api/chats').then(r => r.json()).then(o => o.chats || []).catch(() => [])).filter(c => !have.has(c.id))
     if (loose.length) groupOf.push({ name: '', chats: loose })
   }
   const groups = pid ? groupOf : [{ name: '', chats: j.chats || [] }]
