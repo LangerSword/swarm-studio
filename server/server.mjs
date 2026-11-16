@@ -80,7 +80,7 @@ import { pictureMessages, linksIn, readPage, pageRead, withRefs, publicUrl } fro
 import { wantsResearch, researchBrief, research } from '../engine/research.mjs'
 import { refStore } from '../engine/refs.mjs'
 import { workshopRoutes } from './workshops.mjs'
-import { setupRoutes } from './setup.mjs'
+import { setupRoutes, partsLocal } from './setup.mjs'
 import { uiChoice, UIS } from './uichoice.mjs'
 import { pictureRun, isPictures } from '../engine/setup.mjs'
 import { ckffPaint, ckffCreds } from '../engine/ckff.mjs'
@@ -346,8 +346,9 @@ const setup = setupRoutes({
   // the Parts rows read this route, and the Sprite cutter's row needs the cutters' Python: the same probe the
   // doctor's facts use (cutPython), so the two can never disagree
   local: async () => {
+    // partsLocal is the default `local` setupRoutes would use: the sheet's own facts, plus the cutters' Python
     const py = await cutPython().catch(() => null)
-    return { ...setup.local(), ...(py ? { python: py } : {}) }
+    return { ...partsLocal({ dataDir, root }), ...(py ? { python: py } : {}) }
   },
   setPictures: mode => { if (mode) picks.pictures = mode; else delete picks.pictures; try { writeFileSync(picksFile, JSON.stringify(picks, null, 2)) } catch {} }
 })
