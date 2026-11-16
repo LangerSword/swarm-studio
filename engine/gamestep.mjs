@@ -14,6 +14,7 @@
 //
 // Pure functions: no store, no model, no paint.
 import { planPrice, roster, is3d, sprites } from './plan.mjs'
+import { cutClaims } from './claims.mjs'
 
 const named = k => String(k).replace(/^\w/, c => c.toUpperCase())
 const done = e => e?.state === 'done'
@@ -142,24 +143,22 @@ export function nextStep(chat, plan, env = {}) {
   return { text: `Every picture in the plan is painted.${godot} Next: build the game from the plan.`, options: [o('start:design', 'Read the plan')], done: true }
 }
 
-// ---------- the planner's own words, checked against the plan
-const SENT = /[^.!?]+[.!?]*\s*/g
+// ---------- the planner's own words, checked against the plan (the runner is every chat's: engine/claims.mjs)
 const NOW = /\b(painting|drawing|underway|under way|in progress|on (it|its way)|(start|keep|begin)\w*\s+(on\s+)?(paint|draw)\w*|(paint|draw)\w*\s+(it|them|the\s+\w+)?\s*now)\b/i
 const PAST = /\b(painted|drew|drawn|made|finished|already (did|done|have|got|made|started))\b/i
+const ART = /\b(art|sprite|hero|fighter|character|picture|sheet|sketch|it|them)\b/i
 const LOCK = /\block(ed)?\b/i
 const PICK = /\b(picked|chosen|chose|roster (is )?(set|locked|confirmed))\b/i
 // which sentences say something happened that the facts deny; returns { text, cut: [sentences] }
 export function checkClaims(text, f) {
-  const cut = []
-  const keep = (String(text || '').match(SENT) || []).filter(s => {
-    const anyPicks = f.sheets.some(x => x.picks.length)
-    const anyDone = f.sheets.some(x => x.state === 'done') || f.pieces.done > 0 || f.mocks.done > 0 || f.backdrops.done > 0
-    const bad = (NOW.test(s) && !f.painting.length) || (PAST.test(s) && !anyDone && /\b(art|sprite|hero|fighter|character|picture|sheet|sketch|it|them)\b/i.test(s)) ||
-      (LOCK.test(s) && !f.locked) || (PICK.test(s) && !anyPicks)
-    if (bad) cut.push(s.trim())
-    return !bad
-  })
-  return { text: keep.join('').trim(), cut }
+  const anyPicks = f.sheets.some(x => x.picks.length)
+  const anyDone = f.sheets.some(x => x.state === 'done') || f.pieces.done > 0 || f.mocks.done > 0 || f.backdrops.done > 0
+  return cutClaims(text, [
+    { claims: s => NOW.test(s), ok: () => f.painting.length > 0 },
+    { claims: s => PAST.test(s) && ART.test(s), ok: () => anyDone },
+    { claims: s => LOCK.test(s), ok: () => !!f.locked },
+    { claims: s => PICK.test(s), ok: () => anyPicks }
+  ])
 }
 
 // ---------- the person's words

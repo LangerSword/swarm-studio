@@ -5,9 +5,11 @@
 //   POST /api/talk { kind, said }        -> { chat, turn }  a new chat and the planner's first turn
 //   GET  /api/talk/:id                   -> { chat, draft?, starts? }  draft: a game chat's plan as it stands;
 //                                           starts: a locked one's parts to work on next (startsOf)
-//   POST /api/talk/:id { said?, pick?, again? } -> { chat, turn, draft?, plan?, failed? }  failed: why the planner's model
+//   POST /api/talk/:id { said?, pick?, again?, brief?, soft? } -> { chat, turn, draft?, plan?, failed? }  failed: why the planner's model
 //                                           did not answer this turn ({code, message, action}); again: the same words
-//                                           after such a turn, which is taken back first. pick is a chip's id ("art:2d", "talk",
+//                                           after such a turn, which is taken back first. brief: the brief as it stands in
+//                                           its box, with a pick on it; soft: typed words that are taken only when they
+//                                           answer the brief's question (turn: null otherwise). pick is a chip's id ("art:2d", "talk",
 //                                           "lock", "do:paint"); plan: the plan an action changed (the board shows it)
 //   POST /api/talk/:id/lock              -> the same as the pick "lock"
 //   POST /api/talk/:id/unlock { key? }   -> { chat }
@@ -25,6 +27,7 @@ import { say, lock, unlock, planInput, draftOf, startsOf, wordsDecide, openQuest
 import { nextStep, planFacts, goWords, readPicks, pieces, lockLabel, godotOptions, installLine } from '../engine/gamestep.mjs'
 import { planView } from '../engine/plan.mjs'
 import { starterSpec } from '../engine/starters.mjs'
+import { pendingAsk, readAnswer } from '../engine/askfirst.mjs'
 import { reasonFromTalk, reasonLine, isRaw } from '../engine/stopreason.mjs'
 
 // model() -> (messages -> text) or null; env() -> { godot }; plans.fromTalk(input, planId) -> plan view;
@@ -32,6 +35,7 @@ import { reasonFromTalk, reasonLine, isRaw } from '../engine/stopreason.mjs'
 // env() -> { godot, install }: install is godotInstall.state(); godotInstall.start() -> a promise of the install's
 // end, { ok, version, note? } or { ok: false, why } (engine/godotinstall.mjs godotJob), or null: nothing to install with
 // helpers() -> the chat's tool kit (engine/helpers.mjs, decision 0025 e), or null
+// facts(chat) -> what is true of a website's or an app's build (engine/chatstep.mjs chatFacts), or null
 // the order to install, and nothing longer: "install", "install it", "install godot 4", "yes, install it"
 const INSTALL = /^\s*((ok(ay)?|yes|yeah|sure|please)[,!.\s]+)*(install|download)( it| godot( 4)?| the engine)?( now| please| for me)*[\s.!]*$/i
 // "try again" is that order only right after an install failed (her last turn offered Try again)
@@ -40,7 +44,7 @@ const AGAIN = /^\s*(please\s+)?try( it)? again[\s.!]*$/i
 const LOOKED = /\b(check(ed)?( it)? again|look again|(i|i've|i have|already|just) (just |already )?installed|(it'?s|it is|is) (already |now )?installed)\b/i
 
 // viaHermes() -> the planner's model is reached through Hermes (a broken connection is then Hermes away)
-export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plans = null, godotCheck = null, godotInstall = null, helpers = () => null, viaHermes = () => false }) {
+export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plans = null, godotCheck = null, godotInstall = null, helpers = () => null, facts = null, viaHermes = () => false }) {
   // a game talk that joins a project takes its plan's art references there (engine/planrefs.mjs)
   const chats = chatStore({ dataDir, onMove: (chat, pid) => { if (chat?.plan) plans?.carry?.(chat.plan, pid) } })
   const json = (res, code, data) => res.writeHead(code, { 'content-type': 'application/json' }).end(JSON.stringify(data))
@@ -76,6 +80,8 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
     return { ...out, step, starts: startsOf(plan) }
   }
   const turnOf = (id, input) => chats.update(id, async chat => {
+    // the brief as the person left it in its box, when a pick on the brief answers the question before a build
+    if (chat.kind !== 'game' && typeof input.brief === 'string' && input.brief.trim() && (String(input.pick || '').startsWith('go:') || input.soft === true) && pendingAsk(chat)) chat.ask = { ...(chat.ask || {}), brief: input.brief.trim().slice(0, 8000), at: Date.now() }
     // the planner's model, heard: a call that fails is caught inside the turn (engine/talkplan.mjs goes on with the
     // plan's own next step), so the failure is kept here and goes back beside the turn as `failed`, never in the chat file
     const ask = model()
@@ -85,7 +91,7 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
     const words = String(input.said || '').slice(0, 4000)
     if (input.again === true && words && chat.turns.length >= 2 && chat.turns.at(-1).who === 'planner' && chat.turns.at(-2).who === 'person' && chat.turns.at(-2).text === words) chat.turns.splice(-2)
     const heard = ask && (async messages => { try { return await ask(messages) } catch (err) { failed = err; throw err } })
-    const turn = await say(chat, { said: String(input.said || '').slice(0, 4000), pick: String(input.pick || '').slice(0, 120) }, { model: heard, env: env(), plan: planOf(chat), helpers: helpers() ? { kit: helpers(), ctx: { project: chat.project || null, run: chat.run || null, plan: chat.plan || null, chat: chat.id } } : null })
+    const turn = await say(chat, { said: String(input.said || '').slice(0, 4000), pick: String(input.pick || '').slice(0, 120) }, { model: heard, env: env(), plan: planOf(chat), facts: chat.kind !== 'game' && facts ? await facts(chat) : null, helpers: helpers() ? { kit: helpers(), ctx: { project: chat.project || null, run: chat.run || null, plan: chat.plan || null, chat: chat.id } } : null })
     return failed ? { chat, turn, failed: whyOf(failed) } : { chat, turn }
   }).then(withDraft)
 
@@ -285,6 +291,9 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
       const chat = chats.get(m[1])
       if (!chat) return json(res, 404, { error: 'no such chat' })
       if (m[2] === 'lock' && chat.kind !== 'game') return json(res, 200, { chat: await chats.update(m[1], c => { lock(c, { env: env() }) }) })
+      // soft: words typed while a brief shows the question before a build as its answers. Only an answer ("skip
+      // all", "step by step", "build it") is taken; a question and anything else is for the talk, and nothing is written here
+      if (input.soft === true && chat.kind !== 'game') { const asked = pendingAsk(chat); if (!asked || /\?/.test(String(input.said || '')) || !readAnswer(String(input.said || ''), asked)) return json(res, 200, { chat, turn: null }) }
       const action = m[2] === 'lock' ? 'lock' : actionOf(chat, { said: String(input.said || ''), pick: String(input.pick || '') })
       if (action) return json(res, 200, withDraft(await actTurn(m[1], input, action)))
       json(res, 200, await turnOf(m[1], input))
