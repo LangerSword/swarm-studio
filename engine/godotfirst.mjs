@@ -20,10 +20,12 @@ export const GODOT_SKILLS = ['gamedev/godot-gdscript', 'gamedev/godot-nodes-scen
 export const isGodotFirst = dir => existsSync(join(portDir(dir, 'godot'), '.godotfirst'))
 export const webBuild = dir => join(portDir(dir, 'godot'), 'build', 'web')
 
-// Godot-first when the spec (or the owner's answer) names Godot and a binary is found
-export function godotFirst(spec, env = process.env) {
+// Godot-first when the spec (or the owner's answer) names Godot and a binary is found. `find` is where the
+// binary is looked for (engine/port.mjs godotBin); a test hands in its own, so its answer does not depend on
+// whether the machine running it happens to have Godot installed.
+export function godotFirst(spec, env = process.env, find = godotBin) {
   const s = String(spec?.target ?? spec?.answers?.target ?? spec?.engine ?? spec?.starter?.engine ?? '').toLowerCase()
-  return s.includes('godot') && !!godotBin(env)
+  return s.includes('godot') && !!find(env)
 }
 
 const PROJECT = name => `; Engine configuration file.
