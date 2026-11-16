@@ -208,7 +208,9 @@ export function setupRoutes({ dataDir, roles, call, image, media = async () => n
       body(req).then(async input => { const r = await signIn(input); r ? json(res, 200, r) : json(res, 400, { error: 'bad request' }) })
       return true
     }
-    if (url.pathname === '/api/setup/parts' && req.method === 'GET') { json(res, 200, local()); return true }
+    // `local` may answer late (the cutters' Python is a probe that starts a program), so it is awaited: the Parts
+    // rows read this route, and one of them is the Sprite cutter (web/setup-parts.js)
+    if (url.pathname === '/api/setup/parts' && req.method === 'GET') { Promise.resolve(local()).then(l => json(res, 200, l)).catch(() => json(res, 200, {})); return true }
     if (url.pathname === '/api/setup/hermes' && req.method === 'POST') { hermesModel().then(r => json(res, 200, r)); return true }
     if (url.pathname === '/api/setup/models/options' && req.method === 'GET') { modelOptions(url.searchParams.get('refresh') === '1').then(r => json(res, 200, { ...r, ...signState() })); return true }
     if (url.pathname === '/api/setup/models/pick' && req.method === 'POST') { body(req).then(async input => json(res, 200, await pickModel(input))); return true }

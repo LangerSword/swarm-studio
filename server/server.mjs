@@ -343,6 +343,12 @@ const setup = setupRoutes({
   // a pick in Hermes's slots replaces the canvas's own picks for those roles, so Hermes answers with it
   clearPicks: () => { delete picks.planner; delete picks.worker; try { writeFileSync(picksFile, JSON.stringify(picks, null, 2)) } catch {} },
   hermesEnv: () => pyEnv,
+  // the Parts rows read this route, and the Sprite cutter's row needs the cutters' Python: the same probe the
+  // doctor's facts use (cutPython), so the two can never disagree
+  local: async () => {
+    const py = await cutPython().catch(() => null)
+    return { ...setup.local(), ...(py ? { python: py } : {}) }
+  },
   setPictures: mode => { if (mode) picks.pictures = mode; else delete picks.pictures; try { writeFileSync(picksFile, JSON.stringify(picks, null, 2)) } catch {} }
 })
 // What one build does for pictures: its own `pictures`, else the Setup pick, else the default
@@ -1778,9 +1784,11 @@ async function askApp(a, id, text, { chart = false } = {}) {
 const CUT_PROBE = "import importlib.util, json; print(json.dumps([m for m in ['numpy', 'scipy', 'PIL'] if importlib.util.find_spec(m) is None]))"
 // The cutters' Python, for whoever asks: the doctor's facts and Setup's Parts row both read it, and it is the one
 // thing that says why a sprite shipped with its key colour still on it (web/setup-parts.js `cutter`).
-const cutPython = async (d) => {
+const cutPython = async (d = null) => {
   const win = process.platform === 'win32'
-  return d.pythonFacts({
+  // the doctor module when the caller has it (its facts), else imported here: one probe, one answer, either way
+  const doctor = d || (await import('../engine/doctor.mjs'))
+  return doctor.pythonFacts({
     candidates: [process.env.SWARM_CUT_PY, win ? 'python' : 'python3', win ? '' : '/usr/bin/python3', PY],
     missing: py => new Promise((ok, no) => execFile(py, ['-c', CUT_PROBE], { timeout: 15000 }, (err, out) => { try { if (err) throw err; ok(JSON.parse(String(out).trim().split('\n').pop())) } catch (e) { no(e) } })),
     inUse: cutPyP ? await cutPy() : undefined
