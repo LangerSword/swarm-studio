@@ -94,8 +94,8 @@ export const GROUPS = [
       // magenta background still on every sprite and drew a magenta box behind the hero (2026-11-15). The probe
       // was already there (server/server.mjs CUT_PROBE); no row used it.
       { k: 'cutter', name: 'Sprite cutter', need: true, for: 'Cuts a painted sprite out of its flat key colour, so it has a transparent background.', by: 'numpy, scipy and Pillow, in the Python Swarm Studio runs', without: 'Every sprite keeps its magenta or green background and draws a box behind the character.',
-        state: F => { const p = F.view?.python; if (!p) return wait; if (p.use) return ok(String(p.use).split('/').pop()); const first = (p.tried || []).find(t => t.missing && t.missing.length); return { st: 'fail', why: first ? `${String(first.py).split('/').pop()} lacks ${first.missing.map(m => (m === 'PIL' ? 'Pillow' : m)).join(', ')}` : 'No Python on this computer' } },
-        fix: F => { const p = F.view?.python; const first = (p?.tried || []).find(t => t.missing && t.missing.length); if (!first) return null; const cmd = `${first.py} -m pip install ${first.missing.map(m => (m === 'PIL' ? 'Pillow' : m)).join(' ')}`; return { cmd, note: p.restart ? 'The running Studio looked before they were installed, so restart it after this.' : 'Swarm Studio reads them when it next starts.' } } }
+        state: F => { const p = F.local?.python; if (!p) return wait; if (p.use) return ok(String(p.use).split('/').pop()); const first = (p.tried || []).find(t => t.missing && t.missing.length); return { st: 'fail', why: first ? `${String(first.py).split('/').pop()} lacks ${first.missing.map(m => (m === 'PIL' ? 'Pillow' : m)).join(', ')}` : 'No Python on this computer' } },
+        fix: F => { const p = F.local?.python; const first = (p?.tried || []).find(t => t.missing && t.missing.length); if (!first) return null; const cmd = `${first.py} -m pip install ${first.missing.map(m => (m === 'PIL' ? 'Pillow' : m)).join(' ')}`; return { cmd, note: p.restart ? 'The running Studio looked before they were installed, so restart it after this.' : 'Swarm Studio reads them when it next starts.' } } }
     ]
   },
   {
