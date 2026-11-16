@@ -202,6 +202,9 @@ async function measure(out, { root, runs: N, only, cold }) {
   const fakePort = fake.address().port
   const TOKEN = 'gauge'
   const env = { ...process.env, SWARM_TOKEN: TOKEN, SWARM_DATA_DIR: data, SWARM_RUNS_DIR: runsDir, SWARM_OUTPUT_DIR: join(data, 'out'), SWARM_BASE_URL: `http://127.0.0.1:${fakePort}/v1`, SWARM_API_KEY: 'none', SWARM_FEED_URL: 'http://127.0.0.1:9' }
+  // the seeded build has no end, so three pages read as still being built: the server must not close it at start
+  // (server/server.mjs closeStoppedBuilds)
+  env.SWARM_CLOSE_BUILDS = '0'
   // GAUGE_REQLOG: the server says each request as it arrives (scripts/gauge-reqlog.mjs), for finding what hung it
   if (process.env.GAUGE_REQLOG) env.NODE_OPTIONS = `${env.NODE_OPTIONS || ''} --import=${pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), 'gauge-reqlog.mjs')).href}`.trim()
   for (const k of ['SWARM_PORT', 'SWARM_HERMES_PY', 'SWARM_HERMES_PYTHONPATH', 'HERMES_CUSTOM_INFERHUB_API_KEY', 'SWARM_ELEVENLABS_KEY', 'SWARM_TTS_URL']) delete env[k]

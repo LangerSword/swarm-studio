@@ -145,7 +145,8 @@ export function frameLoop(now) {
     paintReplay()
     const pubbing = pub.run === shownRun() && pub.state === 'working'
     const deploying = appv.deploying && appv.run === shownRun()
-    els.publishBtn.disabled = (!S.done && !pubbing) || deploying || rec.on
+    // a website build with no section yet still opens the menu, where Website says why it can not go out
+    els.publishBtn.disabled = (!S.done && !pubbing && !buildOf()) || deploying || rec.on
     setLabel(els.publishBtn, pubbing || deploying ? 'Publishing…' : liveUrl() ? 'Live' : 'Publish')
     const mine = video.run === shownRun()
     els.videoBtn.disabled = (!S.done && !(mine && video.src)) || rec.on

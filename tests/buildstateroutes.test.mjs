@@ -37,10 +37,11 @@ const SAVED = {
   failed: [[start(), ...plan(), ...all(broke), done({ planned: 4, done: 0, failed: 4 })], 'failed', 'resume'],
   stopped: [[start(), ...plan(), ...half(), stopped({ planned: 4, done: 2, failed: 0 }, reasonFromAbort('person'))], 'stopped', 'resume'],
   halted: [[start(), ...plan(), ...half(), stopped({ planned: 4, done: 2, failed: 0 }, reasonFromFailure('the model took too long', { resume: true }))], 'halted', 'resume'],
-  unsure: [[start(), ...plan(), ...half()], 'unsure', 'resume'],
+  // no end in the file: the server closes it when it starts (run:stopped, reason `interrupted`), so it reads halted
+  unsure: [[start(), ...plan(), ...half()], 'halted', 'resume'],
   haltedAtStart: [[start(), ev('error', { where: 'planner', message: HTTP500 }), stopped(none, reasonFromFailure(HTTP500))], 'halted', 'again'],
   failedAtStart: [[start(), done({ ...none, pages: 0 })], 'failed', 'again'],
-  cutOffAtStart: [[start()], 'unsure', 'again'],
+  cutOffAtStart: [[start()], 'halted', 'again'],
   stoppedAtStart: [[start(), stopped(none, reasonFromAbort('person'))], 'stopped', null]
 }
 const idOf = i => `2026-11-01T10-00-${String(i).padStart(2, '0')}-000Z`
@@ -82,7 +83,16 @@ test('a saved build answers its one state, and the server takes the way forward 
       const res = await s.call(`/api/runs/${id}/state`)
       assert.equal(res.status, 200, name)
       const got = (await res.json()).state
-      assert.deepEqual(got, buildState(events), name)
+      // a build saved with no end was given one when the server started: the one event the server adds
+      const saved = await eventsOf(s, id)
+      const cut = !events.some(e => e.type === 'run:done' || e.type === 'run:stopped')
+      assert.equal(saved.length, events.length + (cut ? 1 : 0), `${name}: events in the file`)
+      if (cut) {
+        assert.equal(saved.at(-1).type, 'run:stopped', name)
+        assert.deepEqual(saved.at(-1).reason, { code: 'interrupted', message: 'This run stopped before it finished.', action: '' }, name)
+        assert.equal(buildState(events).state, 'unsure', `${name}: as it was saved`)
+      }
+      assert.deepEqual(got, buildState(saved), name)
       assert.deepEqual([got.state, got.next], [state, next], name)
       assert.deepEqual((await (await s.call(`/api/runs/${id}/board`)).json()).build, got, `${name}: the board`)
 
@@ -110,6 +120,15 @@ test('a saved build answers its one state, and the server takes the way forward 
         assert.equal(rj.from, id)
         const begun = await until(async () => (await eventsOf(s, rj.run)).find(e => e.type === 'run:start'))
         assert.ok(begun?.extend && begun.resume, `${name}: the resumed build keeps what is built`)
+        // the top bar's chip and the card's bar read the same state as the deck: a next version that has planned
+        // nothing is planning, with an empty bar, never full from the sections it was handed (hole B7)
+        const job = (await (await s.call('/api/work')).json()).jobs.find(j => j.run === rj.run)
+        const state = (await (await s.call(`/api/runs/${rj.run}/state`)).json()).state
+        assert.equal(state.done, 0, `${name}: none of its own sections built (the model is held)`)
+        if (name === 'partly') assert.ok(state.kept > 0, 'partly: sections were handed over, and the bar does not count them')
+        assert.deepEqual([job?.what, job?.stage, job?.pct], ['site', state.state === 'building' ? 'building pages' : 'planning', 0], `${name}: the chip`)
+        const card = (await (await s.call('/api/runs')).json()).find(r => r.id === rj.run)
+        assert.deepEqual([card?.live, card?.progress, card?.state?.status], [true, 0, 'Building'], `${name}: the card`)
         await s.call('/api/stop', { run: rj.run })
       } else if (next === 'again') assert.equal(resume.status, 400, `${name}: nothing to resume`)
       await new Promise(r => setTimeout(r, 150))
@@ -173,4 +192,35 @@ test('the board marks the sections the state lists as failed', () => {
   // a stop leaves sections unbuilt, not failed; a game has no website state
   assert.ok(runBoard('r2', SAVED.stopped[0], tmpdir(), false).pages.every(p => p.plan.every(l => !l.failed)))
   assert.equal(runBoard('r3', [start({ kind: 'game' })], tmpdir(), false).build, null)
+})
+
+test('a site whose repository moved: the card and the publish answer give the address kept in github.json, and ask nobody', { timeout: 60000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'bstate-moved-'))
+  const data = join(dir, 'data'), runs = join(data, 'runs')
+  const moved = idOf(50), stays = idOf(51), again = idOf(52)
+  const was = 'https://me.github.io/cedar-cafe/', now = 'https://crew.github.io/cedar-cafe/'
+  const whole = () => [start(), ...plan(), ...all(built), done({ planned: 4, done: 4, failed: 0 })]
+  const save = (id, events) => { mkdirSync(join(runs, id), { recursive: true }); writeFileSync(join(runs, id, 'events.jsonl'), events.map(e => JSON.stringify({ ...e, run: id })).join('\n') + '\n') }
+  save(moved, [...whole(), ev('publish:done', { target: 'github', url: was, repo: 'me/cedar-cafe' })])
+  // no entry for this one: its saved address stands
+  save(stays, [...whole(), ev('publish:done', { target: 'github', url: 'https://me.github.io/other/', repo: 'me/other' })])
+  // found moved, then published again to another address: the newer publish is never overruled
+  save(again, [...whole(), ev('publish:done', { target: 'github', url: was, repo: 'me/cedar-cafe' }), ev('publish:done', { target: 'github', url: 'https://me.github.io/cedar-cafe-2/', repo: 'me/cedar-cafe-2' })])
+  writeFileSync(join(data, 'github.json'), JSON.stringify({ sites: { [moved]: { repo: 'crew/cedar-cafe', url: now, from: was }, [again]: { repo: 'crew/cedar-cafe', url: now, from: was } } }))
+  const env = { ...process.env, SWARM_TOKEN: 't', SWARM_DATA_DIR: data, SWARM_RUNS_DIR: runs, SWARM_OUTPUT_DIR: join(dir, 'out'), HERMES_HOME: join(dir, 'hermes'), SWARM_HERMES_RUNNING: '0' }
+  const { child, base } = await startStudio({ env })
+  const get = path => fetch(base + path, { headers: { 'x-swarm-token': 't' } }).then(r => r.json())
+  try {
+    const cards = await get('/api/runs')
+    const card = id => cards.find(r => r.id === id)
+    assert.equal(card(moved).sites.github, now)
+    assert.deepEqual([card(moved).state.status, card(moved).state.host], ['Live', 'crew.github.io'])
+    assert.equal(card(stays).state.host, 'me.github.io')
+    assert.equal(card(again).sites.github, 'https://me.github.io/cedar-cafe-2/')
+    // what Publish reads for that build (asked without sync: GitHub is not called)
+    assert.equal((await get(`/api/runs/${moved}/publish`)).live.github, now)
+    assert.equal((await get(`/api/runs/${stays}/publish`)).live.github, 'https://me.github.io/other/')
+    // the build's own file still holds what was saved: nothing was written for the move
+    assert.equal((await get(`/api/runs/${moved}/events`)).findLast(e => e.type === 'publish:done').url, was)
+  } finally { child.kill(); try { rmSync(dir, { recursive: true, force: true }) } catch {} }
 })

@@ -57,10 +57,14 @@ export function kindsOf(card) {
 
 // what a build is and how far it got, in words, from its real events (never a guess):
 // kind Website, App, Game or Video; status Draft, Building, Designed, App built, App failed or Live with its host.
+// A website that is live and whose newest build is running or not whole keeps both: its build's word as the
+// status, and `live: true` beside the host (the card reads "Website · Failed · Live · host").
 // A website's words come from its one build state (engine/buildstate.mjs, on the card as buildState): Designed
 // only when every section is built, else Partly built, Failed (nothing built) or Stopped (by the person, for
 // a cause, or with no end). The state's own name goes out as `site`, and `empty` when no section stands.
 const SITE_WORD = { done: 'Designed', unchanged: 'Designed', partly: 'Partly built', failed: 'Failed', stopped: 'Stopped', halted: 'Stopped', replaced: 'Stopped', unsure: 'Stopped' }
+// the states of a website build that is over and not whole: the card says so even when a version is live
+const NOT_WHOLE = new Set(['partly', 'failed', 'stopped', 'halted', 'replaced', 'unsure'])
 const hostOf = url => { try { return new URL(url).host } catch { return null } }
 // how far a game build is, from its step lines: painting its art (n of N), then stage x of y
 export function gameProgress(steps = []) {
@@ -100,7 +104,14 @@ export function stateOf(card, cards = [card]) {
   // so a site whose film is whole still reads its website state.
   const film = card.parts?.film?.state || null
   const g = game ? card.work?.progress || (part === 'building' ? card.gameAt : null) : null
-  const status = out ? 'Live'
+  // a website's own build comes first when it is running or not whole: the card reads Building, Partly built,
+  // Failed or Stopped, and stays live at its address (`live`, said after it: "Website · Failed · Live · host").
+  // Before, Live was tested first and a failed or running newest build read only "Live" (publish.md PU2).
+  // (running: the site's own work, its layout, pictures or review; a film made on a whole site leaves it Live)
+  const running = !!site && (card.live || card.work?.what === 'site')
+  const own = site ? (running ? 'Building' : NOT_WHOLE.has(site.state) ? word : null) : null
+  const status = own ? own
+    : out ? 'Live'
     : g?.art ? `Painting art · ${g.art[0]} of ${g.art[1]}`
     : g?.stage ? `Building · stage ${g.stage[0]} of ${g.stage[1]}`
     // a project being brought in (docs/specs/45-intake.md) is not being built
@@ -126,7 +137,7 @@ export function stateOf(card, cards = [card]) {
   // (#647: the card said nothing about the film). A film run (kind Video) already reads "Video · Failed" above.
   const filmAside = kind !== 'Video' && film === 'failed' && status !== 'Failed' ? ' · Film failed' : ''
   // empty only at rest, under the site's own word: a card that reads Live or Building is not an empty version
-  return { kind, status: status + filmAside, host: out ? hostOf(out) : null, ...(site ? { site: site.state, ...(status === word && site.done + site.kept === 0 ? { empty: true } : {}) } : {}) }
+  return { kind, status: status + filmAside, host: out ? hostOf(out) : null, ...(out && status !== 'Live' ? { live: true } : {}), ...(site ? { site: site.state, ...(status === word && site.done + site.kept === 0 ? { empty: true } : {}) } : {}) }
 }
 
 // removeDir: how a folder is deleted for good (a test hands in one that fails like a held file on Windows)
