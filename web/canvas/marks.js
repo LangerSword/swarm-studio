@@ -114,17 +114,20 @@ export function drawComment() {
   cmt.el.style.transform = `translate(${x | 0}px, ${y | 0}px)`
 }
 
-export async function sendComment(text, target = null) {
+// -> { ok, error }: whether the server took it. quiet: the caller says a refusal in its own words (the Overview's
+// chat, web/project.js); otherwise it is a line in the chat here.
+export async function sendComment(text, target = null, { quiet = false } = {}) {
   // a comment is work for the real crew: a replay ends first, and the finished build takes it
   if (rec.on) await stopReplay({ any: true })
   const run = viewing && viewing !== 'new' ? viewing : S.run
-  if (!run) return feed(null, 'Open a build first.', 'err')
+  if (!run) { if (!quiet) feed(null, 'Open a build first.', 'err'); return { ok: false, error: 'Open a build first.' } }
   const sections = [...S.layers.values()].filter(l => l.status === 'done' && l.text.trim()).map(l => ({ key: l.key, role: l.role, html: l.text }))
   const res = await api(`/api/runs/${encodeURIComponent(run)}/comment`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, target, sections }) }).catch(() => null)
-  if (!res?.ok) {
-    const out = await res?.json().catch(() => ({}))
-    if (!/which section/.test(out?.error || '')) feed(null, `comment: ${out?.error || 'the canvas server is not answering'}`, 'err')
-  }
+  if (res?.ok) return { ok: true, error: '' }
+  const out = await res?.json().catch(() => ({}))
+  const error = out?.error || 'the canvas server is not answering'
+  if (!quiet && !/which section/.test(error)) feed(null, `comment: ${error}`, 'err')
+  return { ok: false, error }
 }
 
 // the message with its layer chips: the crew rework those sections; the turn keeps the layers

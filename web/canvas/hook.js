@@ -17,6 +17,7 @@ import { snapFrame, pageCapture, hiddenCopy, ANCHOR_JS, layerKey, SNAP_SECTION, 
 import { gensOf, pics } from './start.js'
 import { nextRoute, setNextRoute, github } from './loop.js'
 import { dataUrl } from '../capture.js'
+import { paintSend } from '../chatmode.js'
 
 // ---------- studio hook: what web/studio.js, web/home.js and web/project.js may read and call.
 // Kept to this one block so the canvas and the studio views merge cleanly.
@@ -32,12 +33,14 @@ window.swarm = {
   // the server's one state of a website build (engine/buildstate.mjs), as this page was sent it; null with none
   build: run => buildOf(run),
   openRun, setView, loadFiles, focusPage, openPlayer, closePlayer, followPlayer,
-  // one more change to the open build's app (issue #542: the Overview's "Tell the crew…" on an app project)
+  // one more change to the open build's app (issue #542: the chat's box on an app project's Overview)
   appAsk,
   // talk first (engine/talkplan.mjs): readTalk(text, answerTo, kind) → build | talk | unsure;
   // talk.start({ text, kind, build, blank, said }) opens the talk in this chat; talk.end() leaves it
   // the planner's one line in the left chat (the Studio's "start with…", docs/specs/37-studio-first.md)
   say: text => botMsg(String(text || '')),
+  // the chat's box says what sending does (web/chatmode.js): asked again when a build opens beside an open chat
+  chatBox: paintSend,
   readTalk, hermesReady, hermesSays, talk: { start: talkStart, ask: talkAsk, end: talkEnd, saidOf, lock: () => (talk.on && talk.kind === 'game' ? gameLock() : null), get on() { return talk.on }, get chat() { return talk.on ? talk.chat : null }, get kind() { return talk.kind }, get plan() { return talk.plan } },
   // a replay started from ☰ → Replay ends when the deck is left
   stopReplay,
@@ -159,8 +162,9 @@ window.swarm = {
       await restoreLayer(step, html, why)
       return true
     },
-    // tell the crew about this section only: its builder rewrites it
-    fix(key, text) { return sendComment(text, S.layers.get(key)?.status === 'done' ? key : null) },
+    // tell the crew about this section only: its builder rewrites it (no key: the crew finds the section).
+    // -> { ok, error }; a refusal is the caller's to say (the Overview's chat)
+    fix(key, text) { return sendComment(text, S.layers.get(key)?.status === 'done' ? key : null, { quiet: true }) },
     // paint one of its pictures again, from new words
     async paint(key, gen, prompt) {
       const l = S.layers.get(key), run = shownRun()

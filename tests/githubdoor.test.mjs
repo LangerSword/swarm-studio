@@ -55,7 +55,8 @@ test('the door is in a project\'s menu and on its card, typed moves are taken be
   assert.match(read('web/home.js'), /label: 'GitHub', run: \(\) => sw\.github\.open\(id\)/)
   const loop = read('web/canvas/loop.js')
   assert.ok(loop.indexOf('github.say(els.brief.value)') < loop.indexOf('await modeSend(modeHelp)'), 'before the chat\'s mode takes the message')
-  assert.match(read('web/project.js'), /sw\.github\?\.say\(text\)/)
+  // the Overview has no box of its own: its words are typed in the chat, which takes a GitHub move first
+  assert.ok(loop.indexOf('github.say(els.brief.value)') < loop.indexOf('await ov.say(brief, ovLines)'), 'before the Overview routes the words')
   assert.match(read('web/canvas/hook.js'), /github: BOOT\.hosted \? null/)
   assert.match(read('web/home.css'), /body\.hosted #github-btn \{ display: none !important; \}/)
   assert.match(read('server/page.mjs'), /'github\.js'/)

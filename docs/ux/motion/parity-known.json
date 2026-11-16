@@ -105,6 +105,16 @@
     "why": "A build opened half way: depending on when the step falls, the current deck's cursors are still gliding up from the break room below the fold (so only /next/ has them on screen) or already near their sections at another place on the narrower /next/ canvas."
   },
   {
+    "key": "overview only in /: page @in 300ms x1 ease-out",
+    "label": "intended (decision 0015)",
+    "why": "On the current Studio's Overview the chat column is open on the way in (owner, 2026-11-15: the chat is the Overview's one place to type), so the build's line arrives in it; the next UI docks the chat along the bottom (decision 0015) and its Overview does not open it."
+  },
+  {
+    "key": "overview cursor Hermia: differs",
+    "label": "intended (decision 0015)",
+    "why": "The current Studio's Overview has the chat column open on the left (owner, 2026-11-15), which moves the stage and Hermia 300 px right (666,176); the next UI docks the chat along the bottom (decision 0015), so its stage starts at the Files panel (366,179)."
+  },
+  {
     "key": "overview reduced cursor Hermia: differs",
     "label": "drift",
     "why": "With reduced motion the current Studio puts Hermia 300 px further right (665,176) than it does in normal motion (365,176), on another page skeleton; the next UI keeps her normal-motion spot (365,179) in both. The current Studio's reduced-motion spot is the odd one out."
