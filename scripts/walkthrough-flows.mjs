@@ -143,7 +143,8 @@ const WEBSITE = [
   { id: 'f-web-thinking', flow: WEB, title: 'Sent: Hermia thinking (her answer has not come yet)', run: async env => {
     const s = await web(env)
     hold(s.ctl)
-    await env.page.locator('#brief').press('Enter')
+    // env.acted: the press is watched for a second (a dead click, a wait with no cursor: scripts/walkthrough-probe.mjs)
+    await env.acted(() => env.page.locator('#brief').press('Enter'), 'Send')
     await env.wait(1800)
   } },
   { id: 'f-web-reply', flow: WEB, title: 'Hermia answers and asks back in words; the one button is Build', run: async env => {
@@ -155,7 +156,7 @@ const WEBSITE = [
   { id: 'f-web-brief-wait', flow: WEB, title: 'Build pressed: "Writing the brief…"', run: async env => {
     const s = await web(env)
     hold(s.ctl)
-    await chatBtn(env.page, 'Build').click()
+    await env.acted(() => chatBtn(env.page, 'Build').click(), 'Build')
     await env.wait(1500)
     await toEnd(env.page)
   } },
@@ -337,7 +338,7 @@ const CHANGE = [
   { id: 'f-change-building', flow: CHG, title: 'Sent: the next version starts, the model has not answered yet', run: async env => {
     const s = await chg(env)
     holdBuild(s.ctl)
-    await env.page.locator('#brief').press('Enter')
+    await env.acted(() => env.page.locator('#brief').press('Enter'), 'Send')
     await env.wait(3500)
   } },
   { id: 'f-change-fail', flow: CHG, title: 'The model gives no answer: what the deck and the chat show', run: async env => {
@@ -566,7 +567,7 @@ const FAILING = [
     const s = await failed(env)
     const before = (await s.api('/api/runs')).length
     holdBuild(s.ctl)
-    await env.page.locator('.pj-world .ab.page > [data-resume]').first().click()
+    await env.acted(() => env.page.locator('.pj-world .ab.page > [data-resume]').first().click(), 'Resume')
     // the next version is the one shown, and nothing of it has failed: the tags are gone while it builds
     await env.page.locator('.pj-world .ab.page > .pt-tag').first().waitFor({ state: 'detached', timeout: 12000 })
     let started = false
