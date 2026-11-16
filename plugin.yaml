@@ -1,5 +1,5 @@
 name: swarm-studio
-version: 0.4.0
+version: 0.4.1
 description: "A crew of agents builds a whole launch from one prompt, live on a canvas you can watch and steer: a multi-page website, a working web app with a database, a playable game (also as a Godot, Unity or Unreal project), a promo film and social posts. Builds go to Swarm Feed, where others remix them and every maker is credited."
 author: Pukujan
 kind: standalone
@@ -16,6 +16,11 @@ kind: standalone
 #   SHA-512 checked against that release's published sums before it is opened, unpacked into
 #   $HERMES_HOME/swarm-studio/godot/4.7.2/ and run once with --version (that route writes nothing outside the data
 #   folder). No sudo and no password on either route.
+# - The sprite cutter's Python packages are NOT installed by this plugin, and Setup says so: cutting a painted
+#   sprite out of its key colour runs gamemaker/cut.py, which needs numpy, scipy and Pillow in the Python the Studio
+#   runs. Setup › Game › Sprite cutter reads which Python has them, and gives the exact command for the person to run
+#   in their own terminal (`<python> -m pip install numpy scipy Pillow`). Without them a sprite keeps its magenta or
+#   green background and the game draws a box behind the character (found on the Pro, 2026-11-15).
 # - Godot's Web export templates, by that same press and never by itself (engine/godotinstall.mjs `installTemplates`):
 #   the same release's Godot_v4.7.2-stable_export_templates.tpz, 1.28 GB, its size and SHA-512 checked against the
 #   release's published sums before it is opened; only the Web templates are kept (about 20 MB) and the archive is
