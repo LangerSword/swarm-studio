@@ -18,8 +18,11 @@ const KIND_NAME = { site: 'Site', app: 'App', game: 'Game', film: 'Film' }
 const SORTS = [['edited', 'Last edited'], ['name', 'Name'], ['created', 'Created']]
 // the filter beside sort: what a build is, or how far it got (the server's own words in project.state)
 const KINDS = ['Website', 'App', 'Game', 'Video']
-const STATUSES = ['Draft', 'Building', 'Designed', 'App built', 'App failed', 'Game built', 'Game failed', 'Brought in', 'Live']
-const STATUS_ICON = { Draft: 'pencil', Building: 'clock', Designed: 'frame', 'App built': 'code', 'App failed': 'x', 'Game built': 'game', 'Game failed': 'x', 'Brought in': 'download', Live: 'globe' }
+// every word a card can say, so the filter can name each one. "Your turn" is a big game waiting after a slice
+// (server/projects.mjs `stateOf`, the room's own word for it): a card said it and the filter could not, so the one
+// state that most needs finding was the one it could not find (#647).
+const STATUSES = ['Draft', 'Building', 'Designed', 'Partly built', 'Failed', 'Stopped', 'Your turn', 'App built', 'App failed', 'Game built', 'Game failed', 'Brought in', 'Live']
+const STATUS_ICON = { Draft: 'pencil', Building: 'clock', Designed: 'frame', 'Partly built': 'frame', Failed: 'x', Stopped: 'x', 'Your turn': 'clock', 'App built': 'code', 'App failed': 'x', 'Game built': 'game', 'Game failed': 'x', 'Brought in': 'download', Live: 'globe' }
 const KIND_ICON = { Website: 'site', App: 'code', Game: 'game', Video: 'film' }
 
 export function makeHome({ sw, C, root }) {

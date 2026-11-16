@@ -95,7 +95,10 @@ export function stateOf(card, cards = [card]) {
   const busy = game && card.build === 'working' && Date.now() - (card.updated || 0) < 600000
   const part = card.parts ? (card.parts.game || card.parts.app)?.state || null
     : busy ? 'building' : game && (card.build === 'working' || card.build === 'stopped') ? 'stopped' : card.build === 'failed' ? 'failed' : card.build === 'built' ? 'built' : null
-  const film = kind === 'Video' ? card.parts?.film?.state : null
+  // a film's state: a film run's own (kind Video), and a website's or an app's film too — a build with a failed
+  // film beside it said nothing about it on the Projects card (#647). Only the words below decide what it means,
+  // so a site whose film is whole still reads its website state.
+  const film = card.parts?.film?.state || null
   const g = game ? card.work?.progress || (part === 'building' ? card.gameAt : null) : null
   const status = out ? 'Live'
     : g?.art ? `Painting art · ${g.art[0]} of ${g.art[1]}`
@@ -112,12 +115,18 @@ export function stateOf(card, cards = [card]) {
     : part === 'stopped' || film === 'stopped' ? 'Stopped'
     : part === 'failed' ? `${made} failed`
     : part === 'built' || (card.app && !card.build) ? `${made} built`
-    : film === 'failed' ? 'Failed'
+    // a film run's own failure is its whole word ("Video · Failed"); a website's or an app's keeps its own word
+    // and adds the film's failure beside it (`filmAside` below)
+    : kind === 'Video' && film === 'failed' ? 'Failed'
     : word ? word
     : card.layers > 0 || card.video ? 'Designed'
     : 'Draft'
+  // A website or an app whose own film failed says so beside its own word: "Website · Designed · Film failed".
+  // The film is a second thing the build made, so the card keeps both rather than replacing one with the other
+  // (#647: the card said nothing about the film). A film run (kind Video) already reads "Video · Failed" above.
+  const filmAside = kind !== 'Video' && film === 'failed' && status !== 'Failed' ? ' · Film failed' : ''
   // empty only at rest, under the site's own word: a card that reads Live or Building is not an empty version
-  return { kind, status, host: out ? hostOf(out) : null, ...(site ? { site: site.state, ...(status === word && site.done + site.kept === 0 ? { empty: true } : {}) } : {}) }
+  return { kind, status: status + filmAside, host: out ? hostOf(out) : null, ...(site ? { site: site.state, ...(status === word && site.done + site.kept === 0 ? { empty: true } : {}) } : {}) }
 }
 
 // removeDir: how a folder is deleted for good (a test hands in one that fails like a held file on Windows)

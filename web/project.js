@@ -293,7 +293,9 @@ export function makeProject({ sw, C, root }) {
       : typeCover(x) || `<span class="blank">${ic({ page: 'site', app: 'code', game: 'game', film: 'film', story: 'film', upload: 'file', code: 'code', ref: x.ref?.kind === 'link' ? 'ext' : 'file' }[x.kind] || 'file', 26)}</span>${x.kind === 'ref' && !x.src ? `<span class="ab-cap">${esc(x.name)}</span>` : ''}`
     const extra = x.kind === 'film' ? (x.video ? `<span class="play"></span>${x.seconds ? `<span class="dur">${fmtTime(x.seconds)}</span>` : ''}` : `${partWork(x)}${partTag(x)}`)
       : x.kind === 'app' ? `${partWork(x)}${partTag(x)}`
-      : x.kind === 'game' ? `${x.work ? workBar(x.work) : partWork(x) || '<span class="play"></span>'}<span class="ab-cap">${esc(x.name)}</span>`
+      // a game's artboard wears its state too: "Game · Your turn" on a big game waiting after a slice, Failed,
+      // Stopped (the App artboard already did; the Game one said nothing, #647)
+      : x.kind === 'game' ? `${x.work ? workBar(x.work) : partWork(x) || '<span class="play"></span>'}${partTag(x)}<span class="ab-cap">${esc(x.name)}</span>`
         : x.sending != null ? `<span class="upl"><i style="width:${Math.round(x.sending * 100)}%"></i></span>` : ''
     const tall = x.kind === 'page' && ((x.snap && P.aspect.get(x.page)) || (!x.snap && planRatio(x)))
     if (x.kind === 'draft') return draftBoard(x, sel, img)

@@ -22,9 +22,11 @@ const SAVED = {
   bareApp: [[start('Ward Swap', { kind: 'app' })], 'app', 'designed', 'App · Stopped'],
   waitingGame: [[start('Lantern Run', { kind: 'game', title: 'Lantern Run' }), ev('game:spec', { spec: { title: 'Lantern Run' } }), ev('app:start', { kind: 'game' }), ev('app:step', { step: { kind: 'setup', text: 'stage 2 of 5: the market' } }), ev('app:paused', { slice: { i: 2 } })], 'game', 'waiting', 'Game · Your turn'],
   stoppedApp: [[start(SITE), ...design(), ev('app:start', { kind: 'site' }), ev('app:failed', { message: 'stopped' })], 'app', 'stopped', 'App · Stopped'],
-  failedFilm: [[start(SITE), ...design(), ev('video:start', { prompt: 'a film' }), ev('video:failed', { message: 'no footage model' })], 'site', 'failed', 'Website · Designed'],
+  // a website's film failed: the card keeps the website's word and says the film failed beside it (#647)
+  failedFilm: [[start(SITE), ...design(), ev('video:start', { prompt: 'a film' }), ev('video:failed', { message: 'no footage model' })], 'site', 'failed', 'Website · Designed · Film failed'],
   filmRun: [[start('River Hours', { kind: 'film', title: 'River Hours' }), ev('video:start', { prompt: 'a film' }), ev('video:failed', { message: 'no footage model' })], 'film', 'failed', 'Video · Failed'],
-  bareFilm: [[start(SITE), ev('video:failed', { message: 'no footage model' })], 'site', 'failed', 'Website · Stopped']
+  // a website whose film failed and whose own build never finished says both (#647)
+  bareFilm: [[start(SITE), ev('video:failed', { message: 'no footage model' })], 'site', 'failed', 'Website · Stopped · Film failed']
 }
 const names = Object.keys(SAVED)
 const idOf = name => `2026-11-01T10-00-${String(names.indexOf(name)).padStart(2, '0')}-000Z`
