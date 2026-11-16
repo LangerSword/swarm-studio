@@ -38,6 +38,10 @@ A model made from the project's own art belongs to the person on a paid plan (do
   equals the price shown (402), at most 16 per batch, 3 running at once, one run per role (engine/meshy.mjs:235-315).
 - **Plan build (spec 21).** On a locked 3D plan, `runBuild` paints front, side and back turnarounds, then calls
   `makeCharacter({ images, polycount })` per character; without a key the character fails with "no Meshy key" (server/plans.mjs:84-115).
+  The Plan board's routes are made in the `// engine: meshy` part of server/server.mjs, which is also where the
+  **remixable plan** is registered (`builtInTemplates`): a plan saved as a template, and the built-in one, become
+  a new plan at the gate. That plan file is `gamemaker/plan.json` — the guided game maker's own copy, since the
+  ARES game it came from moved to Pukujan/ares (2026-11-16, gamemaker/README.md).
 - **`makeCharacter`** posts image-to-3D (one picture) or multi-image-to-3D (two or more), `meshy-6`, textured,
   `enable_pbr: false`, an anime cel `texture_prompt`, `pose_mode: a-pose`, remeshed triangles (15k single, 40k multi),
   then posts the rig with `height_meters: 1.7` (engine/meshy.mjs:117-140, 181-202).

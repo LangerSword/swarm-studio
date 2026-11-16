@@ -138,7 +138,7 @@ A Godot game publishes its state with `JavaScriptBridge.eval("window.__swarm=…
 **The browser path, for contrast.** Without Godot, `plan(answers)` picks three.js for a 3D look, PixiJS for
 hand-drawn, else Phaser 3, with matching skills (engine/game.mjs:41-57). It is built by the app engine and played
 in the Studio with the same play test (engine/appjob.mjs:329). ARES is a hand-written canvas 2D web game with no
-Godot in it (games/ares/web/ENGINE.md:1-10).
+Godot in it (the ARES game's own ENGINE.md, now in Pukujan/ares).
 
 **Brought-in projects.** A Godot project made outside the Studio is not opened yet ([spec 45](../specs/45-intake.md) "Not in this slice"). Bring in a project (engine/bringin.mjs `shapeOf`) takes a folder with `project.godot` only when it also has a web page of its own, and then plays that page as plain files; the Godot files come along untouched, and the `intake` event notes `godot: true`. With no page it is refused in words. `serveStatic` (engine/godotfirst.mjs) now answers a folder's address with that folder's `index.html` (a brought-in game opens on `web/`); a Godot export is served from its top as before (tests/bringin.test.mjs "the files server answers a folder…").
 
@@ -177,7 +177,7 @@ Godot in it (games/ares/web/ENGINE.md:1-10).
 - server/server.mjs:1450-1457, launcher.py:196-228, plugin.yaml, README.md:66, 205-230
 - starters/*/starter.json, starters/platformer-side/CREW.md, starters/addons/*/addon.json, starters/addons/swarm_rts/README.md
 - gameskills/README.md, gameskills/gamedev/NOTICE, gameskills/gamedev/godot-export/SKILL.md, gameskills/gamedev/godot-gdscript-headless-testing/SKILL.md
-- games/ares/web/ENGINE.md
+- Pukujan/ares web/ENGINE.md (the demo game that used to live in this repo)
 - engine/bringin.mjs, tests/bringin.test.mjs, docs/specs/45-intake.md
 - docs/specs/01-big-game-mode.md, 22-guided-game-maker.md, 23-art-on-request.md, 37-studio-first.md, 38-game-starters.md
 - https://godotengine.org/license/ (fetched 2026-11-12)

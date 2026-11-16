@@ -88,3 +88,23 @@ test('the page treats an asked diagram as untrusted: a size cap, strict Mermaid,
   const rooms = readFileSync(new URL('../web/canvas/rooms.js', import.meta.url), 'utf8')
   assert.ok(rooms.includes('src: `${BASE}/vendor/mermaid/mermaid.min.js`'))
 })
+
+// The person, 2026-11-16: "wish this map had zoom in zoom out feature". The diagram was forced to the
+// window's size, so a plan wider than the window kept its end cut off and nothing made it readable.
+test('the Map zooms and pans, and offers the way back only once it has been moved', () => {
+  const src = readFileSync(new URL('../web/canvas/mapwin.js', import.meta.url), 'utf8')
+  const css = readFileSync(new URL('../web/canvas.css', import.meta.url), 'utf8')
+  // the wheel zooms about the pointer, and does not scroll the window instead
+  assert.match(src, /addEventListener\('wheel'/, 'the wheel zooms')
+  assert.match(src, /\{ passive: false \}\)/, 'the wheel handler may preventDefault')
+  assert.match(src, /zoomAt\(Math\.exp\(-e\.deltaY/, 'the wheel scales, it does not jump')
+  // a pinch on a touch screen, and the keyboard, do the same
+  assert.match(src, /e\.touches\.length !== 2/, 'two fingers pinch')
+  assert.match(src, /e\.key === '\+'/, 'the keyboard zooms in')
+  assert.match(src, /e\.key === '0'/, 'and 0 fits it again')
+  // the Recentre button is the way back, and only exists once there is somewhere to come back from (rule 22)
+  assert.match(src, /resetBtn\.hidden = !view\.moved/, 'Recentre appears only after a move')
+  // the diagram keeps its own size: forced to 100% of the window it could never be read larger
+  assert.doesNotMatch(css, /\.mp-pic svg \{[^}]*width: 100%/, 'the SVG is not forced to the window width')
+  assert.match(css, /\.mp-pic svg \{ display: block; max-width: none; \}/)
+})

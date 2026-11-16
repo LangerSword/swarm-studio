@@ -233,7 +233,10 @@ const APPCHAT = [
     if (/Build the app first/.test(feedText)) throw new Error('the chat still answers "Build the app first"')
     await toEnd(env.page)
   } },
-  { id: 'f-app-overview-ask', flow: APP, title: 'The same change typed into the Overview’s chat and sent: a build of the design’s next version starts (the server took it), and this is the Overview five seconds on', run: async env => {
+  { id: 'f-app-overview-ask', flow: APP, title: 'The same change typed into the Overview’s chat and sent: the chat says the app is not built yet and what to do, and nothing is built', run: async env => {
+    // An app project's Overview has a DESIGN (its pages and sections), not a built app: a change typed there
+    // cannot start a build, and since #647 the chat says so instead of pretending. This step held that a build
+    // started, which was never true for this project (the issue log called it out of date; run 2026-11-16).
     const s = await app(env)
     await go(env, s, `/?project=${s.ids.app}&version=${s.ids.app}`, '.pj-world')
     await env.wait(1200)
@@ -241,9 +244,12 @@ const APPCHAT = [
     const run = env.page.waitForResponse(r => new URL(r.url()).pathname === '/api/run' && r.request().method() === 'POST', { timeout: 12000 }).catch(() => null)
     await env.page.locator('#brief').press('Enter')
     const res = await run
-    // the title says a build started: it holds only if the server said so
-    if (!res || res.status() !== 200) throw new Error(`the Overview’s chat did not start a build as this step’s title says: ${res ? `POST /api/run answered ${res.status()}` : 'no build was asked for'}`)
-    await env.wait(5000)
+    // the title says nothing is built, and the chat says why: both must hold
+    if (res) throw new Error(`the Overview’s chat started a build (POST /api/run answered ${res.status()}) where this step’s title says nothing is built`)
+    const said = await env.page.locator('#feed').innerText().catch(() => '')
+    if (!/not built yet/i.test(said)) throw new Error(`the chat did not say the app is not built yet; it said: ${said.slice(-200)}`)
+    if (!/build the app/i.test(said)) throw new Error(`the chat did not say how to build it; it said: ${said.slice(-200)}`)
+    await env.wait(1500)
   } },
   { id: 'f-app-plan-thinking', flow: APP, title: '"/plan" and the change: Hermia thinking', run: async env => {
     const s = await app(env)

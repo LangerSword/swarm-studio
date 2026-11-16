@@ -1211,6 +1211,12 @@ em { font-style: italic; }
 .cursor.docked .arrow svg { width: 20px; height: 20px; }
 .cursor.docked .tag { left: 15px; top: 7px; padding: 1px 6px; font-size: 9.5px; letter-spacing: .02em; }
 .cursor.docked .nib { display: none; }
+/* A floating tag near the right edge hangs to the LEFT of its arrow instead of running out of the wall it
+   belongs to and over the window beside it (web/canvas/start.js, crewTick; the person, 2026-11-16,
+   "Helper 1 play testing" over the Play test). It has to come after the .cursor .tag rule above: at equal
+   weight the later one wins, which is how the first attempt at this was silently overridden. */
+.cursor.flip .tag { left: auto; right: 20px; }
+.cursor.flip .bubble { left: auto; right: 20px; border-radius: 10px 10px 4px 10px; }
 @keyframes bob { 50% { transform: translateY(-2px) rotate(-4deg); } }
 /* the break room */
 .dock { background: var(--glass); backdrop-filter: blur(14px); border: 1px solid var(--panel-edge); border-radius: 18px; box-shadow: none; }
@@ -2178,20 +2184,32 @@ body.side-min .tabs .chats-btn { display: none; }
 .cw-map .cw-path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cw-map .mp-tabs { display: flex; gap: 2px; }
 .cw-map .mp-tabs[hidden] { display: none; }
-.cw-map .mp-tabs button, .cw-map .mp-zoom { border: 0; background: none; color: var(--muted); font: 600 11px/1.6 var(--mono); padding: 1px 8px; border-radius: 99px; cursor: pointer; }
+.cw-map .mp-tabs button, .cw-map .mp-zoom, .cw-map .mp-reset { border: 0; background: none; color: var(--muted); font: 600 11px/1.6 var(--mono); padding: 1px 8px; border-radius: 99px; cursor: pointer; }
 .cw-map .mp-tabs button.on { background: var(--text); color: var(--void); }
 .cw-map .mp-zoom { display: grid; place-items: center; padding: 3px; }
+/* Recentre appears only after the diagram has been moved or zoomed (rule 22: the way back is only needed then) */
+.cw-map .mp-reset { padding: 1px 8px; }
+.cw-map .mp-reset[hidden] { display: none; }
 .cw-map .mp-zoom[hidden] { display: none; }
 .cw-map .mp-zoom .ico { width: 14px; height: 14px; }
-.cw-map .mp-tabs button:hover, .cw-map .mp-zoom:hover { color: var(--text); }
+.cw-map .mp-tabs button:hover, .cw-map .mp-zoom:hover, .cw-map .mp-reset:hover { color: var(--text); }
 .cw-map .mp-tabs button.on:hover { color: var(--void); }
-.cw-map .mp-tabs button:focus-visible, .cw-map .mp-zoom:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+.cw-map .mp-tabs button:focus-visible, .cw-map .mp-zoom:focus-visible, .cw-map .mp-reset:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 .cw-map .mp-body { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; padding: 12px; overflow: auto; cursor: zoom-in; }
 .cw-map.big .mp-body { cursor: zoom-out; }
 .cw-map.alone .mp-body { cursor: default; }
 .cw-map .mp-pic { width: 100%; height: 100%; display: grid; place-items: center; }
-/* Mermaid gives its SVG a max-width (the diagram's own size): it is never drawn larger, and it shrinks to fit the window whole */
-.cw-map .mp-pic svg { display: block; width: 100%; height: 100%; }
+/* a diagram keeps its own size and is zoomed and moved inside the window (web/canvas/mapwin.js): forced to
+   the window's size it kept its end cut off, and nothing could make it readable */
+.cw-map .mp-pan { width: 100%; height: 100%; display: grid; place-items: center; }
+.cw-map .mp-pan > .mp-pic { transform-origin: 50% 50%; will-change: transform; }
+.cw-map .mp-pan > .mp-pic > .mp-fig { display: grid; place-items: center; }
+.cw-map .mp-body.zoomed { cursor: grab; }
+.cw-map .mp-body.dragging { cursor: grabbing; }
+.cw-map .mp-body:focus-visible { outline: 2px solid var(--text); outline-offset: -2px; }
+/* Mermaid gives its SVG a max-width (the diagram's own size): it is never drawn larger than its box, and the
+   box is what the zoom scales */
+.cw-map .mp-pic svg { display: block; max-width: none; }
 .cw-map .mp-none { margin: 0; font: 12px/1.5 var(--mono); color: var(--muted); }
 /* the diagram as a list, for a screen reader only */
 .cw-map .mp-alt { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; list-style: none; }

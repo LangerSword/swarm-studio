@@ -491,7 +491,16 @@ if (chatsBtn) chatsBtn.onclick = async () => {
   const run = shownRun(), known = projectNow()
   const j = await api(known ? `/api/projects/${encodeURIComponent(known)}/chats` : `/api/chats${run ? `?run=${encodeURIComponent(run)}` : ''}`).then(r => r.json()).catch(() => ({}))
   const pid = known || j.project || null
-  const groups = pid ? (j.groups || []) : [{ name: '', chats: j.chats || [] }]
+  // A chat with no project of its own is loose, and a project's list holds only its own: opening Chats on
+  // a build with no chats of that project showed none, and a chat the person had been talking in a day
+  // earlier ("New game", 20 turns) was nowhere to be found (the person, 2026-11-16: "i cant see my old
+  // chat where i asked it to fix something"). The loose ones are always listed, under the project's.
+  const groupOf = (j.groups || []).slice()
+  if (pid && !groupOf.length) {
+    const loose = await api('/api/chats').then(r => r.json()).then(o => o.chats || []).catch(() => [])
+    if (loose.length) groupOf.push({ name: '', chats: loose })
+  }
+  const groups = pid ? groupOf : [{ name: '', chats: j.chats || [] }]
   const row = c => `<button type="button" class="cp-row${talk.on && talk.chat === c.id ? ' on' : ''}" data-chat="${esc(c.id)}" draggable="${!!pid}"><span>${esc(c.title)}</span>${c.state === 'locked' ? '<small>Locked</small>' : ''}</button>`
   // every group is a place to drop a chat, so the four always show while dragging
   const names = pid ? ['Design', 'App', 'Game', 'Video'] : ['']

@@ -28,7 +28,7 @@ Film music (server/server.mjs:1133-1163). First match wins:
 
 Game character voices (not films):
 - `node engine/voice.mjs <heroes.json>` records every move, bark, spell and line to `assets/voice/<hero>/<key>.mp3`, provider `fish` or `elevenlabs` per voice (engine/voice.mjs:1-13, engine/voice.mjs:24-50).
-- The guided game workshop calls `speakLine` with the voices in games/ares/data/heroes.json (server/server.mjs:1664-1665).
+- The guided game workshop calls `speakLine` with the voices in gamemaker/heroes.json (server/server.mjs, the `voices` line). The ARES game's own copy of that config moved with the game to Pukujan/ares (2026-11-16).
 
 Other uses:
 - Crew chatter: a fixed list of nine short lines, read by `SWARM_TTS_URL` or by Kokoro only if it is already installed (server/server.mjs:1345-1360).
@@ -42,7 +42,7 @@ Other uses:
 
 ## Limits inside Swarm
 - Every source above except the local ones is keyed and paid; none is free. Unchecked: whether Fish offers a free model or tier; settle from Fish's pricing page.
-- Kokoro speaks English voices only in Swarm's cast (engine/sound.mjs:16-27); the Japanese game lines go through Fish or ElevenLabs (games/ares/README.md:33).
+- Kokoro speaks English voices only in Swarm's cast (engine/sound.mjs:16-27); the Japanese game lines go through Fish or ElevenLabs (the ARES game's README, now in Pukujan/ares:33).
 - The first Kokoro run downloads the model by id at run time (engine/sound.mjs:36); README's "What it does on your machine" names HyperFrames and ffmpeg but not Kokoro or its model download (README.md:216). kokoro-js and every dependency are pinned by the lockfile (engine/voicetools/package-lock.json).
 - `voice.mjs` sends a `curl/8.7.1` user agent because Cloudflare in front of Fish refuses script agents (engine/voice.mjs:21-22), and defaults its vault to `octodb.design-bakery.com` (engine/voice.mjs:20).
 - A generated ElevenLabs track keeps its own length; cuts move to it instead (server/server.mjs:1159-1162).
@@ -57,5 +57,5 @@ Other uses:
 - AGENTS.md, docs/PRODUCT.md, docs/PLANS.md, docs/decisions/0002, 0003, 0011
 - docs/specs/15-prompt-films.md, 26-directed-films.md
 - engine/sound.mjs, score.mjs, voice.mjs, media.mjs, mediareader.mjs, musiccut.mjs, filmcritic.mjs, filmscore.mjs, storyboard.mjs, proc.mjs
-- server/server.mjs (lines 1121-1218, 1279, 1345-1360, 1545-1557, 1664-1665), launcher.py:219-223, plugin.yaml, README.md, FEATURES.md:59, games/ares/README.md:33
+- server/server.mjs (its sound parts), launcher.py:219-223, plugin.yaml, README.md, FEATURES.md:59, gamemaker/heroes.json (the workshop's voices)
 - https://github.com/hexgrad/kokoro/tree/main/kokoro.js (fetched 2026-11-12)

@@ -348,7 +348,7 @@ export async function bringFolder({ root, sub = '', runDir, caps = CAPS, signal,
   const app = join(runDir, 'app')
   rmSync(app, { recursive: true, force: true })
   await copyIn(from, app, m.files, { signal, onFile: n => step({ kind: 'setup', text: `copied ${n} of ${m.files.length} files` }) })
-  // a plan beside the folder (games/ares/plan.json for games/ares/web): looked for one folder up, never above `top`
+  // a plan beside the folder (a game's plan.json, one folder up from its web/): looked for one folder up, never above `top`
   // (the clone, or the person's home folder)
   const plan = planBeside(from, { above: from !== realpathSync(top) && inside(realpathSync(top), dirname(from)) })
   if (plan) writeFileSync(join(runDir, 'plan.json'), plan)

@@ -1,4 +1,4 @@
-"""The sheet cutter's key handling (games/ares/tools/sheets/cut.py): the three key colours,
+"""The sheet cutter's key handling (gamemaker/cut.py): the three key colours,
 their despill, and the key measured from the painted sheet. Needs numpy and scipy, which the
 build machine has and a bare CI runner may not: skipped without them."""
 import os
@@ -11,7 +11,7 @@ from PIL import Image, ImageDraw
 try:
     import numpy as np
     import scipy  # noqa: F401
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "games", "ares", "tools", "sheets"))
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "gamemaker"))
     import cut as sheet
 except ImportError:  # pragma: no cover
     sheet = None

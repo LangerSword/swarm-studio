@@ -307,6 +307,11 @@ export function playClip() {
       setText(clip.el.querySelector('.pc-key'), k ? k.k : '')
     })
   }
+  // The live app is the person's own screen to play on: the film belongs to the wall, and over Live it
+  // sat on top of the very game they had just opened (the person, 2026-11-16: "this is my live where i
+  // can play … the button right window having autoplay makes no sense"). No tile and Live showing: no card.
+  const live = stageOf().shown === 'live'
+  if (!tile && live) { if (clip.el) clip.el.hidden = true; return }
   const host = tile || appEls.preview
   // on screen it plays (web/video.js), within the page's budget; hidden or off screen, it is its poster
   if (clip.el.parentElement !== host) host.append(clip.el)

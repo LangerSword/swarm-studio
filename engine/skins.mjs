@@ -2,19 +2,19 @@
 // from that outfit's design picture with the same move list and layout rules as every
 // other outfit, then cut into frame strips and checked.
 //
-// The config (for ARES: games/ares/data/heroes.json) holds the contract under `sheet`
+// The config (the guided game maker's: gamemaker/heroes.json) holds the contract under `sheet`
 // (grid, layout, effect style), and per hero `art`: look, personality, extra
 // reference pictures, `outfits` ({id: {design}}) and `sheets` ({name: what the six
 // frames show}). Effect sheets live under `fx.sheets`. A new outfit is one design
 // picture plus one entry, then:
 //
-//   node engine/skins.mjs games/ares/data/heroes.json --hero runner [--outfit gala] [--only o-idle,o-run]
+//   node engine/skins.mjs gamemaker/heroes.json --hero runner [--outfit gala] [--only o-idle,o-run]
 //        [--from <folder of already painted <sheet>.png>] [--fx] [--dry]
 //
 // Painting goes through Hermes's own image tool, by way of the running studio server (POST
 // /api/hermes/image, which asks the attached Hermes bridge): Hermes picks the provider and keeps its
 // key. SWARM_STUDIO_URL is the server (default http://127.0.0.1:4319) and the token is read from
-// $HERMES_HOME/swarm-studio/token. Cutting runs games/ares/tools/sheets/cut.py (numpy, scipy, Pillow).
+// $HERMES_HOME/swarm-studio/token. Cutting runs gamemaker/cut.py (numpy, scipy, Pillow).
 // Output: <game>/assets/skins/<hero>/<outfit>/<sheet>.webp + .json, and pack.json.
 
 import { execFile } from './proc.mjs'
@@ -77,7 +77,7 @@ async function paint(job, { server = process.env.SWARM_STUDIO_URL || 'http://127
 
 async function cutSheet(src, job, py) {
   mkdirSync(dirname(job.out), { recursive: true })
-  const args = [join(here, '..', 'games', 'ares', 'tools', 'sheets', 'cut.py'), src, job.out]
+  const args = [join(here, '..', 'gamemaker', 'cut.py'), src, job.out]
   if (job.fx) args.push('--fx')
   const r = await run(py, args)
   const j = lastJson(r.out)

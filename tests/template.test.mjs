@@ -10,7 +10,8 @@ import { planFromAnswers, planPrice, editCard, card } from '../engine/plan.mjs'
 import { planTemplate, remixPlan, templateStore } from '../engine/template.mjs'
 import { planRoutes } from '../server/plans.mjs'
 
-const ARES = join(dirname(fileURLToPath(import.meta.url)), '..', 'games', 'ares', 'plan.json')
+// the built-in template's plan lives with the rest of the guided game maker's files (gamemaker/README.md)
+const ARES = join(dirname(fileURLToPath(import.meta.url)), '..', 'gamemaker', 'plan.json')
 
 test('the built-in ARES template remixes into a plan at the gate: 324 credits, 8 runs, its cards kept', () => {
   const t = JSON.parse(readFileSync(ARES, 'utf8'))
