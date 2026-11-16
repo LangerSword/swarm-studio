@@ -1,10 +1,11 @@
 # Godot 4
 
-Glue: engine/godotfirst.mjs, engine/port.mjs, engine/starters.mjs, engine/appjob.mjs, engine/playtest.mjs, engine/playtrace.mjs, engine/playcheck.mjs, engine/aiplayer.mjs, engine/talkplan.mjs, engine/planshape.mjs, starters/strategy-topdown/starter.json, starters/platformer-side/starter.json, starters/addons/swarm_rts/addon.json, starters/addons/feel_platform/addon.json, server/server.mjs#godot
-Status: optional (person connects)
+Glue: engine/godotfirst.mjs, engine/godotinstall.mjs, engine/port.mjs, engine/starters.mjs, engine/appjob.mjs, engine/playtest.mjs, engine/playtrace.mjs, engine/playcheck.mjs, engine/aiplayer.mjs, engine/talkplan.mjs, engine/planshape.mjs, starters/strategy-topdown/starter.json, starters/platformer-side/starter.json, starters/addons/swarm_rts/addon.json, starters/addons/feel_platform/addon.json, server/server.mjs#godot
+Status: optional (the person connects it, or asks the chat to install it)
 
-Godot is a game engine under the MIT licence (https://godotengine.org/license/, fetched 2026-11-12). Swarm does not ship or
-install it: it runs the person's own Godot 4 binary as a child process (engine/port.mjs:94, README.md:219).
+Godot is a game engine under the MIT licence (https://godotengine.org/license/, fetched 2026-11-12). Swarm does not ship it
+and never installs it by itself: it runs the person's own Godot 4 binary as a child process (engine/port.mjs `godotBin`),
+or the copy the person asked the game chat to install (engine/godotinstall.mjs; "Installing it", below).
 
 ## What it already does
 
@@ -22,7 +23,8 @@ install it: it runs the person's own Godot 4 binary as a child process (engine/p
 
 **Finding Godot.** `godotBin(env)` takes `SWARM_GODOT`, then `GODOT`, then `godot` / `godot4` on `PATH`
 (`godot.exe`, `godot4.exe`, `godot_console.exe` on Windows), then on macOS the app itself,
-`Godot.app/Contents/MacOS/Godot` in `/Applications` or `~/Applications` (engine/port.mjs:94-103). Godot's command-line
+`Godot.app/Contents/MacOS/Godot` in `/Applications` or `~/Applications`, and last the Studio's own copy,
+`<data folder>/godot/current.json` (`ownGodot`, only a path inside that folder) (engine/port.mjs `godotBin`). Godot's command-line
 docs name that binary inside the bundle ([Command line tutorial](https://docs.godotengine.org/en/stable/tutorials/editor/command_line_tutorial.html)).
 A Mac's Godot is an app, from godotengine.org or `brew install --cask godot`. Homebrew's `godot` link in `/opt/homebrew/bin`
 is missing from the `PATH` an app opened from the Dock gets, so `PATH` alone missed it (issue #405; CI's `checks-macos`
@@ -31,12 +33,39 @@ job installs the cask and checks that the app is found with `PATH=/usr/bin:/bin`
 
 **Not installed.** If the plan names Godot and none is found, the chat offers "Godot (install it first)" or "The
 browser for now" (engine/talkplan.mjs:218-219); the plan says to install Godot 4 (engine/planshape.mjs:365). At build
-time it falls back to the browser and says so in a step (engine/appjob.mjs:409-412). Swarm never downloads Godot (README.md:219).
+time it falls back to the browser and says so in a step (engine/appjob.mjs:409-412).
 Once a game plan is locked, the chat's next step asks the same thing with two buttons, **Install Godot 4** and
-**Browser is fine** (engine/gamestep.mjs `nextStep`). Install Godot 4 checks the computer again (`godotCheck` in
-server/server.mjs, passed to server/talk.mjs); if Godot is still missing it says where to get it and offers
-**Check again**. Browser is fine sets the plan's engine to the browser, by the person, and keeps the plan locked
-when that costs no credits.
+**Browser is fine** (engine/gamestep.mjs `nextStep`). Browser is fine sets the plan's engine to the browser, by the
+person, and keeps the plan locked when that costs no credits.
+
+**Installing it** (owner, 2026-11-15: "not installing dependencies" was broken; engine/godotinstall.mjs,
+server/talk.mjs `do:godot`, server/server.mjs `godotJob`). Only the press of **Install Godot 4**, or "install godot"
+typed at that question, starts it: never the start of the Studio, never a build, and never "go" or "yes". It looks
+first (`godotCheck`): a Godot the person already has is used as it is. Then, in order:
+1. macOS with Homebrew (`brew` on `PATH`, or in `/opt/homebrew/bin` or `/usr/local/bin`): `brew install --cask godot`,
+   the route this page already names, into `/Applications`. Homebrew picks the version (not pinned by Swarm). It runs
+   with no terminal and `SUDO_ASKPASS=/usr/bin/false`, so a password it wants is refused, not asked for; then route 2,
+   and the chat says so. Unchecked: never run for real by Swarm's tests (the installer is stood in).
+2. Every platform: the editor archive of one pinned release, **4.7.2-stable**, from the Godot project's GitHub
+   releases (`https://github.com/godotengine/godot/releases/download/4.7.2-stable/`, which GitHub redirects to its
+   release-asset host): `Godot_v4.7.2-stable_macos.universal.zip` (171 MB), `…_linux.x86_64.zip`, `…_linux.arm64.zip`,
+   `…_win64.exe.zip`, `…_windows_arm64.exe.zip`. The file's size and SHA-512 must equal the ones recorded in `GODOT.files`,
+   which are that release's own `SHA512-SUMS.txt` (read 2026-11-15), before anything opens it. It is unpacked with the
+   system's tool (`ditto` on macOS, `tar` on Windows, `unzip` on Linux) into `<data folder>/godot/4.7.2/`, and
+   `current.json` beside it names the program. Nothing is written outside the data folder; no sudo, no password.
+   Another kind of computer gets one line: get it from godotengine.org, then Check again. Unchecked: the Linux
+   and Windows archives were never run by Swarm (only the macOS one, below); the program names inside them
+   (`Godot_v4.7.2-stable_linux.x86_64`, `…_win64_console.exe`) are from Godot's naming, and `binIn` falls back to the
+   one `Godot_v…` file it finds.
+"Installed" means it ran: `--version` must answer 4.x from where it was put, else the folder is removed. One install
+runs at a time for the whole Studio (`godotJob`); it counts as work, so the server does not idle out or replace itself
+under it. The chat's turn waits on it (`wait`, with `install`): Hermia's working line says the route, the size and
+the percent, and when it ends the chat gets one more turn (`settle`): "Godot 4.7.2 is installed: …" and the plan's real
+next step, or "Nothing happened: <reason>." with **Try again**, **Check again** and **Browser is fine**. **Check
+again** (`do:godot:check`, or "check again", "I installed it") only looks. winget on Windows is not used: not built,
+since it could not be run or checked here. Run once for real on an Apple-silicon Mac (2026-11-15, the archive route into a throwaway data folder): 12 s, 337 MB
+unpacked, `--version` answered `4.7.2.stable.official.ed1daf0bf`, found by `godotBin`, nothing in `/Applications`.
+Not installed by this: Godot's export templates (below), so a Web export still needs them.
 
 **Two paths.**
 1. **Godot-first** (the big game): `godotFirst(spec)` is true when the spec's target, answers or `starter.engine`
@@ -114,8 +143,8 @@ Godot in it (games/ares/web/ENGINE.md:1-10).
 
 ## What the person connects
 
-- The Godot 4 editor binary, on `PATH` as `godot`/`godot4` or named by `SWARM_GODOT` or `GODOT` (engine/port.mjs:94-98, launcher.py `KEEP_ENV`). The prompts target 4.7 (engine/godotfirst.mjs:138); the starters say 4.3+ (starters/addons/swarm_rts/addon.json:7).
-- Godot's Web export templates, matching the editor version exactly (gameskills/gamedev/godot-export/SKILL.md:27-29, 98-99). Unchecked: Swarm has no code that installs or checks them (no match for "template" in engine/godotfirst.mjs); a missing template should surface as the `exportWeb` error. A real run without templates would settle it.
+- The Godot 4 editor binary, on `PATH` as `godot`/`godot4` or named by `SWARM_GODOT` or `GODOT` (engine/port.mjs:94-98, launcher.py `KEEP_ENV`), or installed from the game chat ("Installing it", above: 4.7.2). The prompts target 4.7 (engine/godotfirst.mjs:138); the starters say 4.3+ (starters/addons/swarm_rts/addon.json:7).
+- Godot's Web export templates, matching the editor version exactly (gameskills/gamedev/godot-export/SKILL.md:27-29, 98-99). Unchecked: Swarm has no code that installs or checks them (no match for "template" in engine/godotfirst.mjs; the chat's install is the editor only: the templates are a separate 1.28 GB file of the same release); a missing template should surface as the `exportWeb` error. A real run without templates would settle it.
 - For the play test: the `playwright` package (from the plugin, `PLAYWRIGHT_DIR`, or dyad's `node_modules`) and a Chromium (Playwright's, installed Chrome, or a cached headless shell) (engine/playtest.mjs:18-42).
 - No keys and no Hermes connector are needed for Godot (plugin.yaml:11-57 lists none).
 
@@ -142,6 +171,7 @@ Godot in it (games/ares/web/ENGINE.md:1-10).
 
 - AGENTS.md, docs/PRODUCT.md, docs/PLANS.md, docs/decisions/README.md, 0002, 0003, 0010, 0011
 - ../../../DECISIONS.md (hackathon folder), lines 43, 95, 250
+- engine/godotinstall.mjs, tests/godotinstall.test.mjs, tests/rankjuggler.test.mjs; https://github.com/godotengine/godot/releases/tag/4.7.2-stable and its SHA512-SUMS.txt (read 2026-11-15)
 - engine/godotfirst.mjs, engine/port.mjs, engine/starters.mjs, engine/game.mjs, engine/playtest.mjs, engine/playcheck.mjs, engine/appjob.mjs, engine/talkplan.mjs, engine/planshape.mjs, engine/skins.mjs and engine/voice.mjs (no Godot code)
 - server/server.mjs:1450-1457, launcher.py:196-228, plugin.yaml, README.md:66, 205-230
 - starters/*/starter.json, starters/platformer-side/CREW.md, starters/addons/*/addon.json, starters/addons/swarm_rts/README.md

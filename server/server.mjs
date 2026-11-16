@@ -108,6 +108,9 @@ import { idleOptions, optionOf, idleKey, priceOk, idleStartName, idlePrompt, idl
 import { heavyConfig, runHeavy, interpOf } from '../engine/heavy.mjs'
 import { makeImages } from '../engine/images.mjs'
 import { snapStore } from './snaps.mjs'
+// engine: godot
+import { installGodot, godotJob as godotJobOf, fileFor as godotFile, GODOT } from '../engine/godotinstall.mjs'
+// end engine: godot
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const BOOTED = Date.now()
@@ -1805,9 +1808,23 @@ planPaint.ready = async () => !!ckffCreds() || !!(await imageChoice())
 // whether Godot 4 is on this machine (engine/port.mjs loads the game modules, so it is read once, late)
 let godotHere
 let godotBinOf = null
-import('../engine/port.mjs').then(m => { godotBinOf = m.godotBin; godotHere = !!m.godotBin() }).catch(() => {})
-// "Install Godot 4" in the planner chat looks again (the person may have just installed it); Swarm never downloads it
-const godotCheck = () => { if (godotBinOf) godotHere = !!godotBinOf(); return !!godotHere }
+import('../engine/port.mjs').then(m => { godotBinOf = m.godotBin; godotHere = godotStandIn.on ? godotStandIn.found : !!m.godotBin() }).catch(() => {})
+// "Check again" in the planner chat looks again (the person may have just installed it themselves)
+const godotCheck = () => { if (godotStandIn.on) godotHere = godotStandIn.found; else if (godotBinOf) godotHere = !!godotBinOf(); return !!godotHere }
+// "Install Godot 4" there installs it (engine/godotinstall.mjs): only when the person presses it or types it, one
+// install at a time, and it counts as work so the server neither idles out nor replaces itself under it.
+// SWARM_WALK_GODOT ("fail,ok") is the walkthrough's stand-in (scripts/walkthrough-chat.mjs): each install waits a
+// few seconds and ends as the list says (failed, once the list is used up), this computer counts as having no
+// Godot until one ends ok, and nothing is downloaded or run. The launcher never passes that name
+// (launcher.py KEEP_ENV, engine/proc.mjs SERVER_ENV), so a Studio opened from Hermes is never in it.
+const godotStandIn = { on: !!process.env.SWARM_WALK_GODOT, ends: String(process.env.SWARM_WALK_GODOT || '').split(',').filter(Boolean), found: false }
+const godotJob = godotJobOf({ install: ({ onProgress }) => godotStandIn.on
+  ? new Promise(done => {
+    const ok = godotStandIn.ends.shift() === 'ok'
+    onProgress({ route: 'archive', mb: Math.round((godotFile()?.size || 0) / 1e6), pct: 40 })
+    setTimeout(() => { if (ok) godotStandIn.found = godotHere = true; done(ok ? { ok, route: 'archive', version: GODOT.version } : { ok, route: 'archive', why: 'this computer could not reach github.com' }) }, 6000)
+  })
+  : installGodot({ dataDir, find: () => godotBinOf?.() || null, onProgress, log: line => console.log(`swarm studio: ${line}`) }) })
 // end engine: godot
 // engine: godot
 // engine: meshy
@@ -1823,7 +1840,7 @@ const plans = planRoutes({
 // The planner conversation (docs/specs/27-plan-conversation.md): decide together in the left chat, then lock.
 // A locked game chat makes its plan through the Plan board's routes above.
 const talks = talkRoutes({
-  dataDir, plans, helpers: () => helpers, env: () => ({ godot: godotHere }), godotCheck,
+  dataDir, plans, helpers: () => helpers, env: () => ({ godot: godotHere, install: godotJob.state() }), godotCheck, godotInstall: godotJob,
   model: () => models.planner.apiKey && modelFor('planner') ? async messages => (await streamChat(provider('planner'), {
     trace: { kind: 'talk' }, model: modelFor('planner'), maxTokens: 700, temperature: 0.3, signal: AbortSignal.timeout(60000),
     extra: { reasoning_effort: 'none', reasoning: { enabled: false } }, messages
@@ -4962,6 +4979,9 @@ for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, shutdown)
 function workRunning() {
   if ((current && !current.done) || (current?.working.size || 0) > 0 || auto.state()?.state === 'working') return true
   if ([...videos.values()].some(v => v.state === 'working') || [...publishes.values()].some(p => p.state === 'working') || sourceRoute.busy()) return true
+  // engine: godot
+  if (godotJob.busy()) return true
+  // end engine: godot
   return !!appsNow?.busy()
 }
 function serverBusy() { return clients.size > 0 || workRunning() }

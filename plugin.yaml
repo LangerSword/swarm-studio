@@ -8,6 +8,14 @@ kind: standalone
 #   thumbhash, pinned to exactly 0.1.1 (MIT), from engine/imagetools/package-lock.json (integrity recorded) into
 #   $HERMES_HOME/swarm-studio/image-tools/ with
 #   `npm ci --ignore-scripts`: nothing is compiled and no install script runs. SWARM_IMAGE_SERVICE=0 turns it off.
+# - Godot 4, only when the person presses "Install Godot 4" in a game plan's chat (or types "install godot"), never
+#   by itself (engine/godotinstall.mjs, docs/engines/godot.md): on macOS with Homebrew, `brew install --cask godot`
+#   (Homebrew's version, into /Applications; run with no terminal, so a password is refused, never asked for);
+#   otherwise the Godot editor pinned to exactly 4.7.2-stable (MIT) from
+#   https://github.com/godotengine/godot/releases/download/4.7.2-stable/ (GitHub's release-asset host), its size and
+#   SHA-512 checked against that release's published sums before it is opened, unpacked into
+#   $HERMES_HOME/swarm-studio/godot/4.7.2/ and run once with --version (that route writes nothing outside the data
+#   folder). No sudo and no password on either route.
 # Hermes tools it calls (bridge.py, through ctx.dispatch_tool; no key of its own), only when the person asks:
 # - web_search and web_extract, for the planner's research step (engine/research.mjs): only when the person's words
 #   ask to look something up, they press Research, or they ask in a talk (the planner's web_research tool: cards to

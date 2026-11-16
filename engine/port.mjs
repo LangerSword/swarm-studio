@@ -9,6 +9,8 @@ import { execFile } from './proc.mjs'
 import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs'
 import { delimiter, join, relative } from 'node:path'
 import { homedir } from 'node:os'
+import { fileURLToPath } from 'node:url'
+import { ownGodot } from './godotinstall.mjs'
 import { skillText } from './game.mjs'
 import { castPrompt, cleanCast } from './cast.mjs'
 
@@ -93,13 +95,15 @@ export function checkPort(dir, target) {
 
 // A Godot binary to check ports with: SWARM_GODOT or GODOT, else godot / godot4 on PATH, else on macOS the
 // app itself (Godot.app/Contents/MacOS/Godot in /Applications or ~/Applications): a Mac's Godot is an app,
-// and an app opened from the Dock gets a PATH without Homebrew's folder.
+// and an app opened from the Dock gets a PATH without Homebrew's folder. Last, the copy the Studio installed
+// itself when the person asked for it in the chat (engine/godotinstall.mjs), in its data folder.
+const DATA = fileURLToPath(new URL('..', import.meta.url))
 export const godotApps = (home = homedir()) => ['/Applications', join(home, 'Applications')].map(d => join(d, 'Godot.app', 'Contents', 'MacOS', 'Godot'))
 export function godotBin(env = process.env, apps = process.platform === 'darwin' ? godotApps(env.HOME || homedir()) : []) {
   for (const k of ['SWARM_GODOT', 'GODOT']) if (env[k] && existsSync(env[k])) return env[k]
   const exe = process.platform === 'win32' ? ['godot.exe', 'godot4.exe', 'godot_console.exe'] : ['godot', 'godot4']
   for (const d of String(env.PATH || env.Path || '').split(delimiter).filter(Boolean)) for (const n of exe) if (existsSync(join(d, n))) return join(d, n)
-  return apps.find(a => existsSync(a)) || null
+  return apps.find(a => existsSync(a)) || ownGodot(env.SWARM_DATA_DIR || DATA)
 }
 
 // Godot's own errors from output lines: script and parse errors, failed loads
