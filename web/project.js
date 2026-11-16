@@ -4,22 +4,25 @@
 // sections on one dotted canvas; selecting one opens the inspector, double-clicking opens its
 // room. A selected page's sections can be picked too (a click on the page, or the Layers panel):
 // the inspector then edits that one by hand (words, fill, type, spacing, pictures, code), and
-// "Tell the crew…" changes just it. Edits are saved edit events, so they undo and reach everyone.
+// the chat's box, with that section picked, changes just it. Edits are saved edit events, so they undo and reach everyone.
 // The old line about rooms continues:
 // // room (Design deck, Film studio, Engine room). Files dropped from Finder land in the project's
-// uploads/ and go to the crew with the next build. The dock: tools and "Tell the crew…".
+// uploads/ and go to the crew with the next build. The dock: tools only. The chat on the left is the one
+// place to type (owner, 2026-11-15): its box sends through say() below, with the selection.
 // A selected page's sections can be picked too (a click on the page, or the Layers panel): the
 // inspector then edits that one by hand (words, fill, type, spacing, pictures, its code), and
-// "Tell the crew…" changes just it. Each change is a saved edit event, so it undoes, replays and
+// the chat's box changes just it. Each change is a saved edit event, so it undoes, replays and
 // reaches anyone else on the same build (room for working together later).
 import { ic, cursor, CREW, PAINTERS, REVIEWER, painterOf } from './icons.js'
-import { routeMessage } from './route.js'
+import { routeMessage, toApp, seoAsk } from './route.js'
 import { swEdit } from './edit/patches.js'
+import { refDrop } from './refdrop.js'
 import { setVideoHtml } from './video.js'
 import { layerSheet } from './layers.js'
-import { matchHtml, matchWire, lookBusy } from './lookmatch.js'
+import { matchHtml, matchWire, lookBusy, refRows } from './lookmatch.js'
 import { storyLane } from './story.js'
 import { REF_FROM, fmtTime, clamp01, ptsPath } from './project-parts.js'
+import { revealLabel } from './reveal.js'
 
 const SECTIONS = [['site', 'Site'], ['story', 'Story'], ['app', 'App'], ['game', 'Game'], ['film', 'Film'], ['art', 'Art'], ['uploads', 'Uploads'], ['refs', 'References'], ['code', 'Code']]
 
@@ -49,17 +52,17 @@ export function makeProject({ sw, C, root }) {
   root.hidden = true
   root.innerHTML = `
     <aside class="pj-side" aria-label="Files">
-      <div class="pj-tabs" role="tablist"><button class="pj-tab on" data-tab="files" role="tab">Files</button><button class="pj-tab" data-tab="layers" role="tab">Layers</button>
+      <div class="pj-tabs">
+        <div class="pj-tablist" role="tablist"><button class="pj-tab on" data-tab="files" role="tab" aria-selected="true">Files</button><button class="pj-tab" data-tab="layers" role="tab" aria-selected="false">Layers</button></div>
         <button class="ib sm pj-find" aria-label="Search">${ic('search', 16)}</button><button class="ib sm pj-add" aria-label="Add" aria-haspopup="menu">${ic('plus', 16)}</button></div>
       <label class="pj-search" hidden><input type="search" placeholder="Search" aria-label="Search files"></label>
       <form class="pj-search pj-link" hidden autocomplete="off"><input type="text" inputmode="url" name="u" placeholder="Paste a link" aria-label="Reference link" maxlength="1000"></form>
-      <div class="pj-list" role="tree"></div>
+      <div class="pj-list"></div>
       <div class="pj-layers" hidden></div>
     </aside>
     <div class="pj-stage" tabindex="-1" aria-label="Overview">
       <div class="pj-world"></div>
       <div class="pj-cursors" aria-hidden="true"></div>
-      <div class="pj-drop" hidden><span>${ic('upload', 22)}</span></div>
     </div>
     <aside class="pj-insp" hidden aria-label="Inspector"></aside>
     <div class="pj-dock">
@@ -72,13 +75,24 @@ export function makeProject({ sw, C, root }) {
       <button class="ib" data-tool="text" aria-label="New page">${ic('type')}</button>
       <button class="ib" data-tool="image" aria-label="Upload files">${ic('image')}</button>
       <button class="ib" data-tool="comment" aria-label="Chat">${ic('msg')}</button>
-      <form class="pj-ask" autocomplete="off"><button type="button" class="pj-scope" hidden aria-label="Talk to the crew about the whole project"><span></span>${ic('x', 12)}</button><button type="button" class="pj-scope pj-mkchip" hidden aria-label="Clear the marks"><span></span>${ic('x', 12)}</button><input name="q" placeholder="Tell the crew…" aria-label="Tell the crew" maxlength="4000"><button type="submit" class="pj-send" aria-label="Send">${ic('up', 16)}</button></form>
     </div>
     <input type="file" class="pj-file" multiple hidden>
     <input type="file" class="pj-reffile" multiple hidden accept="image/*,video/*,audio/*,.pdf,.txt,.md">`
   const $ = s => root.querySelector(s)
   const listEl = $('.pj-list'), layersEl = $('.pj-layers'), stage = $('.pj-stage'), world = $('.pj-world'), insp = $('.pj-insp'), curEl = $('.pj-cursors')
-  const ask = $('.pj-ask'), input = ask.q, fileIn = $('.pj-file')
+  const fileIn = $('.pj-file')
+  // The chat's box is the Overview's one text box. What it is about sits with it: the picked section
+  // ("About <section>", × goes back to the whole project) and the unsent marks ("n marks", × clears them).
+  const box = () => /** @type {HTMLTextAreaElement | null} */ (document.getElementById('brief'))
+  const chips = document.createElement('div')
+  chips.className = 'lchips pj-chips'
+  chips.hidden = true
+  chips.innerHTML = `<button type="button" class="pj-scope" hidden aria-label="Talk to the crew about the whole project"><span></span>${ic('x', 12)}</button><button type="button" class="pj-scope pj-mkchip" hidden aria-label="Clear the marks"><span></span>${ic('x', 12)}</button>`
+  document.getElementById('brief-form')?.prepend(chips)
+  const scopeEl = chips.querySelector('.pj-scope'), markChip = chips.querySelector('.pj-mkchip')
+  // the rooms share that box: the chips show only while the Overview is the room
+  const paintChips = () => { chips.hidden = !P.on || (scopeEl.hidden && markChip.hidden) }
+  const toChat = () => { C.chat(true); box()?.focus() }
 
   // ---------- the top bar: Projects › name ▾ (the crew show as named cursors on the board while they work)
   const crumb = document.createElement('div')
@@ -120,6 +134,8 @@ export function makeProject({ sw, C, root }) {
     for (const k of P.pendingKeys) if (!now.has(k) && board?.art?.some(a => `art:${a.page}/${a.layer}/${a.gen}` === k)) { P.landed.set(k, Date.now()); setTimeout(() => { P.landed.delete(k); P.standin.delete(k.split('/').slice(2).join('/')); if (P.on) renderStage() }, 1600) }
     P.pendingKeys = now
     P.board = board; P.boardOf = run
+    // the chat is open beside the Overview: its box follows the build that is now open (web/chatmode.js)
+    sw.chatBox?.()
     // the pages' saved snapshots paint at once, before the canvas behind has drawn anything
     fromDisk(board?.snaps)
     // a site and the game made from it are two runs of one version: the rooms switch between them
@@ -152,9 +168,13 @@ export function makeProject({ sw, C, root }) {
     const g = {}
     if (b.pages?.length) g.site = b.pages.flatMap(p => [{ key: `page:${p.id}`, kind: 'page', name: p.title?.split(/\s[—–|:-]\s/)[0] || p.id, full: p.title, page: p.id, src: P.thumbs.get(p.id) || p.cover, sharp: P.sharp.get(p.id), snap: P.thumbs.has(p.id), cover: p.cover, plan: p.plan }, ...draftsOf(p.id)])
     lane.into(g)
-    if (b.app) g.app = [{ key: 'app', kind: 'app', name: 'App' }]
-    if (b.game) g.game = [{ key: 'game', kind: 'game', name: b.game.title, pitch: b.game.pitch || '', src: b.game.cover, run: b.game.run || null, work: b.game.work || null }]
+    // an app is on the board from its start, built or not: its one state (engine/kindstate.mjs, the board's
+    // `parts`) says which, as the game's and the film's do
+    if (b.app) g.app = [{ key: 'app', kind: 'app', name: 'App', part: b.parts?.app || null }]
+    if (b.game) g.game = [{ key: 'game', kind: 'game', name: b.game.title, pitch: b.game.pitch || '', src: b.game.cover, run: b.game.run || null, work: b.game.work || null, part: b.game.part || null }]
     if (b.films?.length) g.film = b.films.map((f, i) => ({ key: `film:${i}`, kind: 'film', name: f.name, src: f.poster, video: f.src, seconds: f.seconds }))
+    // a film being made, or one that failed or was stopped with none made before: it is on the board too
+    else if (b.parts?.film && b.parts.film.state !== 'done') g.film = [{ key: 'film:0', kind: 'film', name: 'Promo', part: b.parts.film }]
     const arts = (b.art || []).map(a => ({ key: `art:${a.page}/${a.layer}/${a.gen}`, kind: 'art', name: a.name.replace(/^\w/, c => c.toUpperCase()), src: a.src, used: a.used?.split(/\s[—–|:-]\s/)[0], style: a.style, art: a }))
     // pictures still being made: a slot of their own (or over the old picture, when one is painted again)
     for (const w of b.painting || []) {
@@ -202,7 +222,7 @@ export function makeProject({ sw, C, root }) {
     const g = groups()
     listEl.innerHTML = SECTIONS.filter(([k]) => g[k]).map(([k, label]) => {
       const shut = P.open[k] === false || (k === 'code' && !P.open[k])
-      const rows = shut ? '' : g[k].map(x => `<div class="row${P.sel === x.key ? ' on' : ''}" role="treeitem" tabindex="0" data-key="${esc(x.key)}" draggable="false">${thumbHtml(x)}<span class="nm">${esc(x.name)}</span>${x.sending != null ? `<span class="ring" style="--p:${Math.round(x.sending * 100)}%" role="progressbar" aria-label="Uploading" aria-valuenow="${Math.round(x.sending * 100)}"></span>` : ''}</div>`).join('')
+      const rows = shut ? '' : g[k].map(x => `<div class="row${P.sel === x.key ? ' on' : ''}" tabindex="0" data-key="${esc(x.key)}" draggable="false">${thumbHtml(x)}<span class="nm">${esc(x.name)}</span>${x.sending != null ? `<span class="ring" style="--p:${Math.round(x.sending * 100)}%" role="progressbar" aria-label="Uploading" aria-valuenow="${Math.round(x.sending * 100)}"></span>` : ''}</div>`).join('')
       return `<div class="sec" data-sec="${k}"><button class="sec-h" aria-expanded="${!shut}">${ic(shut ? 'chr' : 'chd', 14)}<span>${label}</span>${k === 'code' ? '' : `<span class="n">${g[k].length}</span>`}</button>${rows}</div>`
     }).join('')
   }
@@ -240,6 +260,27 @@ export function makeProject({ sw, C, root }) {
       return `<i class="${first ? 'hero' : b.i % 2 ? 'odd' : ''}${b.l.done ? ' done' : ''}" style="top:${(b.top * 100).toFixed(2)}%;height:${(b.h * 100).toFixed(2)}%"${first ? hero : ''}><b></b></i>`
     }).join('')}</div>`
   }
+  // A page of a build that ended or stopped with sections failed or left (the board's `build`, the server's one
+  // state of it, engine/buildstate.mjs): its artboard says so, with the one way on, the way a picture that did
+  // not come does (painting(), "no picture · Try again"). Nothing while the build runs: those are still coming.
+  const LEFT = ['partly', 'failed', 'stopped', 'halted', 'replaced', 'unsure']
+  function leftTag(x) {
+    const b = P.board?.build
+    if (!b || P.board.live || !LEFT.includes(b.state) || !x.plan?.length) return ''
+    const failed = x.plan.filter(l => l.failed).length, left = x.plan.filter(l => !l.done).length
+    if (!left) return ''
+    const n = failed || left
+    // one Resume for the build, on the first page with something left: every page keeps its own tag, and the
+    // button is not said again on each (they all did the same thing)
+    const first = P.board.pages?.find(p => p.plan?.some(l => !l.done))?.id === x.page
+    const resume = first && b.next === 'resume' && !hosted() ? `<button class="pt-again" data-resume="${esc(P.run || '')}">${ic('restore', 12)}Resume</button>` : ''
+    return `<span class="pt-tag${resume ? ' act' : ''}"><b>${failed ? 'Failed' : 'Stopped'}</b>${n} section${n === 1 ? '' : 's'}${failed ? '' : ' left'}</span>${resume}`
+  }
+  // An app's, a game's or a film's artboard says its one state in a word, in the picture-failed tag: an app that
+  // is designed and not built, a build or a film that failed or was stopped, a game waiting for its person
+  const PART_TAG = { designed: 'Designed', failed: 'Failed', stopped: 'Stopped', waiting: 'Your turn' }
+  const partTag = x => (x.part && PART_TAG[x.part.state] && !(x.kind !== 'app' && x.part.state === 'designed') ? `<span class="pt-tag"><b>${PART_TAG[x.part.state]}</b></span>` : '')
+  const partWork = x => (!x.work && (x.part?.state === 'building' || x.part?.state === 'making') ? workBar({ what: x.kind, pct: null }) : '')
   // a piece still being made: a thin bar along its foot (it slides when the job cannot say how far)
   const WORK = { site: 'the site', app: 'the app', game: 'the game', film: 'the film' }
   function workBar(w) {
@@ -254,14 +295,17 @@ export function makeProject({ sw, C, root }) {
     const img = x.kind === 'page' && !x.snap ? skeleton(x)
       : x.src ? `<img src="${esc(picNow(full, low))}" data-full="${esc(full)}"${low !== full ? ` data-low="${esc(low)}"` : ''} alt="" draggable="false" loading="lazy" decoding="async">${x.kind === 'page' ? skeleton(x, true) : ''}`
       : typeCover(x) || `<span class="blank">${ic({ page: 'site', app: 'code', game: 'game', film: 'film', story: 'film', upload: 'file', code: 'code', ref: x.ref?.kind === 'link' ? 'ext' : 'file' }[x.kind] || 'file', 26)}</span>${x.kind === 'ref' && !x.src ? `<span class="ab-cap">${esc(x.name)}</span>` : ''}`
-    const extra = x.kind === 'film' ? `<span class="play"></span>${x.seconds ? `<span class="dur">${fmtTime(x.seconds)}</span>` : ''}`
-      : x.kind === 'game' ? `${x.work ? workBar(x.work) : '<span class="play"></span>'}<span class="ab-cap">${esc(x.name)}</span>`
+    const extra = x.kind === 'film' ? (x.video ? `<span class="play"></span>${x.seconds ? `<span class="dur">${fmtTime(x.seconds)}</span>` : ''}` : `${partWork(x)}${partTag(x)}`)
+      : x.kind === 'app' ? `${partWork(x)}${partTag(x)}`
+      // a game's artboard wears its state too: "Game · Your turn" on a big game waiting after a slice, Failed,
+      // Stopped (the App artboard already did; the Game one said nothing, #647)
+      : x.kind === 'game' ? `${x.work ? workBar(x.work) : partWork(x) || '<span class="play"></span>'}${partTag(x)}<span class="ab-cap">${esc(x.name)}</span>`
         : x.sending != null ? `<span class="upl"><i style="width:${Math.round(x.sending * 100)}%"></i></span>` : ''
     const tall = x.kind === 'page' && ((x.snap && P.aspect.get(x.page)) || (!x.snap && planRatio(x)))
     if (x.kind === 'draft') return draftBoard(x, sel, img)
     const rv = x.kind === 'page' ? reviewOf(x) : null
     const work = x.kind === 'art' && (x.pending || P.landed.has(x.key)) ? painting(x) : ''
-    return `<div class="ab ${x.kind}${x.kind === 'story' ? ` st-${x.shape}${x.pending || lane.writing() ? ' st-wait' : ''}` : x.pending ? ` pt-${x.pending.state}` : ''}${rv ? ` rv-${rv.state}` : ''}" data-key="${esc(x.key)}" tabindex="-1"${tall ? ` style="height:${pageH(tall)}px"` : ''}>${x.pending && !x.src && x.kind !== 'story' ? '' : img}${work}${extra}${x.kind === 'page' ? `<div class="lys">${outline(x)}</div>${rv ? reviewMarks(x, rv) : ''}<svg class="mk" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true">${markPaths(x.page)}</svg>` : ''}${sel}</div>`
+    return `<div class="ab ${x.kind}${x.kind === 'story' ? ` st-${x.shape}${x.pending || lane.writing() ? ' st-wait' : ''}` : x.pending ? ` pt-${x.pending.state}` : ''}${rv ? ` rv-${rv.state}` : ''}" data-key="${esc(x.key)}" tabindex="-1"${tall ? ` style="height:${pageH(tall)}px"` : ''}>${x.pending && !x.src && x.kind !== 'story' ? '' : img}${work}${extra}${x.kind === 'page' ? `<div class="lys">${outline(x)}</div>${rv ? reviewMarks(x, rv) : ''}<svg class="mk" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true">${markPaths(x.page)}</svg>${leftTag(x)}` : ''}${sel}</div>`
   }
   // ---------- Scribble (spec 29): marks on a page's artboard, kept as fractions of the page
   // a page's artboard shows at most 9 widths of it: y on the artboard = y on the page × this
@@ -276,11 +320,13 @@ export function makeProject({ sw, C, root }) {
     const sent = [...P.sent.values()].filter(m => m.page === page && m.run === P.run && m.status === 'open')
     return [...sent.map(m => [m, 'sent']), ...mine.map(m => [m, ''])].map(([m, cls]) => { const d = markD(m); return `<g data-mk="${esc(m.id)}" data-sent="${cls ? 1 : ''}" class="${cls}"><path class="hit" d="${d}"/><path class="halo" d="${d}"/><path class="ln" d="${d}"/></g>` }).join('')
   }
+  const markWords = n => `${n} mark${n > 1 ? 's' : ''}`
   function drawMarks() {
     for (const a of world.querySelectorAll('.ab.page')) { const x = find(a.dataset.key), svg = a.querySelector('.mk'); if (x && svg) svg.innerHTML = markPaths(x.page) }
-    const n = P.marks.filter(m => m.run === P.run).length, chip = $('.pj-mkchip')
-    chip.hidden = !n
-    if (n) chip.querySelector('span').textContent = `${n} mark${n > 1 ? 's' : ''}`
+    const n = P.marks.filter(m => m.run === P.run).length
+    markChip.hidden = !n
+    if (n) markChip.querySelector('span').textContent = markWords(n)
+    paintChips()
   }
   function setTool(t) {
     P.tool = P.tool === t && t !== 'move' ? 'move' : t
@@ -461,26 +507,29 @@ export function makeProject({ sw, C, root }) {
       ...(x.kind === 'draft' ? (x.draft.marks || []).map(id => P.reads.get(id)).filter(Boolean).map(r => [r.mark, r.read]) : []),
       x.kind === 'ref' && ['From', REF_FROM[x.ref.source] || x.ref.source],
       x.kind === 'ref' && x.ref.use && ['Use', x.ref.use],
-      x.kind === 'ref' && x.ref.kind === 'link' && ['Link', x.ref.url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 60)]
+      // a link's address; which references this build was given (issue #543), on its pages and on each reference
+      ...refRows(x, P.board)
     ].filter(Boolean)
     const pv = x.kind === 'film' && x.video ? `<video data-src="${esc(base() + x.video)}"${x.src ? ` data-poster="${esc(base() + x.src)}"` : ''} controls playsinline></video>`
       : x.src ? `<img src="${esc(x.src.startsWith('data:') ? x.src : base() + x.src)}" alt="">` : typeCover(x) ? `<div class="pv-tc">${typeCover(x)}</div>` : `<span class="blank">${ic('file', 28)}</span>`
     const btns = [
       ['page', 'game', 'app', 'code', 'film', 'art'].includes(x.kind) && `<button class="btn ghost" data-act="open">${ic('ext', 15)}Open</button>`,
-      (x.kind === 'art' || (x.kind === 'upload' && x.sending == null) || x.kind === 'film') && `<button class="btn ghost" data-act="export">${ic('download', 15)}Export</button>`,
+      (x.kind === 'art' || (x.kind === 'upload' && x.sending == null) || (x.kind === 'film' && x.video)) && `<button class="btn ghost" data-act="export">${ic('download', 15)}Export</button>`,
       x.kind === 'page' && `<button class="btn ghost" data-act="zip">${ic('download', 15)}Export</button>`,
       (x.kind === 'art' || (x.kind === 'upload' && x.sending == null)) && !hosted() && `<button class="btn ghost" data-act="replace">${ic('upload', 15)}Replace</button>`,
       x.kind === 'draft' && !x.pending && `<button class="btn" data-act="draft-accept">${ic('check', 15)}Accept</button>`,
       x.kind === 'draft' && !x.pending && `<button class="btn ghost" data-act="draft-dismiss">${ic('x', 15)}Dismiss</button>`,
       x.kind === 'ref' && `<button class="btn ghost" data-act="open">${ic('ext', 15)}Open</button>`,
-      x.kind === 'ref' && !hosted() && `<button class="btn ghost" data-act="ref-remove">${ic('trash', 15)}Remove</button>`
+      x.kind === 'ref' && !hosted() && `<button class="btn ghost" data-act="ref-remove">${ic('trash', 15)}Remove</button>`,
+      // narrow panes: the dock is under this sheet, so what the chat can change (a page, a picture) opens it from here
+      (x.kind === 'page' || x.kind === 'art') && `<button class="btn ghost pj-tochat" data-act="chat">${ic('msg', 15)}Chat</button>`
     ].filter(Boolean).join('')
     // Use for…: the crew get the reference and the part it is for, like a comment on that section
     const useFor = x.kind === 'ref' && !hosted() && P.board ? `<form class="pj-use" autocomplete="off"><input name="u" placeholder="Use for…" aria-label="Use for" maxlength="80" value="${esc(x.ref.use || '')}"><button class="btn" type="submit">Send</button></form>` : ''
     const secs = x.kind === 'page' && sw.layers ? sw.layers.list(x.page) : []
     const secHtml = secs.length ? `<div class="pj-secs" role="list" aria-label="Sections">${secs.map(l => `<button class="pj-ly" role="listitem" data-layer="${esc(l.key)}" draggable="true">${ic(l.shared ? 'layers' : 'frame', 14)}<span>${esc(l.role)}</span></button>`).join('')}</div>` : ''
     setVideoHtml(insp, `<h3><span>${esc(x.name)}</span><button class="ib sm pj-x" aria-label="Close">${ic('x', 16)}</button></h3><div class="pv">${pv}</div>${x.pitch ? `<p class="pj-pitch">${esc(x.pitch)}</p>` : ''}
-      ${kv.map(([k, v]) => `<div class="kv"><span>${k}</span><b>${esc(v)}</b></div>`).join('')}${secHtml}${useFor}${x.kind === 'ref' && !hosted() ? matchHtml(x.ref, { base: base(), built: !!P.board }) : ''}<div class="btns">${btns}</div>`, true)
+      ${kv.map(([k, v]) => `<div class="kv"><span>${k}</span><b title="${esc(v)}">${esc(v)}</b></div>`).join('')}${secHtml}${useFor}${x.kind === 'ref' && !hosted() ? matchHtml(x.ref, { base: base(), built: !!P.board }) : ''}<div class="btns">${btns}</div>`, true)
     const im = insp.querySelector('.pv img')
     if (im && !x.dims) im.onload = () => { dims.set(x.key, `${im.naturalWidth} × ${im.naturalHeight}`); if (P.sel === x.key) renderInspSoon() }
   }
@@ -503,8 +552,7 @@ export function makeProject({ sw, C, root }) {
       ${edit ? g('Spacing', `${stepper('pad', 'Padding', px(cur.py))}${cur.gap != null ? stepper('gap', 'Gap', px(cur.gap)) : ''}${cur.radius != null ? `<label class="pj-f row"><span>Corners</span><select data-radius aria-label="Corners">${sc.radius.map(r => `<option value="${r}"${r === (cur.radius || '') ? ' selected' : ''}>${r === 'theme' ? 'Theme' : r || 'base'}</option>`).join('')}</select></label>` : ''}`) : ''}
       ${edit && l.gens.length ? g('Pictures', l.gens.map((p, i) => `<div class="pj-pic" data-pic="${i}">${p.src ? `<img src="${esc(p.src.startsWith('data:') ? p.src : base() + p.src)}" alt="">` : standinOf(p.gen) ? `<img class="sb" src="${esc(standinOf(p.gen).url)}" alt="">` : `<span class="blank">${ic('image', 20)}</span>`}<textarea rows="2" aria-label="What the picture shows">${esc(p.gen)}</textarea>${!p.src && standinOf(p.gen) ? `<small class="pj-credit">Stand-in · ${esc(standinOf(p.gen).credit || 'from an earlier build')}</small>` : ''}<button class="btn ghost" data-paint="${i}"${p.busy ? ' disabled' : ''}>${ic('image', 15)}${p.busy ? 'Painting' : 'Paint'}</button></div>`).join('')) : ''}
       ${edit ? g('Parts', partsList(l.html)) : ''}
-      <div class="btns">${edit ? `<button class="btn ghost" data-act="code">${ic('code', 15)}Code</button>` : ''}<button class="btn ghost" data-act="open">${ic('ext', 15)}Open</button></div>
-      ${edit ? `<form class="pj-ask pj-lask" autocomplete="off"><input name="q" placeholder="Tell the crew…" aria-label="Tell the crew about ${esc(l.role)}" maxlength="4000"><button type="submit" class="pj-send" aria-label="Send">${ic('up', 16)}</button></form>` : ''}`
+      <div class="btns">${edit ? `<button class="btn ghost" data-act="code">${ic('code', 15)}Code</button>` : ''}<button class="btn ghost" data-act="open">${ic('ext', 15)}Open</button>${edit ? `<button class="btn ghost pj-tochat" data-act="chat">${ic('msg', 15)}Chat</button>` : ''}</div>`
   }
   // ---------- one part of a section, changed by hand (spec 29, "Manual edit"; web/edit/patches.js). Each
   // change is a section version (undo, redo, Versions), and the crew is told to keep it on a rework.
@@ -588,15 +636,6 @@ export function makeProject({ sw, C, root }) {
     }).catch(() => {})
     return true
   }
-  // narrow panes: the dock sits under the inspector sheet, so a picked section has its own line
-  insp.addEventListener('submit', e => {
-    e.preventDefault()
-    const q = e.target.q, text = q?.value.trim()
-    if (!text || !P.layer) return
-    q.value = ''
-    sw.layers.fix(P.layer, text)
-    toast(`${ic('msg', 15)}<span>On it</span>`)
-  })
   function pickLayer(key) {
     P.layer = key || null
     P.el = null
@@ -1052,6 +1091,8 @@ export function makeProject({ sw, C, root }) {
     if (act === 'export') saveFile(x)
     if (act === 'zip') exportZip()
     if (act === 'replace') replace(x)
+    // narrow panes: the dock (and its Chat tool) sits under the inspector sheet, so a picked section opens the chat itself
+    if (act === 'chat') toChat()
     if (act === 'ref-remove') removeRef(x)
     if (act === 'draft-accept' || act === 'draft-dismiss') {
       e.target.closest('button').disabled = true
@@ -1100,7 +1141,7 @@ export function makeProject({ sw, C, root }) {
       up ? { k: 'rename', icon: 'type', label: 'Rename', run: () => rename(x) } : null,
       up ? { k: 'dup', icon: 'layers', label: 'Duplicate', run: () => fileOp({ op: 'duplicate', name: x.name }) } : null,
       ['art', 'upload', 'film'].includes(x.kind) && x.sending == null ? { k: 'dl', icon: 'download', label: 'Download', run: () => saveFile(x) } : x.kind === 'page' ? { k: 'dl', icon: 'download', label: 'Download', run: () => exportZip() } : null,
-      !hosted() && x.sending == null ? { k: 'show', icon: 'file', label: 'Show in Finder', run: () => post(`/api/projects/${encodeURIComponent(P.pid)}/reveal`, x.kind === 'upload' ? { name: x.name } : { run: P.run }).catch(() => {}) } : null,
+      !hosted() && x.sending == null ? { k: 'show', icon: 'file', label: revealLabel(), run: () => post(`/api/projects/${encodeURIComponent(P.pid)}/reveal`, x.kind === 'upload' ? { name: x.name } : { run: P.run }).catch(() => {}) } : null,
       ...(up ? ['-', { k: 'del', icon: 'trash', label: 'Delete', red: true, run: () => fileOp({ op: 'delete', name: x.name }).then(() => { if (P.sel === x.key) select(null); toast(`${ic('trash', 15)}<span>Deleted</span>`) }) }] : [])
     ].filter(Boolean)
     if (items.length) showMenu(items, anchor, at)
@@ -1147,15 +1188,14 @@ export function makeProject({ sw, C, root }) {
       toast(`${ic('check', 15)}<span>${esc(name)}</span>`)
     } catch (err) { toast(`<span>${esc(err.message)}</span>`) }
   }
-  // Replace: a picture is painted again (the words in "Tell the crew…" steer it); an upload takes a new file
+  // a picture painted again, steered by `prompt` when there is one -> { ok, error }
+  const repaint = (x, prompt = '') => post(`/api/runs/${encodeURIComponent(P.run)}/image`, { page: x.art.page, layer: x.art.layer, gen: x.art.gen, prompt })
+    .then(() => { setTimeout(load, 1500); return { ok: true, error: '' } }, err => ({ ok: false, error: String(err.body?.error || '') }))
+  // Replace (the inspector's button): a picture is painted again as it was described; an upload takes a new file.
+  // New words for a picture are typed in the chat with the picture selected (say() below).
   function replace(x) {
     if (x.kind === 'upload') { P.replacing = x.name; fileIn.multiple = false; fileIn.click(); return }
-    if (x.kind === 'art') {
-      const prompt = input.value.trim()
-      post(`/api/runs/${encodeURIComponent(P.run)}/image`, { page: x.art.page, layer: x.art.layer, gen: x.art.gen, prompt })
-        .then(() => { input.value = ''; toast(`${ic('image', 15)}<span>Painting</span>`); setTimeout(load, 1500) })
-        .catch(err => toast(`<span>${esc(err.body?.error || err.message)}</span>`))
-    }
+    if (x.kind === 'art') repaint(x).then(r => toast(r.ok ? `${ic('image', 15)}<span>Painting</span>` : `<span>${esc(nothing(r.error))}</span>`))
   }
 
   // ---------- breadcrumb menu: rename, duplicate, versions
@@ -1214,20 +1254,17 @@ export function makeProject({ sw, C, root }) {
     render()
   }
   fileIn.onchange = () => { const fs = [...fileIn.files]; if (fs.length) upload(fs, P.replacing && fs.length === 1 ? P.replacing : null); P.replacing = null; fileIn.multiple = true; fileIn.value = '' }
-  const dropEl = $('.pj-drop')
-  let dragDepth = 0
-  const hasFiles = e => [...(e.dataTransfer?.types || [])].includes('Files')
-  root.addEventListener('dragenter', e => { if (!hasFiles(e) || hosted()) return; e.preventDefault(); dragDepth++; dropEl.hidden = false })
-  root.addEventListener('dragover', e => { if (!hasFiles(e) || hosted()) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy' })
-  root.addEventListener('dragleave', e => { if (!hasFiles(e)) return; if (--dragDepth <= 0) { dragDepth = 0; dropEl.hidden = true } })
-  root.addEventListener('drop', e => { if (!hasFiles(e) || hosted()) return; e.preventDefault(); dragDepth = 0; dropEl.hidden = true; upload([...e.dataTransfer.files]) })
+  // a file dropped anywhere on the project goes to its References, the one place the crew reads, and Hermia asks
+  // once: like this, or use as is (web/refdrop.js, issue #543). + › Upload files still adds any other file.
+  refDrop({ root, at: () => (P.on && P.pid ? `/api/projects/${encodeURIComponent(P.pid)}` : null), api: (path, opts) => sw.api(path, opts), hosted, said: text => sw.say?.(text),
+    done: refs => { P.refs = refs; load() }, asset: refs => { P.refs = refs; load() } })
 
   // ---------- the panel's tabs, search and + menu
   $('.pj-tabs').addEventListener('click', e => {
     const t = e.target.closest('[data-tab]')
     if (!t) return
     P.tab = t.dataset.tab
-    root.querySelectorAll('.pj-tabs .pj-tab').forEach(b => b.classList.toggle('on', b === t))
+    root.querySelectorAll('.pj-tabs .pj-tab').forEach(b => { b.classList.toggle('on', b === t); b.setAttribute('aria-selected', String(b === t)) })
     listEl.hidden = P.tab !== 'files'; layersEl.hidden = P.tab !== 'layers'
     if (P.tab === 'layers') { const tree = document.getElementById('tree'); if (tree && tree.parentElement !== layersEl) { P.treeHome = tree.parentElement; layersEl.append(tree) } }
   })
@@ -1268,7 +1305,7 @@ export function makeProject({ sw, C, root }) {
       { k: 'ref', icon: 'image', label: 'Reference', run: () => refIn.click() },
       { k: 'link', icon: 'ext', label: 'Link', run: () => { linkEl.hidden = false; linkEl.u.focus() } }])
   ], e.currentTarget)
-  function newPage() { select(null); input.value = 'Add a page: '; input.focus() }
+  function newPage() { select(null); const b = box(); if (b) b.value = 'Add a page: '; toChat() }
 
   // ---------- References (spec 29): + → Reference or Link; Remove, and Undo in its toast
   const refIn = $('.pj-reffile'), linkEl = $('.pj-link'), lookTick = matchWire(insp, { post: (path, body) => refPost(path, body), busy: () => !!P.pid && P.refs.some(lookBusy), sent: () => toast(`${ic('check', 15)}<span>Sent to the crew</span>`), reload: () => api(`/api/projects/${encodeURIComponent(P.pid)}/refs`).then(out => { if (out?.refs) { P.refs = out.refs; render() } }).catch(() => {}) })
@@ -1321,53 +1358,66 @@ export function makeProject({ sw, C, root }) {
     if (t === 'image') return hosted() ? null : fileIn.click()
     if (t === 'comment') return C.chat(!document.body.classList.contains('cosmos-chat'))
   })
-  // "Tell the crew…": an edit of the selected page rewrites its section (/fix); about a picture, it is
-  // painted again with those words; otherwise the project's next version keeps every page and adds
-  // what was asked (web/route.js).
-  ask.onsubmit = async e => {
-    e.preventDefault()
-    const text = input.value.trim()
-    const marked = P.marks.filter(m => m.run === P.run)
-    if (marked.length) return sendMarks(text, marked)
-    if (!text) return input.focus(); if (sw.github?.say(text)) return void (input.value = '', C.chat(true))
+  // What the chat's box sends while the Overview is the room (web/canvas/loop.js sendDock asks here): an edit
+  // of the selected page rewrites its section; about a picture, it is painted again with those words; an app's
+  // board changes the app; otherwise the project's next version keeps every page and adds what was asked
+  // (web/route.js), or the planner answers when the words are a question or "don't build yet".
+  // h: { you(text), bot(text) } write the chat's lines. The chat says only what happened: a request the
+  // server refused is "Nothing happened: <why>."
+  // -> true: taken, the box empties · 'kept': answered, the words stay in the box · a route: the chat starts that build
+  const nothing = why => `Nothing happened: ${String(why || 'the canvas server is not answering').replace(/\.$/, '')}.`
+  function fixAsk(key, text, h) {
+    // the build's own events write the chat's lines (the words, then who took it); the SEO pass writes only
+    // its answer, so its words are shown here
+    const shown = seoAsk(text)
+    if (shown) h.you(text)
+    Promise.resolve(sw.layers.fix(key, text)).then(r => {
+      if (r?.ok) return void setTimeout(load, 1500)
+      // "which section?" has been answered in the chat already (comment:none)
+      if (/which section/.test(r?.error || '')) return
+      if (!shown) h.you(text)
+      h.bot(nothing(r?.error))
+    })
+  }
+  async function say(text, h) {
     const x = P.sel && find(P.sel)
-    if (x?.kind === 'art') return replace(x)
-    input.value = ''
-    if (x?.kind === 'page' && P.layer && sw.layers?.get(P.layer)?.done) { sw.layers.fix(P.layer, text); toast(`${ic('msg', 15)}<span>On it</span>`); return }
+    if (x?.kind === 'art') {
+      h.you(text)
+      repaint(x, text).then(r => h.bot(r.ok ? 'Painting it again.' : nothing(r.error)))
+      return true
+    }
+    if (x?.kind === 'page' && P.layer && sw.layers?.get(P.layer)?.done) { fixAsk(P.layer, text, h); return true }
+    if (toApp(P.board, x?.kind) && sw.appAsk) { C.go('station', 'app'); C.chat(true); sw.appAsk(text); return true }
     const route = routeMessage({ text, run: P.run, site: !P.board?.game && P.board?.pages?.length > 0, selected: x?.kind === 'page', hosted: hosted() })
-    if (route === 'fix') { sw.focusPage(x.page); sw.submit(`/fix ${text}`); toast(`${ic('msg', 15)}<span>On it</span>`); setTimeout(load, 1500); return }
+    if (route === 'fix') { if (x?.page) sw.focusPage(x.page); fixAsk(sw.S?.sel || null, text, h); return true }
     // the project's next version: every page kept, the crew builds what was asked. A version with
     // no pages yet (its build failed) is still this project's: the server builds on its brief.
     // Each turn extends the one before it: the open version becomes the run that starts.
-    const from = route === 'extend' || (route === 'new' && P.run && P.board?.kind !== 'game' && !hosted()) ? P.run : null
-    const send = (t, chat) => Promise.resolve(sw.submit(t, false, P.pid, from, chat ? { chat } : {})).then(r => {
-      if (r?.busy) { if (!input.value) input.value = text; toast(`${ic('msg', 15)}<span>Still on the last change</span>`); return }
-      // the new version is the one shown: the machine names it, the Overview follows
-      if (typeof r === 'string' && r !== P.run) return C.started(r, { project: P.pid, room: 'overview' })
-      load()
-    })
-    // "don't build yet, let's talk" or a question for the crew: the planner answers in the Design
-    // deck's chat and nothing is built until the person says build there (engine/talkplan.mjs)
-    // no Hermes to answer the model: the chat says so and what to do, before anything starts
+    const pid = P.pid, from = route === 'extend' || (route === 'new' && P.run && P.board?.kind !== 'game' && !hosted()) ? P.run : null
+    // the new version is the one shown: the machine names it, the Overview follows
+    // (still on the last change: the chat says so and the words stay in its box)
+    const done = r => { if (typeof r === 'string' && r !== P.run) return C.started(r, { project: pid, room: 'overview' }); if (!r?.busy && P.on) load() }
+    // no Hermes to answer the model: the chat says so and what to do, here, before anything starts
     const off = hosted() || !sw.hermesReady ? null : await sw.hermesReady()
-    if (off) { C.go('station', 'canvas'); C.chat(true); return void sw.hermesSays(off) }
+    if (off) { sw.hermesSays(off); return 'kept' }
+    // "don't build yet, let's talk" or a question for the crew: the planner answers here in the chat
+    // and nothing is built until the person says build (engine/talkplan.mjs)
     const read = hosted() || !sw.readTalk ? 'build' : await sw.readTalk(text)
-    if (read === 'build') return send(text)
-    C.go('station', 'canvas')
-    C.chat(true)
-    const build = (t, chat) => { C.go('project'); send(t, chat) }
+    if (read === 'build') return { project: pid, from, route: from ? 'extend' : 'new', selected: false, done }
+    const build = (t, chat) => void Promise.resolve(sw.submit(t, false, pid, from, chat ? { chat } : {})).then(done)
     if (read === 'talk') sw.talk.start({ text, build, from: P.run })
     else sw.talk.ask(text, () => build(text), () => sw.talk.start({ text, build, from: P.run }))
+    return true
   }
 
-  // the section the dock is talking about; its × goes back to the whole project
-  const scopeEl = $('.pj-scope')
+  // the section the chat's box is about; its × goes back to the whole project
   function scope() {
     const l = P.layer && sw.layers?.get(P.layer)
     scopeEl.hidden = !l
     if (l) { scopeEl.querySelector('span').textContent = l.role; scopeEl.setAttribute('aria-label', `About ${l.role}; clear`) }
+    paintChips()
   }
-  scopeEl.onclick = () => { pickLayer(null); input.focus() }
+  scopeEl.onclick = () => { pickLayer(null); box()?.focus() }
 
   function liveLine() {
     const b = P.board || {}
@@ -1601,7 +1651,7 @@ export function makeProject({ sw, C, root }) {
     drawMarks()
     return true
   }
-  $('.pj-mkchip').onclick = () => clearMarks()
+  markChip.onclick = () => clearMarks()
   // ⌘Z while Scribble or Eraser is out brings back what Eraser or Clear took, until the marks are sent
   addEventListener('keydown', e => {
     if (!P.on || !(e.metaKey || e.ctrlKey) || e.shiftKey || e.key.toLowerCase() !== 'z' || P.tool === 'move' || !P.mkUndo.length) return
@@ -1623,9 +1673,11 @@ export function makeProject({ sw, C, root }) {
     path(); g.strokeStyle = 'rgba(11,11,12,.55)'; g.lineWidth = lw * 2; g.stroke()
     path(); g.strokeStyle = '#ff5a36'; g.lineWidth = lw; g.stroke()
   }
-  async function sendMarks(text, list) {
+  // h: the chat's lines (say() above). The words left the box when they were sent; a refusal puts them back.
+  async function sendMarks(text, list, h) {
     if (P.markBusy || !sw.marks) return
     P.markBusy = true
+    h.you(text || markWords(list.length))
     root.querySelector('.mk-note')?.blur()
     try {
       const shots = {}, crops = {}
@@ -1655,10 +1707,14 @@ export function makeProject({ sw, C, root }) {
       const out = await sw.marks.send({ text, marks: list.map(({ id, kind, page, box, pts, note, target }) => ({ id, kind, page, box, pts, note, target })), shots, crops })
       P.marks = P.marks.filter(m => !list.includes(m))
       P.mkUndo = []
-      input.value = ''
       drawMarks()
-      toast(`${ic('msg', 15)}<span>${esc((out.reply || 'On it').slice(0, 160))}</span>`)
-    } catch (err) { toast(`<span>${esc(err.message || 'The marks did not go')}</span>`) } finally { P.markBusy = false }
+      h.bot(out.reply || 'On it.')
+    } catch (err) {
+      const b = box()
+      if (text && b && !b.value) b.value = text
+      // the server's own reason; a request that never reached it has none of its own
+      h.bot(nothing(err instanceof TypeError ? '' : err.message))
+    } finally { P.markBusy = false }
   }
   // what the run says about its marks and drafts (live, and replayed when it opens)
   sw.on(e => {
@@ -1700,6 +1756,20 @@ export function makeProject({ sw, C, root }) {
     if ((e.key === 'Delete' || e.key === 'Backspace') && P.sel?.startsWith('up:')) { const x = find(P.sel); if (x) { e.preventDefault(); fileOp({ op: 'delete', name: x.name }).then(() => select(null)) } }
   }, true)
   addEventListener('resize', () => { if (P.on) crewAtWork() })
+  // a build with sections failed or left: Resume builds what is left and keeps the rest (the same Resume as the
+  // Design deck's chat, POST /api/runs/<id>/resume); the new version is the one shown
+  world.addEventListener('click', async e => {
+    const b = e.target.closest('[data-resume]')
+    if (!b) return
+    e.stopPropagation()
+    b.disabled = true
+    const r = await sw.api(`/api/runs/${encodeURIComponent(b.dataset.resume)}/resume`, { method: 'POST' }).catch(() => null)
+    const j = r ? await r.json().catch(() => ({})) : {}
+    // no Hermes to answer the model: the chat says so and what to do
+    if (r?.status === 503 && j.hermes && sw.hermesSays) { C.go('station', 'canvas'); C.chat(true); return void sw.hermesSays(j) }
+    if (!r?.ok || !j.run) { toast('The build could not resume'); return load() }
+    C.started(j.run, { project: P.pid, room: 'overview' })
+  }, true)
   // a picture that did not come: paint it again from the same words
   world.addEventListener('click', e => {
     const b = e.target.closest('[data-again]')
@@ -1754,15 +1824,23 @@ export function makeProject({ sw, C, root }) {
       if (shown !== P.shown) { P.shown = shown; P.seen = null; forget() }
       root.hidden = false
       P.on = true
+      paintChips()
       if (P.boardOf !== P.run) render(); load()
     },
     hide() {
       P.on = false
+      paintChips()
       clearTimeout(P.timer); clearTimeout(P.wander); P.wander = 0
       closeMenu()
       if (P.treeHome) { const tree = document.getElementById('tree'); if (tree) P.treeHome.append(tree); P.treeHome = null; P.tab = 'files'; root.querySelectorAll('.pj-tabs .pj-tab').forEach(b => b.classList.toggle('on', b.dataset.tab === 'files')); listEl.hidden = false; layersEl.hidden = true }
       root.hidden = true
     },
+    // the chat's box, while the Overview is the room (web/canvas/loop.js): the unsent marks go with the words
+    // (or with none), anything else through say()
+    get marked() { return P.on && P.marks.some(m => m.run === P.run) },
+    // -> false while the last marks are still going: nothing is taken, the words stay in the box
+    sendMarks(text, h) { if (P.markBusy || !sw.marks) return false; sendMarks(text, P.marks.filter(m => m.run === P.run), h); return true },
+    say,
     get pid() { return P.pid },
     get run() { return P.run }
   }

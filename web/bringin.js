@@ -24,7 +24,7 @@ export function bringSheet(host) {
     className: 'bring',
     body: `<form class="bring-form" autocomplete="off">
       <label class="ui-field"><span class="ui-label">Repository or folder</span><input class="ui-input" name="src" placeholder="owner/name or ~/folder" maxlength="1000" required></label>
-      <label class="ui-field"><span class="ui-label">Subfolder</span><input class="ui-input" name="path" placeholder="games/ares" maxlength="300"></label>
+      <label class="ui-field"><span class="ui-label">Subfolder</span><input class="ui-input" name="path" placeholder="web" maxlength="300"></label>
       <div class="ui-toggle-group ui-block" role="radiogroup" aria-label="Kind">${[['game', 'Game'], ['app', 'App']].map(([k, n]) => `<button type="button" class="ui-toggle" role="radio" aria-checked="${k === kind}" data-kind="${k}">${n}</button>`).join('')}</div>
       <p class="bring-err" role="alert" hidden></p>
       <button type="submit" hidden></button>

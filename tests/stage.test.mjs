@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { stageOffers, stageAuto, stageNow, stagePick, stageAsk, stageNone, canOpen, playFail, mapDoor } from '../web/canvas/stage.js'
+import { stageOffers, stageAuto, stageNow, stagePick, stageAsk, stageNone, canOpen, playFail, mapDoor, stageSwitch, followName } from '../web/canvas/stage.js'
 
 const gameArt = { working: true, state: 'working', kind: 'game', hasApp: false, url: null, painted: 3, steps: 12 }
 const gameLive = { working: true, state: 'working', kind: 'game', hasApp: true, url: 'http://localhost:5173/', painted: 18, steps: 80 }
@@ -41,6 +41,17 @@ test('by itself the stage follows the build, as it did before the switch', () =>
   assert.equal(stageAuto({ state: 'idle', kind: 'game', hasApp: false, steps: 0 }), 'card', 'a game starts with a few questions')
   assert.equal(stageAuto({ state: 'done', kind: 'site', hasApp: true, url: null }), 'card')
   assert.equal(stageAuto({ state: 'done', kind: 'site', hasApp: true, url: null, opening: true }), 'live', 'starting the app: its skeleton')
+})
+
+test('a change to an app that works keeps the app on the stage; the wall is on the switch (issue #542)', () => {
+  const change = { working: true, state: 'working', kind: 'site', hasApp: true, url: 'http://localhost:5174/', steps: 3 }
+  assert.equal(stageAuto(change), 'live')
+  assert.ok(stageOffers(change).includes('crew'), 'the crew\'s windows are one press away')
+  assert.deepEqual(pick(stageNow(change, 'crew')), { shown: 'crew', empty: false, sheet: false })
+  // its server not up yet, a first build, or a game: the wall, as before
+  assert.equal(stageAuto({ ...change, url: null }), 'crew')
+  assert.equal(stageAuto(appBuild), 'crew')
+  assert.equal(stageAuto(gameLive), 'crew')
 })
 
 test('under the wall lies what lay there before: the live app, the sheet, or the card', () => {
@@ -169,4 +180,28 @@ test('at rest the Map has its own door when the switch would not show it', () =>
   assert.match(read('stage.js'), /el\.hidden = now\.offers\.length < 2 && !now\.pin/, 'the Map pinned alone keeps its pressed button: the way back')
   assert.match(read('rooms.js'), /mapDoorShow\(mapDoor\(now\)\)/)
   assert.ok(!/mapdoor[^\n]*title|setAttribute\('title'/.test(read('rooms.js')), 'a name only, no tooltip')
+})
+
+// The person, 2026-11-16, on their own screen: "there is no reason to show multiple auto play like this",
+// "i wish auto play made it play on this screen instead of another one", "need an option to end live as well".
+test('a pinned Live tab reads as the way out of Live, in its name and never a tooltip', () => {
+  // stageSwitch guards on `instanceof HTMLElement`, which node has not: give the group that shape
+  const HTML = globalThis.HTMLElement
+  globalThis.HTMLElement = class {}
+  const btn = () => {
+    const b = { dataset: { stage: 'live' }, attrs: {}, classList: { toggle() {} }, setAttribute(k, v) { this.attrs[k] = v }, removeAttribute(k) { delete this.attrs[k] } }
+    return b
+  }
+  const group = bs => Object.assign(new globalThis.HTMLElement(), { hidden: false, querySelectorAll: () => bs })
+  const live = stageNow({ ...appDone, working: true, state: 'working', hasApp: true }, 'live')
+  const pinned = btn()
+  stageSwitch(group([pinned]), live, () => {})
+  assert.equal(pinned.attrs['aria-label'], 'End live · back to the app', 'pressed: the name says what pressing again does')
+  assert.ok(!('title' in pinned.attrs), 'no tooltip (standing rule 1)')
+  const offered = btn()
+  stageSwitch(group([offered]), stageNow(appDone), () => {})
+  assert.equal(offered.attrs['aria-label'], 'Show the app live', 'not pinned: the plain offer')
+  assert.equal(followName({ auto: 'crew' }), 'the crew')
+  assert.equal(followName({ auto: 'card' }), 'the app card')
+  globalThis.HTMLElement = HTML
 })

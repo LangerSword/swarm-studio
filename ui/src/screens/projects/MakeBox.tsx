@@ -10,6 +10,8 @@ import { Panel } from '../../primitives/Popover'
 import { useToast } from '../../primitives/Toast'
 import { useNav } from '../../nav/NavProvider'
 import { ApiError, api, post, said, store, useStored } from './api'
+import { isResearchStop, stopText, againBody, type Finding, type Stop } from '@studio/researchstop'
+import { ResearchStop } from '../../studio/ResearchStop'
 import { makeModeOf, makeStudioStep, makeWays, type MakeWay } from '@studio/makeways'
 import { EXAMPLES, KIT_STEPS, MAKES, guideBrief, guideSets, makeOf, pickWay, runOf, type Kind, type Question } from './make'
 
@@ -21,8 +23,9 @@ const intake = () => (intakeP ||= api<Intake>('/api/intake').catch(() => { intak
 type Pop = null | { k: 'examples', list: string[] } | { k: 'ask', text: string, qs: Question[], i: number, answers: Record<string, string> }
   | { k: 'brief', text: string, back: null | { text: string, qs: Question[], answers: Record<string, string> } }
   | { k: 'go', brief: string, chat: string, text: string, options: GoOption[] }
+  | { k: 'research', brief: string, sets: Sets, stop: Stop }
 interface GoOption { id: string, label: string, why?: string }
-type Sets = { pictures?: string, chat?: string }
+type Sets = { pictures?: string, chat?: string, researched?: true, found?: Finding[] }
 
 export function MakeBox({ inputRef }: { inputRef: React.RefObject<HTMLInputElement | null> }) {
   const { go } = useNav()
@@ -31,6 +34,8 @@ export function MakeBox({ inputRef }: { inputRef: React.RefObject<HTMLInputEleme
   const make = makeOf(kindKey)
   const [text, setText] = useState('')
   const [pop, setPop] = useState<Pop>(null)
+  // why a build waits while Hermes is not there, under the box until it is (#541, web/hermesline.js)
+  const [off, setOff] = useState<{ text: string, again: () => void } | null>(null)
   const [menu, setMenu] = useState<null | 'kind' | { ways: MakeWay[], pick: string, text: string }>(null)
   const form = useRef<HTMLFormElement>(null), kindBtn = useRef<HTMLButtonElement>(null), makeBtn = useRef<HTMLButtonElement>(null)
 
@@ -54,6 +59,8 @@ export function MakeBox({ inputRef }: { inputRef: React.RefObject<HTMLInputEleme
         setPop(null); setText(brief)
         return toast(b.text || "Let's talk it through first.", { action: 'Talk', onAction: () => go({ type: 'draft' }) })
       }
+      // it looked something up first: what it found, here under the box, before the crew uses it (decision 0025)
+      if (e.status === 409 && isResearchStop(e.body)) return setPop({ k: 'research', brief, sets, stop: e.body })
       if (e.status === 409) toast('A build is running. Yours can start when it ends.', e.body?.run ? { action: 'Watch it', onAction: () => go({ type: 'started', run: e.body.run, room: 'deck' }) } : {})
       else toast(said(err))
     }
@@ -61,12 +68,16 @@ export function MakeBox({ inputRef }: { inputRef: React.RefObject<HTMLInputEleme
 
   async function begin(way: MakeWay, words: string) {
     // no Hermes to answer the model: one calm line and what to do, before anything starts (the words stay)
+    // A Studio builds nothing, so it opens, and its chat says the same (StudioFirst)
     const h = await api<{ needed?: boolean, health?: { ok?: boolean, message?: string, action?: string } }>('/api/hermes?ready=1').catch(() => null)
-    if (h?.needed && h.health && !h.health.ok) return toast(`${h.health.message} ${String(h.health.action || '').replace(/`/g, '')}`, { action: 'Check again', onAction: () => begin(way, words) })
+    const down = !!(h?.needed && h.health && !h.health.ok) && !(way.k === 'studio' && make.k !== 'game')
+    setOff(down ? { text: `${h!.health!.message} ${String(h!.health!.action || '').replace(/`/g, '')}`, again: () => void begin(way, words) } : null)
+    if (down) return
     store.set(`home.mode.${make.k}`, way.k)
     if (way.k === 'now') return setPop({ k: 'brief', text: words, back: null })
-    // a game's Studio is its Plan board, where its talk asks (spec 27)
-    if (make.k === 'game') return go({ type: 'plan' })
+    // a game's Studio is its Plan board, where its talk asks (spec 27). The talk is the classic Studio's for now
+    // (PlanBoard.tsx): it opens there with these words (web/gametalk.js, decision 0024)
+    if (make.k === 'game') return location.assign(`/classic/?game=${encodeURIComponent(words)}`)
     // Studio: a Studio project, opened on the step the kind starts with
     try {
       const j = await post<{ project: { id: string } }>('/api/studio', { kind: make.k, idea: words, mode: way.k, depth: store.get<string>('home.depth', 'light') === 'thorough' ? 'thorough' : 'light', steps: way.steps || KIT_STEPS[make.k] })
@@ -115,6 +126,11 @@ export function MakeBox({ inputRef }: { inputRef: React.RefObject<HTMLInputEleme
         {EXAMPLES[make.k] && <IconButton icon="idea" label="Examples" aria-haspopup="dialog" on={pop?.k === 'examples'} onPress={examples} />}
         <Button ref={makeBtn} role="primary" type="submit" aria-haspopup="menu"><Icon name="up" size={16} />Make</Button>
       </form>
+      {off && (
+        <p role="status" className="mx-auto -mt-4 mb-6 flex max-w-[760px] items-center justify-center gap-3 text-center text-[13px] text-muted">
+          <span>{off.text}</span><Button role="ghost" className="min-h-8 px-3 text-xs" onPress={off.again}>Check again</Button>
+        </p>
+      )}
 
       <MenuAt name="What to make" triggerRef={kindBtn} isOpen={menu === 'kind'} onClose={() => setMenu(null)} placement="bottom start"
         onAction={k => { setKind(makeOf(k).k); setPop(null); inputRef.current?.focus() }}>
@@ -127,7 +143,7 @@ export function MakeBox({ inputRef }: { inputRef: React.RefObject<HTMLInputEleme
         </MenuAt>
       )}
 
-      <Panel name={pop?.k === 'examples' ? 'Examples' : pop?.k === 'brief' ? 'The brief' : pop?.k === 'go' ? 'Before the build' : 'Questions'} triggerRef={form} isOpen={!!pop} onClose={close}>
+      <Panel name={pop?.k === 'examples' ? 'Examples' : pop?.k === 'brief' ? 'The brief' : pop?.k === 'go' ? 'Before the build' : pop?.k === 'research' ? 'What I looked up' : 'Questions'} triggerRef={form} isOpen={!!pop} onClose={close}>
         {pop?.k === 'examples' && (
           <>
             <h3 className="m-0 mb-3 font-label text-sm font-semibold tracking-[.12em] text-muted uppercase">Examples</h3>
@@ -146,6 +162,12 @@ export function MakeBox({ inputRef }: { inputRef: React.RefObject<HTMLInputEleme
         {pop?.k === 'ask' && <Ask pop={pop} setPop={setPop} build={build} />}
         {pop?.k === 'brief' && <Brief pop={pop} setPop={setPop} build={build} />}
         {pop?.k === 'go' && <Go pop={pop} setPop={setPop} answered={answered} />}
+        {pop?.k === 'research' && (
+          <div className="flex flex-col gap-1 text-sm">
+            <p className="m-0">{stopText(pop.stop)}</p>
+            <ResearchStop stop={pop.stop} post={post} onBuild={kept => void build(pop.brief, { ...pop.sets, ...againBody(pop.stop, kept) })} />
+          </div>
+        )}
       </Panel>
     </>
   )

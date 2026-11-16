@@ -17,12 +17,14 @@ const appKitEsc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;',
 const APP_KIT_STARTS = [{ id: 'screens', name: 'Main screen' }, { id: 'signup', name: 'Sign-up' }, { id: 'data', name: 'Data' }]
 const APP_KIT_STATE = { ready: 'Ready', key: 'Needs a key', none: 'Not chosen' }
 
+// .ak-card is a Plan board card too (.ab.pcard, 210 x 118): .ab.pcard.ak-card takes its own size over that, filled as
+// panels are (--deep; --surface is no token)
 function appKitStyle() {
   if (document.getElementById('ak-style')) return
   const st = document.createElement('style')
   st.id = 'ak-style'
   st.textContent = `
-.ak-card { width: 190px; min-height: 96px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; background: var(--surface); }
+.ab.pcard.ak-card, .ak-card { width: 190px; height: auto; min-height: 96px; padding: 12px 14px; display: flex; flex-direction: column; justify-content: flex-start; gap: 6px; background: var(--deep); }
 .ak-card b { font: 600 15px var(--body); color: var(--text); }
 .ak-card span { font: 13px var(--body); color: var(--muted); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .ak-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; border: 1.5px solid var(--muted); vertical-align: middle; }
@@ -66,7 +68,8 @@ async function appKitApi(ctx, path, body, method = 'POST') {
   if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`)
   return j
 }
-const appKitOf = ctx => appKitState.get(ctx.project) || appKitState.set(ctx.project, { kit: null, connects: [], left: [], spec: null, sel: null }).get(ctx.project)
+// the project's id: the Studio passes the project ({ id, name, … }), an older caller its id (web/kit-video.js pidOf)
+const appKitPid = ctx => (typeof ctx.project === 'string' ? ctx.project : ctx.project?.id) || '', appKitOf = ctx => appKitState.get(appKitPid(ctx)) || appKitState.set(appKitPid(ctx), { kit: null, connects: [], left: [], spec: null, sel: null }).get(appKitPid(ctx))
 // a new kit from the server: keep it, save it to the project, and fetch the words, plan and proposal
 async function appKitTake(ctx, out) {
   const st = appKitOf(ctx)
@@ -75,7 +78,7 @@ async function appKitTake(ctx, out) {
   clearTimeout(st.saving)
   st.saving = setTimeout(async () => {
     try {
-      if (ctx.project) await appKitApi(ctx, `/api/kit/app/${encodeURIComponent(ctx.project)}`, { kit: st.kit }, 'PUT')
+      if (appKitPid(ctx)) await appKitApi(ctx, `/api/kit/app/${encodeURIComponent(appKitPid(ctx))}`, { kit: st.kit }, 'PUT')
       st.spec = await appKitApi(ctx, '/api/kit/app/spec', { kit: st.kit })
       ctx.refresh?.()
     } catch (err) { ctx.board?.toast?.(err.message) }
@@ -219,8 +222,8 @@ export const appKit = {
     appKitStyle()
     const st = appKitOf(ctx)
     if (st.kit) return st
-    if (ctx.project) {
-      const saved = await appKitApi(ctx, `/api/kit/app/${encodeURIComponent(ctx.project)}`).catch(() => null)
+    if (appKitPid(ctx)) {
+      const saved = await appKitApi(ctx, `/api/kit/app/${encodeURIComponent(appKitPid(ctx))}`).catch(() => null)
       if (saved?.kit) { Object.assign(st, saved); st.spec = await appKitApi(ctx, '/api/kit/app/spec', { kit: st.kit }).catch(() => null); return st }
     }
     // the brief's own words at once, then the planner's fuller kit when it answers (never over an edit)
@@ -280,7 +283,7 @@ export const appKit = {
   async build(spec, ctx) {
     const a = spec?.kits?.app
     if (!a?.kit) throw new Error('lock the app plan first')
-    const job = await appKitApi(ctx, '/api/auto', { prompt: a.kit.brief || ctx.studio?.idea || a.kit.title || 'an app', games: 'none', only: ['app', 'data', 'deploy'], appkit: a.kit, ...(ctx.project ? { project: ctx.project } : {}), ...(ctx.chat?.id ? { chat: ctx.chat.id } : {}) })
+    const job = await appKitApi(ctx, '/api/auto', { prompt: a.kit.brief || ctx.studio?.idea || a.kit.title || 'an app', games: 'none', only: ['app', 'data', 'deploy'], appkit: a.kit, ...(appKitPid(ctx) ? { project: appKitPid(ctx) } : {}), ...(ctx.chat?.id ? { chat: ctx.chat.id } : {}) })
     return { run: job.run }
   },
   // the reviewer's result, recorded on the run by the build's last step (engine/appkit.mjs kitChecks)

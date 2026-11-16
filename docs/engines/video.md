@@ -1,6 +1,6 @@
 # HyperFrames (film making)
 
-Glue: engine/video.mjs, engine/storyboard.mjs, engine/director.mjs, engine/musiccut.mjs, engine/filmkit.mjs, engine/filmcritic.mjs, engine/footage.mjs, engine/story.mjs, engine/look.mjs, engine/media.mjs, server/server.mjs, web/canvas/film.js
+Glue: engine/video.mjs, engine/storyboard.mjs, engine/director.mjs, engine/musiccut.mjs, engine/filmkit.mjs, engine/filmcritic.mjs, engine/footage.mjs, engine/story.mjs, engine/look.mjs, engine/media.mjs, server/server.mjs#video, web/canvas/film.js
 Status: built in
 
 HyperFrames is HeyGen's renderer that turns HTML, CSS, media and seekable animations into MP4 (https://github.com/heygen-com/hyperframes, fetched 2026-11-12). Licence: Apache 2.0, "with no per-render fees or commercial-use thresholds" (same URL). Swarm does not vendor it: it installs the npm package `hyperframes@0.9.26` into the plugin's data folder on first use (engine/video.mjs:18, engine/video.mjs:643).

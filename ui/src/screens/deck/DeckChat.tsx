@@ -5,9 +5,14 @@
 //   anything else, with a build open  the project's next version extends it, after the planner reads whether the
 //                                     person wants to build now or talk first (engine/talkplan.mjs)
 //   no build                          a new build
+//   "publish to <organization>"       where builds go on GitHub, answered here (web/github.js ownerSay), when the
+//                                     name is the person's account or one of their organizations
 // A talk (the Chat's own) ends in a brief; its Build starts the build here. A new build takes the deck over.
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { routeMessage } from '@studio/route'
+import { ownerSay } from '@studio/github'
+import { isResearchStop, stopText, againBody, type Stop } from '@studio/researchstop'
+import { ResearchStop } from '../../studio/ResearchStop'
 import { Chat, type BuildRoute, type ChatCommand, type ChatGo, type ChatLine, type ChatTalk } from '../../chat'
 import { useNav } from '../../nav/NavProvider'
 import { crew } from './crew'
@@ -31,20 +36,23 @@ export function DeckChat({ model, picked, onCommand }: {
   const { view, go } = useNav()
   const [talk, setTalk] = useState<ChatTalk | null>(null)
   const [notes, setNotes] = useState<DeckLine[]>([])
+  // a build that looked something up first: what it found, shown before the crew uses it (decision 0025)
+  const [stop, setStop] = useState<{ stop: Stop, at: number, again: (more: object) => void } | null>(null)
   const note = (who: DeckLine['who'], text: string) => setNotes(n => [...n, { id: `note:${Date.now()}:${n.length}`, at: Date.now(), who, text }])
   const run = model.run
 
   // the build's lines, each crew line in its agent's shade; the build's news goes to the Log tab
   const toChat = (l: DeckLine): ChatLine => ({ ...l, ...(l.who === 'crew' && l.name ? { color: crew().color(l.name) } : {}), where: l.layers?.map(k => model.layers[k]?.role ?? k).join(', ') })
   const all = useMemo(() => [...model.lines, ...notes].sort((a, b) => a.at - b.at), [model.lines, notes])
-  const lines = all.filter(l => l.who !== 'sys').map(toChat)
+  const said = all.filter(l => l.who !== 'sys').map(toChat)
+  const lines: ChatLine[] = stop ? [...said, { id: `research:${stop.at}`, at: stop.at, who: 'hermia' as const, text: stopText(stop.stop), card: <ResearchStop stop={stop.stop} post={post} onBuild={kept => stop.again(againBody(stop.stop, kept))} /> }].sort((a, b) => a.at - b.at) : said
   const log = all.filter(l => l.who === 'sys' || l.who === 'err').map(toChat)
 
   // a build: this project's next version (from the open one), a new project, or this one from scratch
-  const build = useCallback(async ({ brief, agents, route, chat }: { brief: string, agents?: number, route: BuildRoute | 'extend', chat?: string | null }) => {
+  const build = useCallback(async ({ brief, agents, route, chat, more }: { brief: string, agents?: number, route: BuildRoute | 'extend', chat?: string | null, more?: object }) => {
     const r = await post('/api/run', {
       brief, ...(agents ? { agents } : {}), ...(view.project ? { project: view.project } : {}),
-      ...((route === 'extend' || route === 'add' || route === 'redo') && run ? { from: run } : {}), ...(route === 'redo' ? { redo: true } : {}), ...(chat ? { chat } : {})
+      ...((route === 'extend' || route === 'add' || route === 'redo') && run ? { from: run } : {}), ...(route === 'redo' ? { redo: true } : {}), ...(chat ? { chat } : {}), ...(more || {})
     }).catch(() => null)
     const j = await r?.json().catch(() => ({})) as { run?: string, error?: string, ask?: string, chat?: string | null, text?: string, message?: string, hermes?: boolean } | undefined
     if (r?.ok && j?.run) { setTalk(null); go({ type: 'started', run: j.run, project: view.project, room: 'deck' }); return }
@@ -54,6 +62,8 @@ export function DeckChat({ model, picked, onCommand }: {
       if (j.ask === 'talk' || !j.chat) return setTalk({ id: `deck:${Date.now()}`, kind: 'site', text: brief })
       return setTalk({ id: `ask:${j.chat}:${Date.now()}`, kind: 'site', chat: j.chat, said: [{ who: 'you', text: brief }, { who: 'hermia', text: j.text || '' }] })
     }
+    // it looked something up first: what it found waits in the chat, with Build (decision 0025)
+    if (r?.status === 409 && isResearchStop(j)) return setStop({ stop: j, at: Date.now(), again: m => void build({ brief, agents, route, chat, more: m }) })
     if (r?.status === 409) return note('err', 'The crew are still on the last change.')
     if (r?.status === 503 && j?.hermes) return note('err', j.message || j.error || 'Hermes is not answering.')
     note('err', `Couldn't start the build${r ? ` (${j?.error || r.status})` : ''}. Is the studio server running?`)
@@ -69,6 +79,14 @@ export function DeckChat({ model, picked, onCommand }: {
     note('err', j?.error || 'The Studio did not open. Say it again.')
   }, [build, go])
 
+  // a build that stopped for a reason before any page was planned (the model failed, Hermes was gone): its own
+  // words come back as the brief, so Build starts it again, once per build (#541). Hermia's line says why.
+  useEffect(() => {
+    if (!run || model.state !== 'stopped' || !model.stopped || model.planned || !model.brief) return
+    // its first button reads Try again, as the current deck's does (web/canvas/panels.js stoppedMsg)
+    setTalk(t => (t?.id === `again:${run}` ? t : { id: `again:${run}`, kind: 'site', brief: model.brief, what: 'The same build, once more', go: 'Try again' }))
+  }, [run, model.state, model.stopped, model.planned, model.brief])
+
   const comment = async (text: string, body: { target?: string | null, targets?: string[] }) => {
     const r = await post(`/api/runs/${encodeURIComponent(run!)}/comment`, { text, sections: doneSections(model).map(s => ({ ...s, role: model.layers[s.key]?.role })), ...body }).catch(() => null)
     if (r?.ok) return
@@ -78,6 +96,7 @@ export function DeckChat({ model, picked, onCommand }: {
   }
 
   const submit = useCallback(async ({ text, agents, chips }: { text: string, agents: number, chips: { key: string, kind: string }[] }) => {
+    if (!chips.length && await ownerSay(text, { api: (path, opts) => fetch(path, { ...opts, headers: { ...(opts?.headers as Record<string, string> | undefined), 'x-swarm-token': token() } }), said: t => note('you', t), answer: t => note('hermia', t) })) return
     const layers = chips.filter(c => c.kind === 'layer').map(c => c.key)
     if (layers.length && run) return comment(text, { targets: layers })
     const route = routeMessage({ text, run, site: model.kind !== 'game' && model.pages.length > 0, selected: !!picked })

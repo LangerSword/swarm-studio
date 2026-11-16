@@ -137,6 +137,8 @@ export const PET_BUSY = '.wait-in, [aria-busy="true"], .ab .sk:not(.over), .app-
 // where she does not go: a crew cursor already paints there, a dialog sits above her, or the chat (she keeps
 // clear of it; its own dot says a reply is coming)
 export const PET_NOT = '.pt, .pl-work, .su-spin, .side, .ui-overlay, .ui-popover, .pet'
+// what is on its way where she does not go (a chat reply, a dialog's wait): she shows she is working, where she is
+export const PET_NEAR = ['.side', '.ui-overlay', '.ui-popover', '[role="dialog"]'].map(s => `${s} [aria-busy="true"]`).join(', ')
 /**
  * Where she works on a placeholder: inside it, near its top left, never past the screen's edge.
  * @param {{ left: number, top: number, width: number, height: number }} r
@@ -180,7 +182,7 @@ export function makePet({ sw, C, doc = document }) {
     px: -1, py: -1, movedAt: Date.now(), active: 0,
     card: '', raf: 0, settle: 0, doze: 0, dozing: false, dozedAt: 0,
     queue: /** @type {{ kind: string, data: PetData }[]} */ ([]), batch: 0, batchFirst: 0, sayTimer: 0,
-    phoned: false, room: '', loading: false, loadTimer: 0, loadSince: 0, building: false, buildAt: 0, briefed: '', step: '',
+    phoned: false, room: '', loading: false, loadTimer: 0, loadSince: 0, building: false, buildAt: 0, replay: false, briefed: '', step: '',
     // what she works on: the placeholders screens hand her (newest last), and the one she is at
     jobs: /** @type {Set<Element>} */ (new Set()), work: /** @type {Element | null} */ (null), workAt: '', scanT: 0
   }
@@ -204,10 +206,12 @@ export function makePet({ sw, C, doc = document }) {
     }
     return [x, y]
   }
+  // a card she rests by; never a picture slot: beside a sketch sheet she sat on the next, empty slot as if she were
+  // painting it (owner, 2026-11-14). A cursor on a picture means it is really painting (the crew's, .pl-work).
   function cardEl() {
     if (!P.card) return null
     const n = doc.querySelector(`.ab[data-key="${CSS.escape(P.card)}"]`)
-    return n && n.getClientRects().length ? n : null
+    return n && !n.classList.contains('ppic') && n.getClientRects().length ? n : null
   }
   function aim() {
     // something is on its way: she works on it while the screen loads or the pointer rests
@@ -334,7 +338,8 @@ export function makePet({ sw, C, doc = document }) {
     if (next && !next.hasAttribute('aria-busy')) next.setAttribute('aria-busy', 'true')
     const r = next?.getBoundingClientRect()
     const at = r ? `${r.left | 0},${r.top | 0}` : ''
-    el.classList.toggle('working', !!next)
+    const near = !next && !P.building && [...doc.querySelectorAll(PET_NEAR)].some(n => n.getClientRects().length)
+    el.classList.toggle('working', !!next || near)
     const moved = next !== P.work || at !== P.workAt
     P.work = next
     P.workAt = at
@@ -425,6 +430,15 @@ export function makePet({ sw, C, doc = document }) {
   // the address: a new screen loads; a Studio step reached (or skipped)
   function onView(v) {
     if (!v) return
+    // a replay is a build from its first frame: she is away as soon as the view plays one, and the finished build
+    // the classic deck opens whole before it plays (its run:done) does not bring her back; the replay's own run:done
+    // does, or the view leaving the replay
+    if (!!v.replay !== P.replay) {
+      P.replay = !!v.replay
+      P.building = P.replay
+      P.buildAt = Date.now()
+      away()
+    }
     const room = v.room
     if (room !== P.room) {
       P.room = room
@@ -445,15 +459,23 @@ export function makePet({ sw, C, doc = document }) {
   C?.nav?.subscribe?.(onView)
   // an address that opens on a replay is a build from the start: she is away before she is first drawn, not
   // shown and faded out when its run:start arrives (a fade that ran or not by how fast the server answered)
-  if (C?.nav?.view?.replay) { P.building = true; P.buildAt = Date.now(); away() }
+  if (C?.nav?.view?.replay) { P.replay = P.building = true; P.buildAt = Date.now(); away() }
   // the canvas's events: a build starts (she hands over) and ends (she says so)
   sw?.on?.(e => {
     if (e.type === 'run:start') { P.building = true; P.buildAt = Date.now(); away() }
+    // (during a replay, an end that comes with its start, the finished build the classic deck opens whole before it
+    // plays, is not the replay's end)
+    if (P.replay && Date.now() - P.buildAt < 1000) return
     if (e.type === 'run:done' || e.type === 'run:stopped' || e.type === 'reset') {
       const was = P.building && Date.now() - P.buildAt > 5000
       P.building = false
       away()
-      if (was && e.type === 'run:done') note('built', { pages: e.pages })
+      // (a replay is a build seen again, not a new one: she says nothing of it)
+      // and nothing of a build that ended with sections failed, or a next version that added nothing: "all 3
+      // pages up" and "done, and it's cute" would not be true (the build's one state, as the server sent it:
+      // window.swarm.build; with none, an app or the hosted studio, she says it as before)
+      const left = ['partly', 'failed', 'unchanged'].includes(sw.build?.(e.run)?.state)
+      if (was && e.type === 'run:done' && !P.replay && !left) note('built', { pages: e.pages })
     }
   })
 

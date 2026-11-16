@@ -24,6 +24,7 @@ body.cosmos-project .topbar { background: var(--void); backdrop-filter: none; }
 /* ---------- the left panel: Files and Layers */
 .pj-side { width: 272px; flex: none; display: flex; flex-direction: column; border-right: 1px solid var(--line); background: var(--void); min-height: 0; }
 .pj-tabs { display: flex; align-items: center; gap: 2px; padding: 10px 10px 8px 12px; }
+.pj-tablist { display: flex; align-items: center; gap: 2px; }
 .pj-tabs .pj-tab { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 6px 10px; border-radius: 8px; font: 600 13px var(--label); letter-spacing: .1em; text-transform: uppercase; }
 .pj-tabs .pj-tab.on { color: var(--text); background: var(--surface-2); }
 .pj-tabs .pj-find { margin-left: auto; }
@@ -83,9 +84,10 @@ body.cosmos-project .topbar { background: var(--void); backdrop-filter: none; }
 .ab .sk i b { position: absolute; left: 10%; top: 18%; width: 42%; height: 6px; max-height: 18%; border-radius: 99px; background: color-mix(in srgb, var(--sk-fg) 22%, transparent); }
 .ab .sk i.hero b { width: 58%; height: 9px; top: 30%; background: color-mix(in srgb, var(--sk-fg) 40%, transparent); }
 .ab .sk i[style*="background-image"] b { display: none; }
-.ab .sk.over i { animation: sk-wait 1.6s ease-in-out infinite alternate; }
+/* only while the build runs: a section that failed or was left is not coming, so it does not pulse (body.pj-live) */
+.pj-live .ab .sk.over i { animation: sk-wait 1.6s ease-in-out infinite alternate; }
 @keyframes sk-wait { from { opacity: .92; } to { opacity: .7; } }
-@media (prefers-reduced-motion: reduce) { .ab .sk.over i { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .pj-live .ab .sk.over i { animation: none; } }
 /* a board's cards on their way (.wait-in, web/pet.js works on them): their shape, nothing to click */
 .ab.wait-in { pointer-events: none; background: color-mix(in srgb, var(--text) 5%, transparent); animation: sk-wait 1.6s ease-in-out infinite alternate; }
 @media (prefers-reduced-motion: reduce) { .ab.wait-in { animation: none; } }
@@ -126,9 +128,12 @@ body.cosmos-project .topbar { background: var(--void); backdrop-filter: none; }
 .pj-cursors { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 4; }
 .pj-cursors .cur.track { transition: left .1s linear, top .1s linear; }
 @media (prefers-reduced-motion: reduce) { .pj-cursors .cur.track { transition: none; } }
-.pj-drop { position: absolute; inset: 10px; z-index: 30; border: 1.5px dashed var(--text); border-radius: 14px; display: grid; place-items: center; pointer-events: none; background: rgb(var(--void-rgb) / .4); }
-.pj-drop[hidden] { display: none; }
-.pj-drop span { width: 54px; height: 54px; border-radius: 50%; background: var(--text); color: var(--void); display: grid; place-items: center; }
+.rd-over { position: absolute; inset: 10px; z-index: 30; border: 1.5px dashed var(--text); border-radius: 14px; display: grid; place-items: center; pointer-events: none; background: rgb(var(--void-rgb) / .4); }
+.rd-over[hidden] { display: none; }
+.rd-over span { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 999px; background: var(--text); color: var(--void); font: 600 14px var(--body); }
+/* Hermia's one question after a drop (web/refdrop.js): like this, or use as is */
+.rd-ask { position: absolute; left: 50%; bottom: 88px; transform: translateX(-50%); z-index: 31; display: flex; align-items: center; gap: 8px; max-width: calc(100% - 32px); padding: 8px 8px 8px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--deep); color: var(--text); font: 13px var(--body); box-shadow: 0 12px 30px -10px rgb(var(--shade-rgb) / .6); }
+.rd-ask > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---------- the inspector */
 .pj-insp { position: absolute; right: 0; top: 0; bottom: 0; width: 272px; z-index: 20; background: var(--void); border-left: 1px solid var(--line); padding: 14px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
@@ -187,10 +192,11 @@ body.cosmos-project .topbar { background: var(--void); backdrop-filter: none; }
 .pj-pic .btn { grid-column: 2; justify-self: start; }
 .pj-pic img.sb { filter: grayscale(.55) brightness(.9); opacity: .8; }
 .pj-credit { grid-column: 2; font: 11px/1.3 var(--body); color: var(--dim); overflow-wrap: anywhere; }
-.pj-scope { display: inline-flex; align-items: center; gap: 4px; max-width: 120px; flex: none; padding: 3px 6px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--deep); color: var(--text); font: 11px var(--mono); cursor: pointer; }
+/* the chat's box says what it is about: the picked section, the unsent marks (they sit in the composer's chip row) */
+.pj-scope, .composer .pj-scope { display: inline-flex; align-items: center; gap: 4px; max-width: 120px; flex: none; padding: 3px 6px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--deep); color: var(--text); font: 11px var(--mono); cursor: pointer; }
 .pj-scope[hidden] { display: none; }
 .pj-scope span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pj-insp .pj-lask { display: none; }
+.pj-insp .pj-tochat { display: none; }
 /* a section's code */
 .pj-code { position: fixed; inset: 0; z-index: 260; background: rgb(var(--shade-rgb) / .58); display: grid; place-items: center; padding: 16px; }
 .pj-code-box { width: min(860px, 100%); height: min(640px, 100%); display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border-radius: 12px; background: var(--void); border: 1px solid var(--line); }
@@ -205,33 +211,30 @@ body.cosmos-project .topbar { background: var(--void); backdrop-filter: none; }
   background: var(--deep); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 12px 36px rgb(var(--shade-rgb) / .5); }
 .project.insp-on .pj-dock { left: 50%; }
 .pj-dock .ib { width: 38px; height: 38px; }
-.pj-ask { display: flex; align-items: center; gap: 6px; width: 330px; margin-left: 6px; padding: 0 4px 0 12px; height: 38px; border-radius: 10px; background: var(--surface-2); }
-.pj-ask input { flex: 1; min-width: 0; background: none; border: 0; outline: none; color: var(--text); font: 13px var(--mono); }
-.pj-ask input::placeholder { color: var(--muted); }
-.pj-send { width: 30px; height: 30px; flex: none; border-radius: 8px; border: 0; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; cursor: pointer; }
 .project .hm-toast { position: absolute; bottom: 84px; }
 
 .pj-files-btn { display: none; }
 /* ---------- narrow panes (phones, Hermes Desktop's side pane): the canvas stays the page; Files and
-   Layers slide in as a sheet from the dock's Files button; the dock keeps Move, Frame, Chat and the input */
+   Layers slide in as a sheet from the dock's Files button; the dock keeps its tools, and its Chat tool opens the
+   chat as a sheet (the one place to type) */
 @media (max-width: 760px) {
   .pj-side { position: absolute; left: 0; top: 0; bottom: 0; width: min(320px, 86vw); z-index: 45; box-shadow: 18px 0 40px rgb(var(--shade-rgb) / .45); transform: translateX(-102%); transition: transform .22s var(--ease); visibility: hidden; }
   .project.files-on .pj-side { transform: none; visibility: visible; }
   .pj-files-btn { display: grid; }
   .pj-files-btn[aria-expanded="true"] { background: var(--surface-2); color: var(--text); }
   .pj-insp { position: fixed; left: 0; right: 0; top: auto; bottom: 0; width: auto; max-height: 70vh; border-left: 0; border-top: 1px solid var(--line); border-radius: 16px 16px 0 0; z-index: 140; }
-  .pj-dock, .project.insp-on .pj-dock { left: 8px; right: 8px; bottom: 8px; transform: none; gap: 2px; padding: 4px; }
+  .pj-dock, .project.insp-on .pj-dock { left: 8px; right: 8px; bottom: 8px; transform: none; gap: 2px; padding: 4px; justify-content: space-between; }
   .project.insp-on .pj-dock { display: none; }
-  .pj-insp .pj-lask { display: flex; width: auto; margin: 4px 0 0; flex: none; }
+  /* the dock (and its Chat tool) is under the inspector sheet: a picked section opens the chat itself, and the
+     chat's sheet takes the inspector's place while it is open */
+  .pj-insp .pj-tochat { display: inline-flex; }
   .pj-dock .ib { width: 36px; height: 36px; flex: none; }
-  .pj-dock .ib[data-tool="text"], .pj-dock .ib[data-tool="image"] { display: none; }
-  .pj-ask { flex: 1; width: auto; min-width: 0; margin-left: 2px; }
   body.cosmos-project #play-btn .t, body.cosmos-project #publish-btn .t { display: none; }
   .pj-crumb .pj-up, .pj-crumb > svg { display: none; }
   .pj-crumb .pj-name b { max-width: 34vw; }
 }
+@media (max-width: 700px) { body.cosmos-chat .pj-insp { display: none; } }
 @media (max-width: 760px) and (prefers-reduced-motion: reduce) { .pj-side { transition: none; } }
-@media (max-width: 1100px) { .pj-ask { width: 220px; } }
 @media (prefers-reduced-motion: reduce) { .pj-world.ease { transition: none; } }
 /* canvas.css styles ghost cursors as `.ghost svg`; keep button icons in the button */
 .btn.ghost > svg { position: static; width: 15px; height: 15px; overflow: hidden; }
@@ -248,16 +251,17 @@ body.cosmos-project .topbar { background: var(--void); backdrop-filter: none; }
 .ab.art .pt .sk > * { stroke-dasharray: 260; stroke-dashoffset: 260; animation: pt-draw 7s var(--ease) forwards; animation-delay: var(--ago, 0s); }
 .ab.art .pt .sk > *:nth-child(2) { animation-duration: 9s; } .ab.art .pt .sk > *:nth-child(3) { animation-duration: 11s; }
 @keyframes pt-draw { to { stroke-dashoffset: 0; } }
-.ab.art .pt-tag { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; padding: 5px 6px 13px; color: var(--text); font: 500 8.5px/1.25 var(--mono); background: color-mix(in srgb, var(--void) 84%, transparent); }
-.ab.art .pt-tag b { display: block; font: 700 9px var(--label); letter-spacing: .08em; text-transform: uppercase; }
+.ab.art .pt-tag, .ab.page > .pt-tag, .ab.app > .pt-tag, .ab.film > .pt-tag { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; padding: 5px 6px 13px; color: var(--text); font: 500 8.5px/1.25 var(--mono); background: color-mix(in srgb, var(--void) 84%, transparent); }
+.ab.art .pt-tag b, .ab.page > .pt-tag b, .ab.app > .pt-tag b, .ab.film > .pt-tag b { display: block; font: 700 9px var(--label); letter-spacing: .08em; text-transform: uppercase; }
 .ab.art .pt-bar { position: absolute; left: 6px; right: 6px; bottom: 6px; z-index: 3; height: 3px; border-radius: 3px; overflow: hidden; background: color-mix(in srgb, var(--text) 22%, transparent); }
 .ab.art .pt-bar > i { position: relative; display: block; height: 100%; background: var(--text); border-radius: 3px; transition: width 1.8s linear; overflow: hidden; }
 /* buffering: a brighter run along the bar */
 .ab.art .pt-bar > i::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--void) 45%, transparent), transparent); background-size: 50% 100%; background-repeat: no-repeat; animation: pt-buf 1.3s linear infinite; }
 @keyframes pt-buf { from { background-position: -60% 0; } to { background-position: 160% 0; } }
 .ab.art.pt-failed .pt::after { display: none; }
-.ab.art .pt-again { position: absolute; left: 6px; bottom: 6px; z-index: 3; display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; border: 0; border-radius: 5px; background: var(--text); color: var(--void); font: 700 9px var(--label); letter-spacing: .06em; text-transform: uppercase; cursor: pointer; }
-.ab.art.pt-failed .pt-tag { padding-bottom: 32px; }
+.ab.art .pt-again, .ab.page > .pt-again { position: absolute; left: 6px; bottom: 6px; z-index: 3; display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; border: 0; border-radius: 5px; background: var(--text); color: var(--void); font: 700 9px var(--label); letter-spacing: .06em; text-transform: uppercase; cursor: pointer; }
+.ab.art.pt-failed .pt-tag, .ab.page > .pt-tag.act { padding-bottom: 32px; }
+/* a page whose sections failed or were left (web/project.js leftTag) wears the same tag and button */
 /* painted again: the old picture shows through */
 .ab.art .pt.over { background: color-mix(in srgb, var(--void) 35%, transparent); }
 /* the real picture lands: it fades in over what stood in for it */

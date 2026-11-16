@@ -21,15 +21,20 @@
     "paths": {
       "@studio/nav": ["./src/nav/studio-nav.d.ts"],
       "@studio/makeways": ["./src/studio/studio-makeways.d.ts"],
+      "@studio/walkline": ["./src/studio/studio-walkline.d.ts"],
+      "@studio/headerstream": ["./src/studio/studio-headerstream.d.ts"],
+      "@studio/researchstop": ["./src/studio/studio-researchstop.d.ts"],
       "@studio/crew": ["./src/pet/studio-crew.d.ts"],
       "@studio/icons": ["./src/primitives/studio-icons.d.ts"],
       "@studio/clean": ["./src/screens/deck/studio-clean.d.ts"],
       "@studio/edit": ["./src/screens/deck/studio-edit.d.ts"],
       "@studio/route": ["./src/screens/deck/studio-route.d.ts"],
+      "@studio/github": ["./src/screens/deck/studio-github.d.ts"],
       "@studio/kits": ["./src/legacy/studio-kits.d.ts"],
       "@studio/pet": ["./src/legacy/studio-pet.d.ts"],
       "@studio/video": ["./src/primitives/studio-video.d.ts"],
-      "@studio/setup-parts": ["./src/screens/setup/studio-setup-parts.d.ts"]
+      "@studio/setup-parts": ["./src/screens/setup/studio-setup-parts.d.ts"],
+      "@studio/capture": ["./src/board/studio-capture.d.ts"]
     }
   },
   "include": ["src", ".storybook", "vite.config.ts"]

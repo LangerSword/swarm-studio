@@ -12,7 +12,8 @@ export interface DeckLayer {
   key: string, page: string, id: string, role: string, height: number,
   status: LayerStatus, text: string, ver: number, agent: string | null
 }
-export interface DeckAgent { id: string, name: string, layer: string | null, tool: ToolId, idle: boolean }
+// `said`: the agent's last words and when (its speech bubble shows them for a moment, web/canvas/deck.js say())
+export interface DeckAgent { id: string, name: string, layer: string | null, tool: ToolId, idle: boolean, said?: { text: string, t: number } }
 export interface DeckTheme { name?: string, vars: Record<string, string>, fonts?: { heading?: string, body?: string }, radius?: string }
 export type Host = 'github' | 'vercel' | 'cloudflare' | 'local'
 // Publish (web/canvas/publish.js publishEvent): the steps while it goes, why it failed, or each host's live link
@@ -50,11 +51,19 @@ export interface DeckModel {
   threads: Record<string, Note[]>
   issues: Record<string, Issue>
   lines: DeckLine[]
+  // the pages the Critic is looking at now (review:start until review:done): their frames show the scan
+  reviewing: string[]
+  // when the last review ended (review:done), so the reviewer's cursor can say its verdict and go
+  reviewEnd: number
   planned: number
   done: number
   failed: number
   t0: number
   tEnd: number
+  // what the build was asked (run:start), and why it stopped when it was not the person's Stop (the model, Hermes,
+  // a timeout: run:stopped's reason), with what to do
+  brief: string
+  stopped: { message: string, action: string } | null
 }
 
 // one engine event, as the server writes it; only the fields the deck reads are named
@@ -75,7 +84,7 @@ const FRESH_MS = 8000
 export const belongs = (page: string, l: DeckLayer) => l.page === '*' || l.page === page
 
 export function empty(run: string | null = null): DeckModel {
-  return { run, kind: 'site', title: '', state: 'empty', pages: [], layers: {}, order: [], agents: [], theme: null, publish: NO_PUBLISH, exported: null, threads: {}, issues: {}, lines: [], planned: 0, done: 0, failed: 0, t0: 0, tEnd: 0 }
+  return { run, kind: 'site', title: '', state: 'empty', pages: [], layers: {}, order: [], agents: [], theme: null, publish: NO_PUBLISH, exported: null, threads: {}, issues: {}, lines: [], reviewing: [], reviewEnd: 0, planned: 0, done: 0, failed: 0, t0: 0, tEnd: 0, brief: '', stopped: null }
 }
 
 // What a stream is "doing" right now, read off its tail (web/canvas/deck.js detectTool).
@@ -114,6 +123,12 @@ function setAgent(m: DeckModel, id: string, patch: Partial<DeckAgent>) {
 
 const agentOf = (m: DeckModel, id: unknown) => m.agents.find(a => a.id === id)
 
+// why a build stopped, when it was not the person's own Stop
+function reasonOf(e: DeckEvent): { message: string, action: string } | null {
+  const r = e.reason as { code?: unknown, message?: unknown, action?: unknown } | undefined
+  return r && typeof r === 'object' && r.code !== 'person' && str(r.message) ? { message: str(r.message), action: str(r.action) } : null
+}
+
 const LINES = 300
 // the build's line for an event, if it has one (the last 300 are kept)
 function lineOf(m: DeckModel, e: DeckEvent): DeckLine | null {
@@ -129,7 +144,8 @@ function lineOf(m: DeckModel, e: DeckEvent): DeckLine | null {
     case 'comment:none': return { id, at, who: 'hermia', text: 'Not sure which section that is about. Select one on the canvas and comment there.' }
     case 'layer:failed': return str(e.keep) ? null : { id, at, who: 'err', text: `${str(e.layer)} failed: ${str(e.message) || 'no reason given'}`, layers: where }
     case 'run:done': return { id, at, who: 'sys', text: `Done: ${num(e.done)}/${num(e.planned)} sections across ${num(e.pages)} pages in ${(num(e.ms) / 1000).toFixed(1)}s${num(e.failed) ? `, ${num(e.failed)} failed` : ''}.` }
-    case 'run:stopped': return { id, at, who: 'sys', text: 'Stopped. Everything finished is kept.' }
+    // a stop for a reason is Hermia's line in the chat, with what to do (#541); the person's own Stop is the Log's
+    case 'run:stopped': return reasonOf(e) ? { id, at, who: 'hermia', text: [reasonOf(e)!.message, reasonOf(e)!.action.replace(/`/g, '')].filter(Boolean).join(' ') } : { id, at, who: 'sys', text: 'Stopped. Everything finished is kept.' }
     case 'error': return { id, at, who: 'err', text: `${str(e.where) || 'build'}: ${str(e.message)}` }
     default: return null
   }
@@ -154,6 +170,7 @@ function step(m: DeckModel, e: DeckEvent): DeckModel {
       n.state = 'planning'
       n.kind = e.kind === 'game' ? 'game' : 'site'
       n.title = (str(e.title) || str(e.brief)).slice(0, 60)
+      n.brief = str(e.brief)
       const agents = Array.isArray(e.agents) ? e.agents as { id: string, name: string }[] : []
       n.agents = agents.map(a => ({ id: String(a.id), name: String(a.name), layer: null, tool: 'move', idle: true }))
       return n
@@ -210,7 +227,7 @@ function step(m: DeckModel, e: DeckEvent): DeckModel {
     case 'agent:say': {
       if (!agentOf(m, e.agent)) return m
       const n = draft(m)
-      setAgent(n, String(e.agent), { tool: 'comment' })
+      setAgent(n, String(e.agent), { tool: 'comment', said: { text: str(e.text), t: num(e.t) } })
       return n
     }
     case 'layer:done': {
@@ -260,6 +277,7 @@ function step(m: DeckModel, e: DeckEvent): DeckModel {
       const n = draft(m)
       n.state = 'stopped'
       n.tEnd = num(e.t)
+      n.stopped = reasonOf(e)
       for (const a of n.agents) setAgent(n, a.id, { idle: true, layer: null, tool: 'move' })
       for (const k of n.order) {
         const l = n.layers[k]
@@ -307,6 +325,15 @@ function step(m: DeckModel, e: DeckEvent): DeckModel {
       const mine = thread.some(x => x.you && x.text === str(e.text)) || !str(e.text) ? [] : [{ who: 'You', you: true, text: str(e.text), t: num(e.t) }]
       const reply = str(e.reply) || `On it, reworking the ${str(e.role) || str(e.layer)}.`
       n.threads = { ...m.threads, [k]: [...thread, ...mine, { who: a?.name ?? 'The crew', you: false, text: reply, t: num(e.t) }] }
+      return n
+    }
+    case 'review:start':
+    case 'review:done': {
+      const page = str(e.page)
+      if (!page) return m
+      const n = draft(m)
+      n.reviewing = e.type === 'review:start' ? [...new Set([...m.reviewing, page])] : m.reviewing.filter(p => p !== page)
+      if (e.type === 'review:done') n.reviewEnd = num(e.t)
       return n
     }
     case 'review:issue': {

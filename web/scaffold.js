@@ -12,9 +12,11 @@
 //   look, save(data), select(key), say(text) }. state is the kit's own saved state; look the brand's
 //   picked colours and fonts ({ bg, text, accent, link, heading, body }) or null.
 import { ic } from './icons.js'
-import { matchHtml, matchClick, lookBusy, lookWorker, workLine, workHtml, lookPhase, lookSays, LOOK_POLL } from './lookmatch.js'
+import { refDrop } from './refdrop.js'
+import { matchHtml, matchClick, lookBusy, lookWorker, workLine, workHtml, lookPhase, lookSays, foundSaid, takenSaid, LOOK_POLL } from './lookmatch.js'
 import { makeBoard } from './board.js'
 import { KITS } from './kits.js'
+import { moodLine, nextStep, walkLine } from './walkline.js'
 import { layerTree, layerSheet } from './layers.js'
 
 // what a project's builds use for pictures (web/setup.js's three)
@@ -28,7 +30,7 @@ const ROLE_NAME = { pack: 'Brand kit' }
 
 export function makeScaffold({ sw, C, root }) {
   const esc = sw.esc
-  const A = { on: false, pid: null, d: null, sel: null, framed: false, busy: false, wantsBuild: false, asking: null, talked: null, cards: new Map(), takes: null }
+  const A = { on: false, pid: null, d: null, sel: null, framed: false, busy: false, wantsBuild: false, asking: null, talked: null, cards: new Map(), takes: null, walked: /** @type {{ pid: string | null, pack: string | null } | null} */ (null), plannedAsk: /** @type {string | null} */ (null) }
 
   const bd = makeBoard({ root, cls: 'project plan scaffold', label: 'Studio', fit: [0.35, 1], on: () => A.on, selected: () => !!A.sel, clear: () => select(null) })
   const { world, insp } = bd
@@ -76,6 +78,8 @@ export function makeScaffold({ sw, C, root }) {
   const proj = p => `/api/projects/${encodeURIComponent(A.pid)}${p}`
   function take(d) { if (d.project?.id === A.pid) { A.d = { ...A.d, ...d }; render() } }
   const fail = err => bd.toast(err.message)
+  // a picture kept from the chat (decision 0025 e, web/chatcards.js): the board shows where it went
+  addEventListener('swarm:refs', () => { if (A.on && A.pid) load() })
   async function load() {
     const pid = A.pid
     try {
@@ -126,18 +130,42 @@ export function makeScaffold({ sw, C, root }) {
     if (step === 'proposal') return d.studio.locked ? 'done' : d.studio.proposal ? 'started' : 'empty'
     return 'empty'
   }
-  // the record follows what the board shows
+  // the record follows what the board shows. A step that is now done (here, or on the brand sheet) is said in the
+  // chat, with what it meant and which step is next (#541, web/walkline.js); a mood picked on the sheet too
   function sync() {
+    let said = null
     for (const s of Object.keys(A.d.studio.steps)) {
       const now = stateOf(s)
+      if (now === 'done' && A.d.studio.steps[s] !== 'done') said = s
       if (now !== A.d.studio.steps[s]) { A.d.studio.steps[s] = now; post(at('/step'), { step: s, state: now }).catch(() => {}) }
     }
+    const pack = A.d.brand?.pack || null
+    if (A.walked?.pid === A.pid && A.talked === A.pid) {
+      if (said) walkSay(said, 'done')
+      // the option's name from its slug ("warm-editorial": Warm editorial)
+      else if (pack && pack !== A.walked.pack) sw.say?.(moodLine(pack.charAt(0).toUpperCase() + pack.slice(1).replace(/-/g, ' '), nextStep(walkOrder(), stateOf, 'brand'), STEP_NAME))
+    }
+    A.walked = { pid: A.pid, pack }
+  }
+  // the walk, in the kit's order (the current Studio's Lock is its review, not a step that is done)
+  const walkOrder = () => kit().steps.filter(s => s in A.d.studio.steps)
+  /** @param {string} step @param {'done' | 'skipped'} how */
+  function walkSay(step, how) {
+    sw.say?.(walkLine({ step, how, next: nextStep(walkOrder(), stateOf, step) ?? nextStep(walkOrder(), stateOf), names: STEP_NAME }))
   }
 
   // ---------- render
   const sel = key => (A.sel === key ? '<div class="sel"><i></i><i></i><i></i><i></i></div>' : '')
   const card = (key, name, cls, inner = '') => `<div class="ab ${cls}" data-key="${esc(key)}" tabindex="0" role="button" aria-label="${esc(name)}">${inner}${sel(key)}</div>`
   const addCard = (key, name) => card(key, name, 'sc-add', `${ic('plus', 18)}<span>${esc(name)}</span>`)
+  // under a document: what the crew is doing with it, or what it found (the same line as /next/'s FoundLine)
+  // under any other reference: what the crew takes from it (issue #543), or why nothing
+  const foundLine = x => {
+    const f = x.found
+    if (!f || x.kind !== 'file') return x.taken ? `<span class="sc-found">${esc(takenSaid(x.taken))}</span>` : ''
+    const said = f.state === 'reading' ? 'Reading…' : f.state === 'failed' ? `Could not read it${f.note ? `: ${f.note}` : ''}` : `Found: ${foundSaid(f) || 'nothing to fill in'}`
+    return `<span class="sc-found">${esc(said)}</span>`
+  }
   const thumb = (kind, x) => {
     const shot = x.kind === 'link' && x.look?.shots?.[0]
     if (lookBusy(x) && !A.lookTimer) setTimeout(watchLooks)
@@ -146,7 +174,7 @@ export function makeScaffold({ sw, C, root }) {
       : `<div class="sc-file">${ic(x.kind === 'link' ? 'link' : x.kind === 'video' ? 'film' : x.kind === 'audio' ? 'music' : x.kind === 'font' ? 'type' : 'file', 22)}</div>`
     // someone on the crew is reading the link or comparing it: the sheen and their named cursor on the card
     const work = kind === 'ref' ? workHtml(x) : ''
-    return card(`${kind}:${x.id}`, x.name, `sc-thumb${work ? ' sc-walking' : ''}`, `${inner}<em>${esc(x.role || x.name)}</em>${work}`)
+    return card(`${kind}:${x.id}`, x.name, `sc-thumb${work ? ' sc-walking' : ''}`, `${inner}<em>${esc(x.role || x.name)}</em>${kind === 'ref' ? foundLine(x) : ''}${work}`)
   }
   function brandCard() {
     const b = A.d.brand, L = look(b)
@@ -322,7 +350,7 @@ export function makeScaffold({ sw, C, root }) {
   function sayLooks() {
     const first = !A.looks, seen = A.looks || (A.looks = new Map())
     for (const r of A.d?.refs || []) {
-      if (r.kind !== 'link') continue
+      if (r.kind !== 'link' && r.kind !== 'file') continue
       const line = first ? '' : lookSays(seen.get(r.id) || '', r)
       seen.set(r.id, lookPhase(r))
       if (line) sw.say?.(line)
@@ -342,6 +370,12 @@ export function makeScaffold({ sw, C, root }) {
       watchLooks()
     }).catch(() => {}), LOOK_POLL)
   }
+  // the inspector's "what the crew takes from it": the parts, then what it never takes or why it takes nothing
+  const takenHtml = r => {
+    const t = r.taken
+    if (!t) return ''
+    return `${t.what?.length ? `<p class="lk-row"><b>Taken</b><span>${esc(t.what.join(', '))}</span></p>` : ''}${t.not ? `<p class="lk-state">${esc(t.not)}</p>` : ''}`
+  }
   function lookInsp(box, r) {
     const L = r.look || {}, w = L.words || {}, t = L.tokens || {}, f = t.fonts || {}
     const when = r.added ? new Date(r.added).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : ''
@@ -354,6 +388,7 @@ export function makeScaffold({ sw, C, root }) {
       ${sw2 ? `<div class="br-sw lk-sw">${sw2}</div>` : ''}
       ${w.prompt ? `<p class="sc-idea-full">${esc(w.prompt)}</p>` : ''}
       ${line('Type', w.type || (f.display?.name ? `${f.display.name} · ${f.body?.name || ''}` : ''))}${line('Motion', w.motion)}${line('3D', w.threeD)}
+      ${takenHtml(r)}
       <textarea class="hm-free" name="use" rows="2" placeholder="What you like about it" aria-label="What you like about it">${esc(r.use || '')}</textarea>
       ${matchHtml(r, { base: sw.base || '', built: !!A.d.project?.head })}
       <p class="lk-from">${esc(from)} · <a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">${esc(L.from?.host || r.name)}</a></p>
@@ -379,7 +414,7 @@ export function makeScaffold({ sw, C, root }) {
     const key = A.sel
     bd.inspector(!!(A.d && key))
     if (insp.hidden) return
-    if (insp.contains(document.activeElement) && document.activeElement.matches('input, select')) return
+    if (insp.contains(document.activeElement) && document.activeElement.matches('input, textarea, select')) return
     const [part, id] = key.split(':')
     const x = A.cards.get(key)
     const pack = part === 'take' ? A.takes?.packs.find(p => p.slug === id) : null
@@ -405,14 +440,23 @@ export function makeScaffold({ sw, C, root }) {
       box.innerHTML = `<div class="sc-acts"><button class="btn ghost" data-a="skip">${ic(skipped ? 'restore' : 'x', 15)}${skipped ? 'Bring back' : 'Skip'}</button><button class="btn ghost" data-a="remove">${ic('trash', 15)}Remove</button></div>`
       box.onclick = e => {
         const a = e.target.closest('[data-a]')?.dataset.a
-        if (a === 'skip') post(at('/step'), { step: id, state: skipped ? 'empty' : 'skipped' }).then(take).catch(fail)
+        if (a === 'skip') post(at('/step'), { step: id, state: skipped ? 'empty' : 'skipped' }).then(take).then(() => { if (!skipped) walkSay(id, 'skipped') }).catch(fail)
         if (a === 'remove') post(at('/step'), { step: id, state: 'removed' }).then(d => { A.sel = null; take(d) }).catch(fail)
       }
       return
     }
     if (part === 'ref' && A.d.refs.find(r => r.id === id)?.kind === 'link') return lookInsp(box, A.d.refs.find(r => r.id === id))
     if (part === 'ref') {
-      box.innerHTML = `<div class="sc-acts"><button class="btn ghost" data-a="given">${ic('pin', 15)}Use as given</button><button class="btn ghost" data-a="remove">${ic('trash', 15)}Remove</button></div>`
+      const r = A.d.refs.find(x => x.id === id), f = r?.found
+      // a document: what the crew read in it (issue #543), the same fields the walk fills in
+      const row = (k, v) => (v ? `<p class="lk-row"><b>${k}</b><span>${esc(v)}</span></p>` : '')
+      const read = !f ? '' : f.state === 'reading' ? `<p class="lk-state" aria-live="polite">${esc(workLine(/** @type {any} */ (lookWorker(r))))}</p>`
+        : f.state === 'failed' ? `<p class="lk-state">Could not read it${f.note ? `: ${esc(f.note)}` : ''}</p>`
+        : `${row('Found', f.what)}${row('For', f.who)}${row('Pages', (f.pages || []).join(', '))}${f.idea ? `<p class="sc-idea-full">${esc(f.idea)}</p>` : ''}`
+      // a picture (or any file) gets the same note as a link: what you like about it, read by the crew with it
+      box.innerHTML = `${read}${takenHtml(r)}<textarea class="hm-free" name="use" rows="2" placeholder="What you like about it" aria-label="What you like about it">${esc(r?.use || '')}</textarea><div class="sc-acts"><button class="btn ghost" data-a="given">${ic('pin', 15)}Use as given</button><button class="btn ghost" data-a="remove">${ic('trash', 15)}Remove</button></div>`
+      const note = /** @type {HTMLTextAreaElement} */ (box.querySelector('[name=use]'))
+      note.onchange = () => post(proj(`/refs/${id}/use`), { use: note.value.trim() }).then(j => { A.d.refs = j.refs; render() }).catch(fail)
       box.onclick = e => {
         const a = e.target.closest('[data-a]')?.dataset.a
         if (a === 'given') post(proj('/assets'), { ref: id }).then(j => { A.d.refs = j.refs; A.d.assets = j.assets; select(`asset:${j.asset.id}`) }).catch(fail)
@@ -453,7 +497,20 @@ export function makeScaffold({ sw, C, root }) {
     // the step it is in is where the person is (the address follows)
     const step = key?.startsWith('step:') ? key.slice(5) : key && world.querySelector(`.ab[data-key="${CSS.escape(key)}"]`)?.closest('[data-sec]')?.dataset.sec
     if (step && C.nav.view.room === 'studio' && C.nav.view.step !== step) C.nav.go({ type: 'studio.step', step })
+    if (step === 'plan') askAtPlan()
     render()
+  }
+  // the pages are asked at the Plan step, once per project, before Build (#541): Build then builds when pressed.
+  // A question already open, or pages already said, asks nothing (engine/askfirst.mjs studioOpen)
+  function askAtPlan() {
+    if (!leads() || A.asking || !A.d?.studio.idea || A.plannedAsk === A.pid) return
+    A.plannedAsk = A.pid
+    const pid = A.pid
+    post(at('/ask'), {}).then(j => {
+      if (pid !== A.pid || A.asking || j?.ask?.next !== 'pages') return
+      A.asking = 'pages'
+      sw.say?.(j.ask.text)
+    }).catch(() => {})
   }
   function press(el) {
     const key = el.dataset.key
@@ -468,14 +525,18 @@ export function makeScaffold({ sw, C, root }) {
   }
   world.addEventListener('click', e => { const a = e.target.closest('.ab[data-key]'); if (a) press(a) })
   world.addEventListener('keydown', e => { const a = e.target.closest('.ab[data-key]'); if (a && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); press(a) } })
-  // files dropped on References or Assets go to that store
-  root.addEventListener('dragover', e => { if (e.dataTransfer?.types?.includes('Files') && e.target.closest?.('[data-sec="references"], [data-sec="assets"]')) e.preventDefault() })
+  // a file dropped anywhere on the board goes to References, and Hermia asks once: like this, or use as is
+  // (web/refdrop.js, issue #543); one dropped on the Assets section is already "use as is"
+  const onAssets = e => !!e.target.closest?.('[data-sec="assets"]')
+  root.addEventListener('dragover', e => { if (e.dataTransfer?.types?.includes('Files') && onAssets(e)) e.preventDefault() })
   root.addEventListener('drop', e => {
-    const s = e.target.closest?.('[data-sec="references"], [data-sec="assets"]')
-    if (!s || !e.dataTransfer?.files?.length) return
+    if (!onAssets(e) || !e.dataTransfer?.files?.length) return
     e.preventDefault()
-    upload(s.dataset.sec === 'assets' ? 'asset' : 'ref', [...e.dataTransfer.files])
+    upload('asset', [...e.dataTransfer.files])
   })
+  refDrop({ root, at: () => (A.on && A.pid ? `/api/projects/${encodeURIComponent(A.pid)}` : null), api: (path, opts) => sw.api(path, opts), skip: onAssets, said: text => sw.say?.(text),
+    done: (refs, added) => { A.d.refs = refs; render(); select(`ref:${added[0].id}`); watchLooks() },
+    asset: (refs, assets) => { A.d.refs = refs; A.d.assets = assets; render() } })
 
   async function upload(to, files) {
     for (const f of files.slice(0, 12)) {
@@ -517,6 +578,9 @@ export function makeScaffold({ sw, C, root }) {
       post(at('/idea'), { idea: text }).then(() => { A.prepared = null; return load() }).catch(fail)
     }
     sw.talk.start({ kind: CHAT_KIND[d.studio.kind] || 'site', chat: d.studio.chat, blank: true, said: d.studio.idea ? [{ who: 'you', text: d.studio.idea }] : [], heard, build: brief => (k.build ? build(brief) : openBrand()) })
+    // no Hermes: the walk opens all the same (it builds nothing), and the chat says why Build will wait, with what
+    // to do and Check again (#541)
+    sw.hermesReady?.().then(off => { if (off && pid === A.pid && A.on) sw.hermesSays?.(off) }).catch(() => {})
     if (!d.studio.idea) return sw.say?.('What are you making?')
     // a kit with prepare() posts its own planner line
     const st = k.prepare ? null : startOf()
@@ -572,7 +636,8 @@ export function makeScaffold({ sw, C, root }) {
     // first build, then the pictures (also the board's Pictures card). The build goes on from the answer.
     if (leads()) {
       const j = await post(at('/ask'), { building: true }).catch(() => null)
-      const next = j?.ask?.next || (c.state.pictures ? null : 'pictures')
+      // the server's word stands: Setup's pictures count as said (server/studio.mjs), so they are not asked again
+      const next = j ? j.ask?.next || null : (c.state.pictures ? null : 'pictures')
       if (next) {
         A.wantsBuild = true
         A.asking = next

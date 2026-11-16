@@ -186,7 +186,7 @@ The Systems card is a list of switches. Each module is a block of build instruct
 | Subscriptions | new, template | Stripe Checkout in `subscription` mode with `sk_test_` only; a demo plan without a key |
 | Leaderboard | new, template | `POST /api/scores`, `GET /api/scores?board=`, best per player, server-checked run length |
 | Gacha | new, template | spec 16's Oracle rules: published rates, a pity counter, no paid currency without the label; a pull animation |
-| Autoplay pilot | exists for ARES | `games/ares/jev` and `pilot.gd`; the web game's is the Game room's Autoplay switch (PR #139: `engine/aiplayer.mjs`, `server/autoplay.mjs`, `web/canvas/autoplay.js`), which plays any running game, and `engine/autoplay.mjs` on the command line for a game that opted in |
+| Autoplay pilot | exists for ARES | `Pukujan/ares jev` and `pilot.gd`; the web game's is the Game room's Autoplay switch (PR #139: `engine/aiplayer.mjs`, `server/autoplay.mjs`, `web/canvas/autoplay.js`), which plays any running game, and `engine/autoplay.mjs` on the command line for a game that opted in |
 | Enemy AI | new, template | state machines for minion, elite and a 3-stage boss: idle → telegraph → attack → recover, stage change at health thresholds, weapon switch per stage |
 | Loadout | new, template | `GET /api/loadout?player=` returns the cosmetics owned in the app; the game reads it at start |
 
@@ -197,7 +197,7 @@ instruction block (and, for enemy AI, a minimal reference state machine in the b
 
 A template is a plan without its build state: `{ id, name, from, cards, systems, style, sheets (picked cells only),
 parts: [{ kind, name, file }] }`. `POST /api/plans/:id/template` saves one; the built-in ARES template lives in
-`games/ares/plan.json`. `POST /api/templates/:id/remix` makes a new plan from it and opens the Plan board at the gate,
+`gamemaker/plan.json`. `POST /api/templates/:id/remix` makes a new plan from it and opens the Plan board at the gate,
 with the price for this creator (parts the template already carries, like the animation set, are not charged
 again when the files are present).
 
@@ -293,7 +293,7 @@ Plan files are served at `/plans/<id>/<file>.png` (the sheet and mock pictures),
   (`sheetsplit.py`); they stay on the price but the build does not make them yet.
 - [x] (d) The Systems switches in the build prompt: `engine/systems.mjs` `systemsAsk(plan)`, joined with the cards and the
   close-up rule in `gameBrief(plan)` (`GET /api/plans/:id/brief`). Starting the game's coding run from the brief is still to do.
-- [x] (e) ARES as a remixable template: `engine/template.mjs`, `games/ares/plan.json`, remix from the Make box's 💡 pop
+- [x] (e) ARES as a remixable template: `engine/template.mjs`, `gamemaker/plan.json`, remix from the Make box's 💡 pop
   and Save as template from the plan's ▾. Remixing from the hosted Feed is still to do.
 
 ## Out of scope

@@ -1,7 +1,8 @@
 // @ts-check
 // web/canvas.js, split by area (web/canvas/README.md): the views and rooms: Canvas, Video, App, the big game, the app advisor, game mode, cast, art, the bench.
+import { download } from '../headerstream.js'
 import { dataStore } from '../data.js'
-import { noAppYet, goOnAsk, neverDrew, sliceSay, sliceWords } from './wander.js'
+import { noAppYet, goOnAsk, buildAsk, neverDrew, sliceSay, sliceWords } from './wander.js'
 import { stageNow, stagePick, stageAsk, stageNone, stageSwitch, playFail, mapDoor } from './stage.js'
 import { autoplayRoom } from './autoplay.js'
 import { mapAsk, mapNone } from './mapask.js'
@@ -9,7 +10,7 @@ import { mapWindow } from './mapwin.js'
 import { painterOf, cursor } from '../icons.js'
 import { openWorkshop } from '../workshop.js'
 import { intakeAsk, INTAKE_SAY } from '../intake.js'
-import { $, els, api, ico, BASE, S, BOOT, HERMIA, commandOps, Crew } from './core.js'
+import { $, els, api, ico, BASE, S, BOOT, HERMIA, commandOps, Crew, setLabel, partsOf, partsHooks, readParts } from './core.js'
 import { toggleVideo, video, shownRun, showRun } from './film.js'
 import { cw, CW_CODE, CW_MAP, wallNames, paintv, artPhase } from './auto.js'
 import { setText, botMsg, feed, push } from './panels.js'
@@ -17,6 +18,7 @@ import { esc } from './design.js'
 import { saveModel, modelsInfo, loadModels, showTab } from './settings.js'
 import { loadFiles, openRun, rec, stopReplay } from './replay.js'
 import { appPill } from '../replaytalk.js'
+import { githubAgo } from '../github.js'
 import { HOSTS } from './publish.js'
 import { adoptVideos, boardVideo } from '../video.js'
 
@@ -45,7 +47,7 @@ export const appEls = { view: $('#appview'), state: $('#app-state'), stage: $('#
 // The Game room's Autoplay switch and the AI player's screen over the game (web/canvas/autoplay.js)
 const aiPlayer = autoplayRoom({
   btn: /** @type {HTMLButtonElement | null} */ ($('#app-auto')), cover: $('#app-auto-view'), api, ico, cursor: cursor(painterOf('autoplay')),
-  stream: run => `${BASE}/api/runs/${encodeURIComponent(run)}/autoplay/stream?k=${encodeURIComponent(BOOT.token || '')}&t=${Date.now()}`,
+  stream: run => `${BASE}/api/runs/${encodeURIComponent(run)}/autoplay/stream?t=${Date.now()}`, token: BOOT.token || '',
   showLive: () => stageSet('live'), botMsg, youSaid: text => feed(null, text, 'you'),
 })
 const PLACEHOLDER = { canvas: 'Describe a product. The swarm designs and builds its site.', video: 'An idea for the video: “faster, end on the crowd”, “for Instagram”…', app: 'Change the app: “add a FAQ page with search”, “let people pick a seat”…' }
@@ -79,6 +81,71 @@ function renderBadges() {
 setInterval(renderBadges, 1000)
 
 export const appApi = (path = '', body) => api(`/api/runs/${encodeURIComponent(appv.run)}/app${path}`, body === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(async r => { const out = await r.json().catch(() => ({})); if (!r.ok) throw new Error(out.error || `HTTP ${r.status}`); return out })
+
+// The app's versions (issue #542): its first build and each change, newest first, from the server (engine/appjob.mjs
+// versions). One press goes back to one; going back is a version too, so the one left stays there to come back to.
+const ver = { run: '', list: /** @type {any[]} */ ([]), busy: '', at: /** @type {string | null} */ (null) }
+// the screen the app's current version changed (engine/appjob.mjs screenOf): the Live app opens there
+const nowScreen = () => (ver.run === appv.run ? ver.list.find(v => v.now)?.screen || null : null)
+const fileName = f => String(f).split('/').pop()
+async function loadVersions(run) {
+  if (!run || rec.on) return
+  try {
+    const r = await appApi('/versions')
+    if (shownRun() !== run) return
+    Object.assign(ver, { run, list: r.versions || [] })
+    if (appv.url && nowScreen() !== ver.at) appEls.frame.dataset.src = ''
+    renderVersions()
+    renderApp()
+  } catch {}
+}
+function renderVersions() {
+  const box = $('#app-versions')
+  if (!box) return
+  const show = view === 'app' && ver.run === shownRun() && appv.kind !== 'game' && appv.state !== 'working' && !rec.on && ver.list.length > 1
+  box.hidden = !show
+  if (!show) return
+  const last = ver.list[0], before = ver.list[1]
+  const pic = (src, label) => (src ? `<button type="button" class="av-pic" data-compare aria-label="${esc(label)}: show before and after large"><img src="${esc(BASE + src)}" alt="" loading="lazy"><span>${esc(label)}</span></button>` : '')
+  const lastHtml = last?.changed?.length ? `<div class="av-last"><h3>Last change</h3><p>${esc(last.what)}</p><p class="av-files">Changed ${esc(last.changed.slice(0, 4).map(fileName).join(', '))}${last.changed.length > 4 ? ` and ${last.changed.length - 4} more` : ''}${last.screen ? ` · on ${esc(last.screen)}` : ''}</p>${last.photo ? `<div class="av-ba">${pic(before?.photo, 'Before')}${pic(last.photo, 'After')}</div>` : ''}</div>` : ''
+  box.innerHTML = `${lastHtml}<h3>Versions</h3>${ver.list.slice(0, 12).map(v => `<div class="av${v.now ? ' now' : ''}"><span>${esc(v.what)}<small>${esc(githubAgo(v.t))}${v.changed?.length ? ` · ${esc(v.changed.slice(0, 3).map(fileName).join(', '))}` : ''}</small></span>${v.now ? '<em>Now</em>' : `<button type="button" data-rev="${esc(v.rev)}"${ver.busy ? ' disabled' : ''}>${ver.busy === v.rev ? 'Going back…' : 'Go back to this'}</button>`}</div>`).join('')}`
+  for (const b of box.querySelectorAll('[data-compare]')) /** @type {HTMLButtonElement} */ (b).onclick = () => compare(before?.photo, last.photo, last.what)
+  for (const b of box.querySelectorAll('button[data-rev]')) /** @type {HTMLButtonElement} */ (b).onclick = () => goBack(/** @type {HTMLButtonElement} */ (b).dataset.rev || '')
+}
+// the last change's before and after, large, over the Live app
+function compare(before, after, what) {
+  closeCompare()
+  const box = document.createElement('div')
+  box.className = 'av-compare'
+  box.setAttribute('role', 'dialog')
+  box.setAttribute('aria-label', `Before and after: ${what}`)
+  const fig = (src, label) => (src ? `<figure><img src="${esc(BASE + src)}" alt="${esc(label)}"><figcaption>${esc(label)}</figcaption></figure>` : '')
+  box.innerHTML = `<header><b>${esc(what)}</b><button type="button" class="toggle" data-close>Close</button></header><div>${fig(before, 'Before')}${fig(after, 'After')}</div>`
+  box.querySelector('[data-close]')?.addEventListener('click', closeCompare)
+  appEls.preview.append(box)
+  /** @type {HTMLElement | null} */ (box.querySelector('[data-close]'))?.focus()
+}
+function closeCompare() { appEls.preview.querySelector('.av-compare')?.remove() }
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && appEls.preview.querySelector('.av-compare')) { e.stopPropagation(); closeCompare() } }, true)
+
+async function goBack(rev) {
+  const run = shownRun(), v = ver.list.find(x => x.rev === rev)
+  ver.busy = rev
+  renderVersions()
+  try {
+    const r = await appApi('/back', { rev })
+    if (shownRun() !== run) return
+    ver.list = r.versions || ver.list
+    if (r.url) appv.url = r.url
+    appEls.frame.dataset.src = '' // the app as it is now
+    sayAs(botMsg(`The app is back to: ${v?.what || 'an earlier version'}. The one you left is still in Versions.`), 'went back')
+    // its files are back but it did not build: the room says so, with Try again
+    if (r.message && !r.url) Object.assign(appv, { message: r.message, openFailed: true })
+  } catch (err) { botMsg(`App: ${err.message}`) } finally {
+    ver.busy = ''
+    renderApp()
+  }
+}
 
 export function resetApp(run) {
   appStore.reset({ run })
@@ -140,15 +207,21 @@ export function intakeSay(text) {
   return true
 }
 
+// the one state of the app or the game in this room (null: the page was not sent it, as in the hosted studio)
+const appPart = () => { const p = partsOf(appv.run); return p?.game || p?.app || null }
+partsHooks.add(run => { if (run === appv.run && view === 'app') renderApp() })
 async function loadApp() {
   const run = shownRun()
   if (!run) { resetApp(null); return renderApp() }
   if (appv.run !== run) resetApp(run)
+  // with the room's job view, the build's parts (the stream tells of changes; the room asks too, each time it reads its job)
+  if (!rec.on) readParts(run)
   // a replay draws the room from its saved events only: the real app is not read, and never started, while it plays
   if (rec.on) return renderApp()
   try {
     const st = await appApi()
     if (appv.run !== run || rec.on) return
+    if (ver.run !== run || st.state !== appv.state) loadVersions(run)
     Object.assign(appv, { at: st.at || null, state: st.state, elsewhere: !!st.elsewhere, kind: st.kind || appv.kind, stage: st.stage || '', message: st.message || '', result: st.result, deployed: st.deployed || appv.deployed, hasApp: !!st.hasApp, canServe: !!st.canServe, loaded: true, engineReady: st.engineReady, intake: st.intake || null })
     if (st.steps?.length >= appv.steps.length) appv.steps = st.steps
     if (st.asks?.length) appv.asks = st.asks
@@ -234,6 +307,11 @@ export function playClip() {
       setText(clip.el.querySelector('.pc-key'), k ? k.k : '')
     })
   }
+  // The live app is the person's own screen to play on: the film belongs to the wall, and over Live it
+  // sat on top of the very game they had just opened (the person, 2026-11-16: "this is my live where i
+  // can play … the button right window having autoplay makes no sense"). No tile and Live showing: no card.
+  const live = stageOf().shown === 'live'
+  if (!tile && live) { if (clip.el) clip.el.hidden = true; return }
   const host = tile || appEls.preview
   // on screen it plays (web/video.js), within the page's budget; hidden or off screen, it is its poster
   if (clip.el.parentElement !== host) host.append(clip.el)
@@ -299,7 +377,10 @@ function loadFrame() {
   const old = appEls.frame, f = old.cloneNode(false)
   f.dataset.src = old.dataset.src || ''
   f.addEventListener('load', frameLoad)
-  const src = frameUrl(appv.url)
+  // on the screen the last change is on (issue #542), else the app's own first screen
+  ver.at = nowScreen()
+  let src = frameUrl(appv.url)
+  if (ver.at) try { src = new URL(ver.at, src).href } catch {}
   f.setAttribute('sandbox', appSandbox(src)) // before the address, so the first load is sandboxed too
   f.src = src
   old.replaceWith(f)
@@ -347,11 +428,15 @@ function renderApp() {
   const st = appv.state, working = st === 'working', elsewhere = !!appv.elsewhere
   // a replay's pill reads Replay and how far along it is, never "building" or "running" (web/replaytalk.js)
   appEls.state.className = `app-state pill ${st}${rec.on ? ' replay' : ''}`
-  appEls.state.textContent = appPill({ replay: rec.on, at: rec.at, state: st, url: appv.url, hasApp: appv.hasApp })
+  // the app's or the game's one state, as the server sent it (engine/kindstate.mjs; core.js partsOf): the pill and
+  // a failure's reason are made from it, as the Projects card and the Overview's artboard are
+  const part = rec.on ? null : appPart()
+  appEls.state.textContent = appPill({ replay: rec.on, at: rec.at, state: st, url: appv.url, hasApp: appv.hasApp, kind: appv.kind, part })
   setText(appEls.stage, working ? appv.stage : appv.result ? `${appv.result.turns} turn${appv.result.turns === 1 ? '' : 's'} · ${appv.result.files} files · checks ${appv.result.gatesPassed ? 'passed' : 'not passed'}${appv.deployed ? ` · live at ${appv.deployed}` : ''}` : '')
   const stick = appEls.steps.scrollHeight - appEls.steps.scrollTop - appEls.steps.clientHeight < 60
   appEls.steps.innerHTML = stepsHtml()
   if (stick) appEls.steps.scrollTop = appEls.steps.scrollHeight
+  renderVersions()
   // Stop ends the build; while a replay plays it is there throughout and ends the replay
   appEls.stop.hidden = rec.on ? false : !working || elsewhere
   if (appv.url) appEls.open.href = appv.url; else appEls.open.removeAttribute('href')
@@ -359,7 +444,10 @@ function renderApp() {
   const port = appv.result?.port
   appEls.port.hidden = !port?.files
   if (port?.files) {
-    appEls.port.href = `${location.origin}/api/runs/${encodeURIComponent(appv.run)}/port/${port.target}.zip?k=${encodeURIComponent(BOOT.token || '')}`
+    // saved with the token in its header (web/headerstream.js download), never ?k= in the link
+    const zip = `${location.origin}/api/runs/${encodeURIComponent(appv.run)}/port/${port.target}.zip`
+    appEls.port.href = zip
+    appEls.port.onclick = ev => { ev.preventDefault(); download(zip, { token: BOOT.token || '', name: `${port.target}.zip` }).catch(err => feed(null, `${port.label}: ${err.message}`, 'err')) }
     appEls.port.textContent = port.label
     appEls.port.setAttribute('aria-label', `Download the ${port.label} project`)
   }
@@ -368,6 +456,14 @@ function renderApp() {
   // a build that failed before it ever worked shows the failure, not the empty starter's blank page
   // what fills the stage: it follows the build, or holds the view pinned in the bar's switch (web/canvas/stage.js)
   const now = stageOf(), empty = now.empty, sheet = now.sheet && !!shownRun()
+  if (pickBtn) { pickBtn.hidden = !(now.shown === 'live' && appv.url && !working && appv.kind !== 'game' && !rec.on); if (pickBtn.hidden) picking(false) }
+  // a change running over the app on the stage: what is asked, and where the crew is (issue #542)
+  const changing = /** @type {HTMLElement | null} */ ($('#app-changing'))
+  if (changing) {
+    const on = working && now.shown === 'live' && appv.kind !== 'game'
+    changing.hidden = !on
+    if (on) setText(changing, `Changing: ${appv.steps.findLast(s => s.kind === 'ask')?.text || 'the app'}${appv.stage && appv.stage !== 'starting' ? ` · ${appv.stage}` : ''}`)
+  }
   stageSwitch($('#app-stageview'), now, v => stageSet(stagePick(stagePin.v, v)))
   if (shownRun() && appv.run === shownRun()) mapLoad(shownRun(), false)
   mapStage(now.shown === 'map')
@@ -402,6 +498,9 @@ function renderApp() {
           ? artStopCard(appv.result.artStop)
         : st === 'stopped' || (st === 'failed' && appv.message === 'stopped')
           ? `<div class="fail-card stopped"><h2><em>Stopped</em></h2><p class="fail-msg">${esc(stopSummary())}</p><button class="big" data-build>${ico('rotate-ccw')}Go on</button></div>`
+        // it failed, and the state says why in plain words, what to do, and the one way forward the server takes
+        : st === 'failed' && part?.state === 'failed' && part.reason
+          ? `<div class="fail-card"><span class="fail-ico">${ico('x')}</span><h2>The ${appv.kind === 'game' ? 'game' : 'app'} didn't <em>build</em></h2><p class="fail-msg">${esc(part.reason.message)}</p>${part.reason.action ? `<p class="fail-msg">${esc(part.reason.action).replace(/`([^`]+)`/g, '<code>$1</code>')}</p>` : ''}${part.detail && part.detail !== part.reason.message ? `<details class="fail-more"><summary>Show details</summary><pre>${esc(part.detail)}</pre></details>` : ''}${part.next ? `<button class="big" data-build>${ico('rotate-ccw')}Try again</button>` : ''}</div>`
         : st === 'failed'
           ? `<div class="fail-card"><span class="fail-ico">${ico('x')}</span><h2>The ${appv.kind === 'game' ? 'game' : 'app'} didn't <em>build</em></h2><p class="fail-msg">${esc(String(appv.message || 'The engine stopped before the app built.').split('\n')[0].replace(/(\/[\w.@-]+){3,}/g, m => `…/${m.split('/').slice(-2).join('/')}`).slice(0, 220))}</p>${appv.message ? `<details class="fail-more"><summary>Show details</summary><pre>${esc(appv.message)}</pre></details>` : ''}<button class="big" data-build>${ico('rotate-ccw')}Try again</button></div>`
           : (appv.hasApp || appv.openFailed) && appv.message
@@ -644,6 +743,37 @@ for (const b of document.querySelectorAll('#app-device button')) b.onclick = () 
   renderApp()
 }
 $('#app-reload').onclick = () => { if (appv.url) loadFrame() }
+
+// Pick (issue #542, "pointing"): the app's pages, as Swarm serves a finished app, carry a picker
+// (engine/apppick.mjs). Pick asks it to start; a click in the app comes back as what it is, and goes into the chat
+// as a reference to say what to change about it. The frame's sandbox is unchanged: only postMessage crosses.
+const pickBtn = /** @type {HTMLButtonElement | null} */ ($('#app-pick'))
+const picking = on => {
+  if (!pickBtn) return
+  pickBtn.setAttribute('aria-pressed', String(on))
+  setLabel(pickBtn, on ? 'Picking… Esc stops' : 'Pick')
+}
+const frameOrigin = () => { try { return new URL(appEls.frame.src).origin } catch { return '' } }
+if (pickBtn) pickBtn.onclick = () => {
+  const on = pickBtn.getAttribute('aria-pressed') !== 'true', to = frameOrigin()
+  if (!to) return
+  appEls.frame.contentWindow?.postMessage({ swarmPick: on ? 'start' : 'stop' }, to)
+  picking(on)
+  if (on) appEls.frame.focus()
+}
+addEventListener('message', e => {
+  if (e.source !== appEls.frame.contentWindow || !e.data || typeof e.data !== 'object' || !('swarmPick' in e.data)) return
+  picking(false)
+  const p = e.data.swarmPick
+  if (!p || typeof p !== 'object') return
+  const role = String(p.role || 'part').slice(0, 20), text = String(p.text || '').slice(0, 80), route = String(p.route || '').slice(0, 80)
+  // the reference, then the person's words: "the button "Add" on /tasks: make it…"
+  const ref = `the ${role}${text ? ` "${text}"` : ''}${route && route !== '/' ? ` on ${route}` : ''}: `
+  window.swarmCosmos?.chat?.(true)
+  els.brief.value = ref + els.brief.value.replace(/^the [^:]{1,140}: /, '')
+  els.brief.focus()
+  els.brief.setSelectionRange(els.brief.value.length, els.brief.value.length)
+})
 // the steps column folds away, and stays folded the next time (this browser only)
 const stepsMin = on => {
   appEls.view.classList.toggle('steps-min', on)
@@ -670,7 +800,12 @@ export async function appAsk(ask, extra = {}) {
   if (fixedIn()) return botMsg('This one was brought in as plain files. It plays here and its code is in Code; the crew cannot change it yet.')
   if (appv.intake && !ask) return
   // the chat works for a stopped build too: "go on", "continue", "resume" pick it up again; anything else gets a true answer
-  if (ask && !appv.hasApp) { if (!goOnAsk(ask, appv)) return botMsg(noAppYet(appv)); ask = '' }
+  // and "build the app" typed is the room's Build the app button (web/canvas/wander.js buildAsk); the words show first
+  if (ask && !appv.hasApp) {
+    if (buildAsk(ask, appv)) { feed(null, ask, 'you'); return buildApp() }
+    if (!goOnAsk(ask, appv)) { feed(null, ask, 'you'); return botMsg(noAppYet(appv)) }
+    ask = ''
+  }
   const sections = [...S.layers.values()].filter(l => l.status === 'done' && l.text?.trim()).map(l => ({ key: l.key, html: l.text }))
   try {
     const st = await appApi('', { ask, sections, ...extra })
@@ -1067,8 +1202,11 @@ export function appEvent(e) {
     appv.url = null
     appEls.frame.dataset.src = ''
     if (view === 'app' && !document.hidden) loadApp()
+  } else if (e.type === 'app:back') {
+    if (real) loadVersions(e.run)
   } else if (e.type === 'app:done') {
     Object.assign(appv, { state: 'done', result: e.result, hasApp: true, stage: 'ready' })
+    if (real) loadVersions(e.run)
     if (e.url && real) appv.url = e.url
     appEls.frame.dataset.src = '' // reload to the new build
     // brought in: no engine turned, so nothing to count; the room reads what came (its shape, its page)

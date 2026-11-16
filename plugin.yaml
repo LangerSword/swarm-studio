@@ -8,6 +8,37 @@ kind: standalone
 #   thumbhash, pinned to exactly 0.1.1 (MIT), from engine/imagetools/package-lock.json (integrity recorded) into
 #   $HERMES_HOME/swarm-studio/image-tools/ with
 #   `npm ci --ignore-scripts`: nothing is compiled and no install script runs. SWARM_IMAGE_SERVICE=0 turns it off.
+# - Godot 4, only when the person presses "Install Godot 4" in a game plan's chat (or types "install godot"), never
+#   by itself (engine/godotinstall.mjs, docs/engines/godot.md): on macOS with Homebrew, `brew install --cask godot`
+#   (Homebrew's version, into /Applications; run with no terminal, so a password is refused, never asked for);
+#   otherwise the Godot editor pinned to exactly 4.7.2-stable (MIT) from
+#   https://github.com/godotengine/godot/releases/download/4.7.2-stable/ (GitHub's release-asset host), its size and
+#   SHA-512 checked against that release's published sums before it is opened, unpacked into
+#   $HERMES_HOME/swarm-studio/godot/4.7.2/ and run once with --version (that route writes nothing outside the data
+#   folder). No sudo and no password on either route.
+# - Godot's Web export templates, by that same press and never by itself (engine/godotinstall.mjs `installTemplates`):
+#   the same release's Godot_v4.7.2-stable_export_templates.tpz, 1.28 GB, its size and SHA-512 checked against the
+#   release's published sums before it is opened; only the Web templates are kept (about 20 MB) and the archive is
+#   removed. They are written where Godot looks for them for its version, which is OUTSIDE $HERMES_HOME:
+#   ~/Library/Application Support/Godot/export_templates/4.7.2.stable/ on macOS,
+#   ~/.local/share/godot/export_templates/4.7.2.stable/ on Linux, %APPDATA%\Godot\export_templates\4.7.2.stable\
+#   on Windows. A folder that already holds them is left alone. Without them a Godot game cannot be exported to the
+#   web, so the same press installs them; a failed templates download leaves the editor installed and says so.
+# Hermes tools it calls (bridge.py, through ctx.dispatch_tool; no key of its own), only when the person asks:
+# - web_search and web_extract, for the planner's research step (engine/research.mjs): only when the person's words
+#   ask to look something up, they press Research, or they ask in a talk (the planner's web_research tool: cards to
+#   look at, kept only when pressed); at most 3 searches and 4 pages each time, 60 s, public addresses
+#   only (Hermes refuses private ones in web_extract; the studio checks each address too). What was taken is kept in
+#   the project's References with its link, and shown before a build uses it.
+# Fetched on first use (README, "What it does on your machine"):
+# - the asset library's assetrizz catalog and pictures, from raw.githubusercontent.com/mojomast/assetrizz at one
+#   pinned commit (engine/library.mjs RIZZ_SHA), into $HERMES_HOME/swarm-studio/assetrizz/. The swarm_studio tool's
+#   library_import, library_pick and reference_add ask the person first (Hermes's approval gate).
+# Writes outside $HERMES_HOME only where the person points it (README, "What it does on your machine"), among them a
+# project's source into a folder of their home folder they name (☰ › GitHub › A folder on this computer): a git checkout
+# gets the project's commits on a new branch of its own (a local git fetch; nothing pushed), a plain folder gets the
+# files in a subfolder, and a file there it did not write is replaced only after they say yes. Never the home folder
+# itself, $HERMES_HOME, the studio's data or this plugin's folder; never a file that looks like a key.
 requires_hermes: ">=0.23"
 provides_tools:
   - swarm_design
@@ -80,3 +111,6 @@ license: FSL-1.1-ALv2
 #                                  its children (tree-kill: taskkill /T on Windows, ps/pgrep elsewhere)
 #   engine/vendor/net/net.mjs      ipaddr.js 2.5.0 (MIT, no dependencies; pinned in scripts/vendor/net/package-lock.json):
 #                                  the range check on every address the site walk and link reads reach
+# The app engine's web and picture tools (dyad's web_search, web_fetch, web_crawl, generate_image) reach only the
+# studio's loopback gateway (engine/enginetools.mjs), which answers them through Hermes's web_search and
+# web_extract, the guarded site walk and Hermes's image_generate: no key of their own, nothing else on the network.

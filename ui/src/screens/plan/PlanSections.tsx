@@ -114,8 +114,17 @@ export function PlanSections({ plan: p, sel, cell, writing, onSelect, onPick }: 
           <Section name="sheets" label="Sketches" className="max-w-[700px] gap-x-4 gap-y-[30px]">
             {sheetsOf(p).map(([k, n]) => {
               const s = (p.sheets ?? []).find(x => x.kind === k)
-              return slot(`sheet:${k}`, 'sheet', n, s, s?.state === 'done' ? <Rings sheet={s} on={sel === `sheet:${k}` ? cell : null} /> : null, sheetPress(s))
+              // an empty sheet says what it waits on: the crew's cursor is only on a slot that really paints
+              const wait = !s || s.state === 'failed' ? <span className="pointer-events-none absolute inset-0 grid place-items-center font-body text-xs text-muted">Not painted</span> : null
+              return slot(`sheet:${k}`, 'sheet', n, s, s?.state === 'done' ? <Rings sheet={s} on={sel === `sheet:${k}` ? cell : null} /> : wait, sheetPress(s))
             })}
+          </Section>
+        )}
+        {/* the game's art references (issue #543): pictures dropped on the board, matched like a picked sheet */}
+        {!isWriting && (p.refs ?? []).some(r => !r.removed) && (
+          <Section name="arefs" label="Art references" className="max-w-[700px] gap-x-4 gap-y-[30px]">
+            {(p.refs ?? []).filter(r => !r.removed).map(r => slot(`ar:${r.id}`, 'sheet', r.name, { state: 'done', src: r.src },
+              r.asIs ? <b className="absolute top-2 left-2 inline-flex items-center gap-1 rounded-full bg-text px-2 py-0.5 font-body text-[11px] font-semibold text-void"><Icon name="pin" size={12} />As is</b> : null))}
           </Section>
         )}
         {!isWriting && (flat ? (shown || made.size > 0) : shown) && (

@@ -9,18 +9,25 @@
 // the start chips after a lock stay, so another part of the plan is one click away.
 import { useCallback, useReducer, useRef, useState } from 'react'
 import { base, chatApi, getJson, postJson } from './api'
-import type { BuildRoute, ChatApi, ChatChip, ChatGo, ChatKind, ChatLine, ChatOption, ChatProps, ChatTalk } from './types'
+import type { BuildRoute, ChatApi, ChatChip, ChatGo, ChatKind, ChatLine, ChatOption, ChatProps, ChatTalk, SheetPick, ChatCard } from './types'
 
 // the chips under one of Hermia's turns
 export type Acts =
   | { type: 'build' }
   | { type: 'options', spec: boolean, options: ChatOption[], on?: string }
-  | { type: 'brief', text: string, routes: BuildRoute[], sheet: boolean, sheetLabel: string, open: boolean, done: boolean }
+  | { type: 'brief', text: string, routes: BuildRoute[], sheet: boolean, sheetLabel: string, open: boolean, done: boolean, go?: string }
 
 export interface Turn extends ChatLine { acts?: Acts }
 
-type Said = { who: 'you' | 'hermia', text: string }
-type Turnish = { text: string, options?: ChatOption[], go?: Omit<ChatGo, 'chat'> }
+// a game chat's next step, from the plan file (engine/gamestep.mjs nextStep): its options run on the server; wait is
+// true while something paints; sheet is the sketch sheet that waits on picks, drawn in the turn to click
+export type Step = { text: string, options: ChatOption[], wait?: boolean, sheet?: SheetPick, install?: { pct: number | null } }
+
+type Said = { who: 'you' | 'hermia', text: string, cards?: ChatCard[], turn?: string }
+type Turnish = { id?: string, text: string, options?: ChatOption[], go?: Omit<ChatGo, 'chat'>, step?: boolean, wait?: boolean, sheet?: SheetPick, cards?: ChatCard[], install?: { pct: number | null } }
+// what the talk keeps of a tool's cards for the next turn: their titles and sources (engine/helpers.mjs cardsLine)
+const shown = (cards?: ChatCard[]) => (cards?.length ? `
+[Shown: ${cards.map((c, i) => `${i + 1}. ${c.title} (${c.source})`).join('; ')}]` : '')
 type Events = Pick<ChatProps, 'onBuild' | 'onBrandSheet' | 'onPlanDraft' | 'onPlan' | 'onPlanAt' | 'onOpenChat' | 'onHeard' | 'onTalk' | 'onGo'>
 
 let seq = 0
@@ -31,14 +38,16 @@ const enc = encodeURIComponent
 export const hear = (text: string) => (window as unknown as { swarmPet?: { hear?: (t: string) => void } }).swarmPet?.hear?.(text)
 
 // a chat from the store, as the talk keeps it: the person is 'you', the planner 'hermia' (talk.js saidOf)
-export const saidOf = (chat: { turns?: { who: string, text: string }[] } | null): Said[] =>
-  (chat?.turns || []).filter(t => t.who !== 'crew').map(t => ({ who: t.who === 'planner' ? 'hermia' : 'you', text: t.text }))
+export const saidOf = (chat: { turns?: { id?: string, who: string, text: string, cards?: ChatCard[] }[] } | null): Said[] =>
+  (chat?.turns || []).filter(t => t.who !== 'crew').map(t => ({ who: t.who === 'planner' ? 'hermia' : 'you', text: t.text, ...(t.cards?.length ? { cards: t.cards, turn: t.id } : {}) }))
 
 // a game turn's chips: Lock and Keep talking under the spec, else the open question's options
 const gameActs = (turn?: Turnish | null): Acts | undefined => {
   const options = turn?.options || []
-  return options.length ? { type: 'options', spec: options.some(o => o.id === 'lock'), options } : undefined
+  return options.length ? { type: 'options', spec: options.some(o => o.id === 'lock' || o.id.startsWith('do:')), options } : undefined
 }
+// a step's turn: its buttons in the turn itself, and the sheet to pick on (owner, 2026-11-14: everything in the chat)
+const stepOf = (turn?: Turnish | null): Partial<Turn> => turn?.step || turn?.sheet || turn?.wait ? { step: true, sheet: turn.sheet, waiting: !!turn.wait } : {}
 // the question before a website's build (decision 0020): its answers have go: ids
 const isAsk = (turn?: Turnish | null) => !!turn?.options?.some(o => o.id.startsWith('go:'))
 
@@ -86,7 +95,7 @@ export function useTalk({ api = chatApi, from = null, project = null, events, ad
     const g = s.gen
     const wait = add({ who: 'hermia', text: brief ? 'Writing the brief…' : '…', working: true })
     setBusy(true, g)
-    let ok = false, j: { chat?: string, error?: string, brief?: string, route?: string, reply?: string } = {}
+    let ok = false, j: { chat?: string, error?: string, brief?: string, route?: string, reply?: string, cards?: ChatCard[], turn?: string, heard?: string } = {}
     try {
       const r = await api('/api/discuss', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ said: s.said, kind: s.kind, brief, ...(refs.length ? { refs: refs.map(m => m.key) } : {}), ...(s.chat ? { chat: s.chat } : s.from ? { from: s.from } : {}) }) })
       ok = r.ok
@@ -98,17 +107,17 @@ export function useTalk({ api = chatApi, from = null, project = null, events, ad
     if (!alive(g)) return
     if (!ok) return void add({ who: 'hermia', text: j.error || 'Hermia did not answer. Say it again.', acts: { type: 'build' } })
     if (j.brief) return showBrief(j.brief, j.route || '')
-    s.said.push({ who: 'hermia', text: j.reply || '' })
-    add({ who: 'hermia', text: j.reply || '', acts: { type: 'build' } })
+    s.said.push({ who: 'hermia', text: j.heard || j.reply || '' })
+    add({ who: 'hermia', text: j.reply || '', acts: { type: 'build' }, ...(j.cards?.length ? { cards: j.cards, cardsTurn: j.turn } : {}) })
   }
 
   // the brief: inside a project the planner says which way it goes (engine/talkplan.mjs routeFor)
-  function showBrief(text: string, route: string, what = '', sheet = false) {
+  function showBrief(text: string, route: string, what = '', sheet = false, go?: string) {
     const s = T.current
     const inProject = !!s.from
     const routes: BuildRoute[] = inProject && route === 'new' ? ['new', 'add'] : inProject && route === 'redo' ? ['redo', 'add'] : ['add']
     // a website or app can settle its story, palette and type first (spec 31); Build works without it
-    const id = add({ who: 'hermia', text: what || 'The brief', acts: { type: 'brief', text, routes, sheet: s.kind === 'site' || s.kind === 'app', sheetLabel: 'Brand sheet', open: true, done: false } })
+    const id = add({ who: 'hermia', text: what || 'The brief', acts: { type: 'brief', text, routes, sheet: s.kind === 'site' || s.kind === 'app', sheetLabel: 'Brand sheet', open: true, done: false, ...(go ? { go } : {}) } })
     if (sheet) void brandSheet(id, text)
   }
 
@@ -134,6 +143,25 @@ export function useTalk({ api = chatApi, from = null, project = null, events, ad
       if (alive(g)) add({ who: 'hermia', text: (err as Error).message || 'Hermia did not answer. Say it again.' })
     } finally { setBusy(false, g); drop(wait) }
   }
+  // a helper card pressed (decision 0025 e): the server runs the action kept on the saved turn, once; Hermia says
+  // what was done as her next message
+  async function pickCard(line: string, turn: string | undefined, card: ChatCard) {
+    const s = T.current
+    if (s.busy || !s.chat || !turn) return
+    const g = s.gen
+    setBusy(true, g)
+    try {
+      const j = await postJson<{ text: string }>(api, '/api/helper/pick', { chat: s.chat, turn, card: card.id })
+      if (!alive(g)) return
+      setTurns(ts => ts.map(t => (t.id === line ? { ...t, cards: (t.cards || []).map(c => (c.id === card.id ? { ...c, picked: Date.now() } : c)) } : t)))
+      s.said.push({ who: 'hermia', text: j.text })
+      add({ who: 'hermia', text: j.text })
+      // what was kept shows where it went: the boards that show References reload them
+      window.dispatchEvent(new CustomEvent('swarm:refs'))
+    } catch (err) {
+      if (alive(g)) add({ who: 'hermia', text: `That did not work: ${(err as Error).message}.` })
+    } finally { setBusy(false, g) }
+  }
   // a website chat reopened with its question open: the answers come back in Suggestions, not Build
   async function siteResume(last: string) {
     const s = T.current, g = s.gen
@@ -155,13 +183,18 @@ export function useTalk({ api = chatApi, from = null, project = null, events, ad
     const wait = add({ who: 'hermia', text: '…', working: true })
     setBusy(true, g)
     try {
-      type Ans = { chat: { id: string }, turn: Turnish, draft?: unknown }
+      type Ans = { chat: { id: string }, turn: Turnish, draft?: unknown, plan?: { id: string } }
       const j = s.chat ? await postJson<Ans>(api, `/api/talk/${enc(s.chat)}`, { said, pick }) : await postJson<Ans>(api, '/api/talk', { kind: 'game', said })
       if (!alive(g)) return
       s.chat = j.chat.id
-      s.said.push({ who: 'hermia', text: j.turn.text })
-      add({ who: 'hermia', text: j.turn.text, acts: gameActs(j.turn) })
-      if (j.draft) ev.current.onPlanDraft?.(j.draft)
+      s.said.push({ who: 'hermia', text: j.turn.text + shown(j.turn.cards) })
+      // an install has no place on the board: its line in the chat is Hermia at work on it, with how far it is
+      const line = j.turn.install ? add({ who: 'hermia', text: j.turn.text, working: true })
+        : add({ who: 'hermia', text: j.turn.text, acts: gameActs(j.turn), ...stepOf(j.turn), ...(j.turn.cards?.length ? { cards: j.turn.cards, cardsTurn: j.turn.id } : {}) })
+      // an action changed the plan: the board shows it (the lock made it, a sheet is painting, a pick landed)
+      if (j.plan?.id) { const fresh = s.plan !== j.plan.id; s.plan = j.plan.id; if (fresh) ev.current.onPlan?.(j.plan.id); else ev.current.onPlanAt?.(j.plan.id, {}) }
+      else if (j.draft) ev.current.onPlanDraft?.(j.draft)
+      if (j.turn.wait) watch(g, j.turn.text, j.turn.install ? line : null)
     } catch (err) {
       if (alive(g)) add({ who: 'hermia', text: (err as Error).message || 'Hermia did not answer. Say it again.' })
     } finally { setBusy(false, g); drop(wait) }
@@ -169,34 +202,41 @@ export function useTalk({ api = chatApi, from = null, project = null, events, ad
 
   async function gameResume(last: string | null) {
     const s = T.current, g = s.gen
-    type Ans = { chat: { turns: { who: string, text: string, options?: ChatOption[] }[], plan?: string, state?: string }, draft?: unknown, starts?: ChatOption[] }
+    type Ans = { chat: { turns: { who: string, text: string, options?: ChatOption[] }[], plan?: string, state?: string }, draft?: unknown, step?: Step }
     const j = await getJson<Ans>(api, `/api/talk/${enc(s.chat || '')}`)
     if (!j?.chat || !alive(g)) return
     const turn = j.chat.turns.at(-1)
     s.plan = j.chat.plan || null
-    if (last) {
-      if (turn?.who === 'planner' && j.chat.state !== 'locked') patch(last, { acts: gameActs(turn) })
-      // locked: where to go next, from what is painted so far
-      else if (j.chat.state === 'locked' && j.starts?.length) patch(last, { acts: gameActs({ text: '', options: j.starts }) })
-    }
+    // a chat with its plan: the real next step from the plan file, said again if her last words were not it
+    if (j.step?.install) watch(g, j.step.text, add({ who: 'hermia', text: j.step.text, working: true }))
+    else if (j.step) {
+      if (last && turn?.who === 'planner' && turn.text === j.step.text) patch(last, { acts: gameActs(j.step), ...stepOf({ ...j.step, step: true }) })
+      else add({ who: 'hermia', text: j.step.text, acts: gameActs(j.step), ...stepOf({ ...j.step, step: true }) })
+      if (j.step.wait) watch(g, j.step.text)
+    } else if (last && turn?.who === 'planner') patch(last, { acts: gameActs(turn) })
     if (j.draft && !j.chat.plan) ev.current.onPlanDraft?.(j.draft)
   }
 
-  // only a locked spec builds: the plan is made (or re-planned, the same plan) and the board opens on it
-  async function gameLock() {
-    const s = T.current, g = s.gen
-    if (s.busy || !s.chat) return
-    clearActs()
-    setBusy(true, g)
-    try {
-      const j = await postJson<{ plan?: { id: string }, turn?: Turnish }>(api, `/api/talk/${enc(s.chat)}/lock`)
+  // While something paints, the chat asks the server for the next step every few seconds; when it has moved on
+  // (the picture landed, or failed), Hermia says the new step with its buttons.
+  // line: the working line of an install, kept at the step's own words while it runs and taken away when it ends.
+  function watch(g: number, was: string, line: string | null = null) {
+    const tick = async () => {
       if (!alive(g)) return
-      add({ who: 'hermia', text: 'Locked' })
-      if (j.plan?.id) { s.plan = j.plan.id; ev.current.onPlan?.(j.plan.id) }
-      if (j.turn?.text) { s.said.push({ who: 'hermia', text: j.turn.text }); add({ who: 'hermia', text: j.turn.text, acts: gameActs(j.turn) }) }
-    } catch (err) {
-      if (alive(g)) add({ who: 'hermia', text: (err as Error).message })
-    } finally { setBusy(false, g) }
+      const s = T.current
+      const j = s.chat ? await getJson<{ step?: Step }>(api, `/api/talk/${enc(s.chat)}`).catch(() => null) : null
+      if (!alive(g)) return
+      // a look that failed (the computer slept, the server was busy) is tried again while an install's line is up
+      if (!j?.step) { if (line) setTimeout(tick, 3000); return }
+      if (j.step.wait) { if (line && j.step.install) patch(line, { text: j.step.text }); setTimeout(tick, 3000); return }
+      if (line) drop(line)
+      if (j.step.text === was) return
+      clearActs()
+      s.said.push({ who: 'hermia', text: j.step.text })
+      add({ who: 'hermia', text: j.step.text, acts: gameActs(j.step), ...stepOf({ ...j.step, step: true }) })
+      if (s.plan) ev.current.onPlanAt?.(s.plan, {})
+    }
+    setTimeout(tick, 3000)
   }
 
   // ---------- starting and ending
@@ -206,9 +246,9 @@ export function useTalk({ api = chatApi, from = null, project = null, events, ad
     Object.assign(s, { on: true, busy: false, said: [], kind: t.kind || 'site', chat: t.chat || null, from: t.blank ? null : ctx.current.from, plan: null, started: t.id, ask: false })
     clearActs()
     let last: string | null = null
-    for (const m of t.said || []) { s.said.push(m); last = add({ who: m.who, text: m.text }) }
+    for (const m of t.said || []) { s.said.push({ who: m.who, text: m.text + shown(m.cards) }); last = add({ who: m.who, text: m.text, ...(m.cards?.length ? { cards: m.cards, cardsTurn: m.turn } : {}) }) }
     redraw()
-    if (t.brief) { s.said.push({ who: 'you', text: t.brief }); return showBrief(t.brief, '', t.what || '', !!t.sheet) }
+    if (t.brief) { s.said.push({ who: 'you', text: t.brief }); return showBrief(t.brief, '', t.what || '', !!t.sheet, t.go) }
     if (t.text) return void say(t.text, [])
     // a game chat reopened: its open question's chips come back under the planner's last words
     if (s.kind === 'game' && s.chat) return void gameResume(last)
@@ -232,7 +272,7 @@ export function useTalk({ api = chatApi, from = null, project = null, events, ad
     const s = T.current
     if (s.busy) return
     if (o.id.startsWith('go:')) return void goSay({ pick: o.id, label: o.label })
-    if (o.id === 'lock') return void gameLock()
+    // Lock and every action run on the server, as the plan board's buttons do (server/talk.mjs)
     // where to start (after the lock): the pick opens that part of the Plan board; the chips stay
     if (o.id.startsWith('start:')) {
       if (!s.plan) return
@@ -301,6 +341,6 @@ export function useTalk({ api = chatApi, from = null, project = null, events, ad
   const s = T.current
   return {
     on: s.on, busy: s.busy, kind: s.kind, chat: s.chat, started: s.started, turns,
-    start, end, say, note: add, build, pick, briefText, briefGo, brandSheet, keepTalking, openChat, newChat, files
+    start, end, say, note: add, build, pick, briefText, briefGo, brandSheet, keepTalking, openChat, newChat, files, pickCard
   }
 }

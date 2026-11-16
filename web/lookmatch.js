@@ -10,7 +10,7 @@ const lmEsc = (/** @type {unknown} */ s) => String(s ?? '').replace(/[&<>"']/g, 
 /** A link whose look is ready and can be compared.  @param {any} ref */
 export const canMatch = ref => ref?.kind === 'link' && ref.look?.state === 'ready'
 /** True while a walk or a check is running, so the caller keeps refreshing.  @param {any} ref */
-export const lookBusy = ref => ref?.look?.state === 'walking' || ref?.look?.match?.state === 'checking'
+export const lookBusy = ref => ref?.look?.state === 'walking' || ref?.look?.match?.state === 'checking' || ref?.found?.state === 'reading'
 
 // ---------- the crew at work on a link (the owner, 2026-11-13: "if anything is loading it's supposed to look like
 // a cursor and an agent is working on it"): who is on it, and what they are doing right now
@@ -28,6 +28,8 @@ export const lookReader = ref => { const n = painterOf(`ref:${ref?.id}`); return
  * @param {any} ref  @returns {{ name: string, step: string, job: 'read' | 'match' } | null}
  */
 export function lookWorker(ref) {
+  // a document being read (issue #543): the same reader, on its card
+  if (ref?.kind === 'file' && ref.found?.state === 'reading') return { name: lookReader(ref), step: `Reading ${ref.name}`, job: 'read' }
   const L = ref?.kind === 'link' ? ref.look : null
   if (L?.state === 'walking') return { name: lookReader(ref), step: String(L.step || 'Opening the site'), job: 'read' }
   if (L?.match?.state === 'checking') return { name: REVIEWER, step: String(L.match.step || 'Comparing'), job: 'match' }
@@ -46,14 +48,25 @@ export function workHtml(ref, now = Date.now()) {
   return w ? `<div class="pl-work" aria-busy="true"></div>${cursor(w.name).replace('<span class="cur"', `<span class="cur" style="animation-delay:-${now % LOOK_ROAM}ms"`)}` : ''
 }
 /** Where a link stands, for telling one state from the next.  @param {any} ref */
-export const lookPhase = ref => `${ref?.look?.state || ''}/${ref?.look?.match?.state || ''}`
+export const lookPhase = ref => `${ref?.look?.state || ''}/${ref?.look?.match?.state || ''}/${ref?.found?.state || ''}`
 /**
  * What Hermia says in the chat when a link's state changes: one line when the reading or the comparing starts,
  * one when it is done. was: lookPhase before ('' for a link not seen before); empty when there is nothing to say.
  * @param {string} was  @param {any} ref
  */
 export function lookSays(was, ref) {
-  if (ref?.kind !== 'link' || was === lookPhase(ref)) return ''
+  if (was === lookPhase(ref)) return ''
+  // a document: one line when the reading starts, one when it is done, with what was found
+  if (ref?.kind === 'file') {
+    const f = ref.found || {}, before = String(was).split('/')[2] || '', who = lookReader(ref)
+    if (f.state === before) return ''
+    if (f.state === 'reading') return `${who} is reading ${ref.name}.`
+    if (before !== 'reading') return ''
+    if (f.state === 'ready') return `${who} read ${ref.name}${foundSaid(f) ? `: ${foundSaid(f)}` : ''}.`
+    if (f.state === 'failed') return `${who} could not read ${ref.name}${f.note ? `: ${String(f.note).replace(/[.\s]+$/, '')}` : ''}.`
+    return ''
+  }
+  if (ref?.kind !== 'link') return ''
   const [look = '', match = ''] = String(was).split('/')
   const L = ref.look || {}, m = L.match || {}, who = lookReader(ref), host = L.from?.host || ref.name || 'the link'
   const tail = (/** @type {unknown} */ t) => (t ? `: ${String(t).replace(/[.\s]+$/, '')}.` : '.')
@@ -69,6 +82,36 @@ export function lookSays(was, ref) {
   if (m.state === 'ready') { const n = (m.diffs || []).length; return `${REVIEWER} compared your build with ${host}: ${Number.isFinite(m.score) ? `${Math.round(m.score)} of 100, ` : ''}${n ? `${n} ${n === 1 ? 'thing' : 'things'} to fix` : 'the style matches'}.` }
   if (m.state === 'failed') return `${REVIEWER} could not compare${tail(m.note)}`
   return ''
+}
+
+/** What a document was found to say, in a few words: what it is, who it is for, how many pages it names.  @param {any} f */
+export const foundSaid = f => [f?.what, f?.who && `for ${f.who}`, f?.pages?.length && `${f.pages.length} pages`].filter(Boolean).join(' · ')
+
+/**
+ * What the crew takes from a reference (the server's `taken`, issue #543), as one line: "Taken: style, colours, type"
+ * or, when nothing reaches the crew, why. Empty when the server did not say.  @param {any} t
+ */
+export const takenSaid = t => (!t ? '' : t.what?.length ? `Taken: ${t.what.join(', ')}` : t.not || '')
+
+/**
+ * The Overview inspector's rows for what a build was given (issue #543): a link's address, and from the board's
+ * refsUsed (what went into the build's brief when it started; null when not known): on a page, game or app the
+ * references it was given, and on a reference what this build was given from it.
+ * @param {any} x  the selected item ({ kind, ref? })  @param {any} board
+ * @returns {[string, string][]}
+ */
+export function refRows(x, board) {
+  /** @type {[string, string][]} */
+  const rows = []
+  if (x?.kind === 'ref' && x.ref?.kind === 'link') rows.push(['Link', String(x.ref.url || '').replace(/^https?:\/\/(www\.)?/, '').slice(0, 60)])
+  const used = board?.refsUsed
+  if (!Array.isArray(used)) return rows
+  if (['page', 'game', 'app'].includes(x?.kind)) rows.push(['Given', used.length ? used.map(r => r.name).join(', ') : 'No references'])
+  if (x?.kind === 'ref') {
+    const u = used.find(r => r.id === x.ref?.id)
+    rows.push(['This build', u ? `Given ${u.what.join(', ')}` : 'Not given (added after it, not read yet, or past the limit)'])
+  }
+  return rows
 }
 
 /**

@@ -47,6 +47,8 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .hm-who:hover { background: var(--surface-2); color: var(--text); }
 .hm-who .av { width: 28px; height: 28px; border-radius: 50%; background: var(--surface-2); color: var(--text); display: grid; place-items: center; font: 600 12px var(--body); flex: none; }
 .hm-who .av { position: relative; }
+/* the monogram is drawn, not written: it is decoration, so it never becomes part of the button's visible words */
+.hm-who .av::before { content: attr(data-l); }
 .hm-who.warn .av::after { content: ''; position: absolute; top: -1px; right: -1px; width: 9px; height: 9px; border-radius: 50%; background: var(--red); box-shadow: 0 0 0 2px var(--deep); }
 .hm-who .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .home .hm-rename { width: 100%; background: var(--deep); color: var(--text); border: 1px solid var(--text); border-radius: 6px; padding: 3px 6px; font: inherit; outline: none; }
@@ -88,6 +90,9 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .home .prog { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(255,255,255,.15); border-radius: 0 0 12px 12px; overflow: hidden; }
 .home .prog i { display: block; height: 100%; background: #f4f4f5; transition: width .6s var(--ease); }
 .home .card .nm { display: flex; align-items: center; gap: 6px; margin-top: 10px; min-width: 0; }
+/* the card's title is a real button (the card itself is not one): it carries the name and the focus ring */
+.home .card .card-open { flex: 1; min-width: 0; display: block; margin: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.home .card .card-open:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; border-radius: 4px; }
 .home .card .nm b { flex: 1; min-width: 0; font: 800 16px/1.2 var(--display); text-transform: uppercase; letter-spacing: .02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .home .card .more { opacity: 0; }
 .home .card:hover .more, .home .card:focus-within .more, .home .card .more[aria-expanded="true"] { opacity: 1; }
@@ -298,9 +303,21 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .gh-repo span { color: var(--muted, var(--ui-muted-foreground)); font: 500 12px/1 var(--label, inherit); letter-spacing: .08em; text-transform: uppercase; }
 .gh-lines { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; color: var(--muted, var(--ui-muted-foreground)); font: 500 13px/1.4 var(--body, inherit); }
 .gh-lines:empty { display: none; }
+.gh-help { margin: 0; color: var(--muted, var(--ui-muted-foreground)); font: 500 13px/1.45 var(--body, inherit); }
+.gh-pick { display: flex; flex-wrap: wrap; gap: 6px; max-height: 168px; overflow-y: auto; }
+.gh-pick .ui-btn { text-transform: none; letter-spacing: 0; font: 500 13px/1.2 var(--body, inherit); }
+.gh-repo .gh-unlink { margin-left: auto; }
+.gh-other { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line, var(--ui-border)); border-radius: 10px; }
+.gh-way { display: grid; gap: 6px; justify-items: start; }
+.gh-repo .gh-path { font: 500 13px/1.3 var(--mono, ui-monospace, monospace); overflow-wrap: anywhere; }
 .gh-done { margin: 0; font: 500 13px/1.4 var(--body, inherit); }
 .gh-work { position: relative; display: flex; align-items: center; gap: 10px; min-height: 34px; font: 500 13px/1.4 var(--body, inherit); }
 .gh-work .cur { position: relative; display: inline-flex; flex: none; transition: none; }
 .gh-work .cur span { position: static; margin-left: 2px; }
 /* Projects has no project open, and the hosted studio has no such door */
 body.cosmos-home #github-btn, body.hosted #github-btn { display: none !important; }
+/* why a build waits while Hermes is not there, under the Make box until it is (web/hermesline.js, #541) */
+.hm-off { display: flex; align-items: center; justify-content: center; gap: 12px; max-width: 760px; margin: -18px auto 24px; color: var(--muted); font: 13px/1.45 var(--body); text-align: center; }
+.set .set-radios { display: flex; flex-direction: column; gap: 2px; }
+.set-row[aria-disabled="true"] { cursor: default; color: var(--muted); }
+.set-row[aria-disabled="true"]:hover { background: none; }

@@ -1,7 +1,8 @@
 // @ts-check
 // web/canvas.js, split by area (web/canvas/README.md): publishing a live link.
 import { fillThumbRow } from '../seo.js'
-import { ico, api, S, els, $, commandOps } from './core.js'
+import { ico, api, S, els, $, commandOps, buildOf } from './core.js'
+import { publishWords } from '../replaytalk.js'
 import { closeable } from './start.js'
 import { shownRun } from './film.js'
 import { esc } from './design.js'
@@ -98,7 +99,10 @@ export async function publishMenu(force) {
     return `<details class="pconn"><summary><b>Connect ${HOSTS[id].label}</b><span><a href="${esc(url)}" target="_blank" rel="noopener">Get a token</a></span></summary>
       <form data-conn="${id}"><input type="password" autocomplete="off" spellcheck="false" aria-label="${HOSTS[id].label} token" placeholder="Paste the token"><button>Connect</button></form><div class="perr"></div></details>`
   }
-  const el = pubPop(`<div class="pthumb-slot"></div>${['github', 'vercel', 'cloudflare'].map(row).join('')}<div class="prow">${opt('local')}</div>`)
+  // a build still going or not whole: what goes live is what stands, said before a host is picked
+  const says = publishWords(buildOf(shownRun()))
+  const part = says.text && !says.none ? `<div class="pstate"><b>${esc(says.state)}</b><span>${esc(says.text)}</span></div>` : ''
+  const el = pubPop(`${part}<div class="pthumb-slot"></div>${['github', 'vercel', 'cloudflare'].map(row).join('')}<div class="prow">${opt('local')}</div>`)
   fillThumbRow(el, { run: shownRun(), api })
   el.querySelectorAll('.popt').forEach(b => { b.onclick = () => publishNow(b.dataset.target) })
   el.querySelectorAll('[data-disc]').forEach(b => {
@@ -134,9 +138,11 @@ export function pubShow() {
   posted.alone = false
   if (pub.state === 'working') {
     const names = PUB_STAGES[pub.target]
-    if (!names) return pubPop('<div class="pstage">Publishing…</div>')
+    // the link's row while it is on its way, marked busy: Hermia works on it (web/pet.js, #392)
+    const link = '<div class="plink-wait wait-in" role="status" aria-busy="true" aria-label="The live link, on its way"><i></i><i></i></div>'
+    if (!names) return pubPop(`<div class="pstage">Publishing…</div>${link}`)
     const steps = Object.keys(names), at = Math.max(0, steps.indexOf(pub.stage))
-    return pubPop(`<div class="psteps">${steps.map((k, i) => `<div class="${i < at ? 'did' : i === at ? 'now' : ''}">${i < at ? '✓' : i === at ? '◌' : '·'} ${names[k]}</div>`).join('')}</div>`)
+    return pubPop(`<div class="psteps">${steps.map((k, i) => `<div class="${i < at ? 'did' : i === at ? 'now' : ''}">${i < at ? '✓' : i === at ? '◌' : '·'} ${names[k]}</div>`).join('')}</div>${link}`)
   }
   if (pub.state === 'failed') {
     const el = pubPop(`<div class="pstate err"><b>Not published</b><span>${esc(shortReason(pub.message))}</span></div>
@@ -261,6 +267,12 @@ export function publishEvent(e) {
 
 // The Publish button says the state: Publishing…, Live, or Publish.
 export function pubButton() {
+  // the menu's Website and Feed rows: with no section built they cannot be pressed and Website says why; for a
+  // build still going or not whole Website says how much of it goes live (the row's own reason line)
+  const says = publishWords(buildOf(shownRun()))
+  for (const k of ['site', 'feed']) { const o = /** @type {HTMLButtonElement | null} */ ($(`#pub-menu [data-pub="${k}"]`)); if (o) o.disabled = says.none }
+  const why = $('#pub-menu [data-pub="site"] .pub-why')
+  if (why) why.textContent = says.text
   const mine = pub.run === shownRun()
   const live = mine && liveUrl() && pub.state !== 'working'
   els.publishBtn.classList.toggle('live', !!live)
@@ -271,6 +283,22 @@ export function pubButton() {
     const url = liveUrl(), a = box.querySelector('a')
     a.href = url; a.textContent = shortUrl(url)
   }
+}
+
+// A site on GitHub Pages whose repository moved to another owner is live at another address than the saved one.
+// The Publish menu, opened, asks the server once per build (it asks GitHub, and keeps the answer for the
+// Projects card); the menu and the Live dialog then show where the site is now.
+const synced = new Set()
+export async function pubSync() {
+  const run = shownRun()
+  if (!run || pub.run !== run || !pub.live.github || synced.has(run)) return
+  synced.add(run)
+  const out = await api(`/api/runs/${encodeURIComponent(run)}/publish?sync=1`).then(r => (r.ok ? r.json() : null)).catch(() => null)
+  const now = out?.live?.github
+  if (!now || run !== shownRun() || now === pub.live.github) return
+  pub.live.github = now
+  pubButton()
+  if (pub.el?.querySelector('.pstate.live')) pubShow()
 }
 
 commandOps.publish = c => publishNow(['local', 'vercel', 'cloudflare'].includes(c.target) ? c.target : 'github')

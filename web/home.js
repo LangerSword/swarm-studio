@@ -9,14 +9,20 @@ import { openSettings } from './settings.js'
 import { makeWays, makeModeOf, makeStudioStep } from './makeways.js'
 import { templatePicker } from './templatepick.js'
 import { bringEntry } from './bringin.js'
+import { hermesLine } from './hermesline.js'
+import { takeGameTalk } from './gametalk.js'
+import { revealLabel } from './reveal.js'
 
 const KIND = { site: 'site', app: 'code', game: 'game', film: 'film' }
 const KIND_NAME = { site: 'Site', app: 'App', game: 'Game', film: 'Film' }
 const SORTS = [['edited', 'Last edited'], ['name', 'Name'], ['created', 'Created']]
 // the filter beside sort: what a build is, or how far it got (the server's own words in project.state)
 const KINDS = ['Website', 'App', 'Game', 'Video']
-const STATUSES = ['Draft', 'Building', 'Designed', 'App built', 'App failed', 'Game built', 'Game failed', 'Brought in', 'Live']
-const STATUS_ICON = { Draft: 'pencil', Building: 'clock', Designed: 'frame', 'App built': 'code', 'App failed': 'x', 'Game built': 'game', 'Game failed': 'x', 'Brought in': 'download', Live: 'globe' }
+// every word a card can say, so the filter can name each one. "Your turn" is a big game waiting after a slice
+// (server/projects.mjs `stateOf`, the room's own word for it): a card said it and the filter could not, so the one
+// state that most needs finding was the one it could not find (#647).
+const STATUSES = ['Draft', 'Building', 'Designed', 'Partly built', 'Failed', 'Stopped', 'Your turn', 'App built', 'App failed', 'Game built', 'Game failed', 'Brought in', 'Live']
+const STATUS_ICON = { Draft: 'pencil', Building: 'clock', Designed: 'frame', 'Partly built': 'frame', Failed: 'x', Stopped: 'x', 'Your turn': 'clock', 'App built': 'code', 'App failed': 'x', 'Game built': 'game', 'Game failed': 'x', 'Brought in': 'download', Live: 'globe' }
 const KIND_ICON = { Website: 'site', App: 'code', Game: 'game', Video: 'film' }
 
 export function makeHome({ sw, C, root }) {
@@ -35,15 +41,20 @@ export function makeHome({ sw, C, root }) {
   window.SwarmSetup = { open: (row, pg, pp) => setup.open(row, pg, pp) }
   let setupAsked = false
 
+  // one view row; the set is fixed, so the first markup holds them all (a row added later moves the whole
+  // sidebar, which the walkthrough sees as a layout shift on load)
+  const navRow = (v, icon, label, count = 0, on = false) => `<button class="nv${on ? ' on' : ''}" data-v="${v}">${ic(icon)}<span>${label}</span>${count ? `<span class="n" aria-label="${count} projects">${count}</span>` : ''}</button>`
+  const NAV_ROWS = navRow('recent', 'clock', 'Recent') + navRow('all', 'grid', 'All projects') + (hosted() ? '' : navRow('chats', 'msg', 'Chats') + navRow('assets', 'image', 'Assets') + navRow('trash', 'trash', 'Trash'))
+
   root.className = 'home'
   root.hidden = true
   root.innerHTML = `
     <aside class="hm-side" aria-label="Projects">
-      <button class="hm-logo" aria-label="Projects">${logo()}</button>
-      <nav class="hm-nav"></nav>
+      <button class="hm-logo" aria-label="SWARM Studio, Projects">${logo()}</button>
+      <nav class="hm-nav">${NAV_ROWS}</nav>
       <div class="hm-sub"><span class="cap">Folders</span><button class="ib sm hm-addf" aria-label="New folder">${ic('plus', 16)}</button></div>
       <div class="hm-folders"></div>
-      <div class="hm-me"><button class="hm-who" aria-label="You"><span class="av"></span><span class="nm"></span></button><a class="ib hm-feed" aria-label="Swarm Feed" target="_blank" rel="noopener">${ic('globe')}</a></div>
+      <div class="hm-me"><button class="hm-who" aria-label="You"><span class="av" aria-hidden="true"></span><span class="nm"></span></button><a class="ib hm-feed" aria-label="Swarm Feed" target="_blank" rel="noopener">${ic('globe')}</a></div>
     </aside>
     <div class="hm-scrim" hidden></div>
     <main class="hm-main">
@@ -89,13 +100,15 @@ export function makeHome({ sw, C, root }) {
     }
     // a version that failed, or a Draft that never got a section (an empty tile), is not shown once
     // a newer one works: the project is its working versions
-    const dead = v => /failed|^Draft$/i.test(String(v?.state?.status || ''))
+    // a website says so itself (state.empty: no section stands, whatever its word; server/projects.mjs stateOf)
+    const dead = v => v?.state?.site ? !!v.state.empty : /failed|^Draft$/i.test(String(v?.state?.status || ''))
     for (const p of H.data.projects) {
       if (!Array.isArray(p.versions) || p.versions.length < 2) continue
       const kept = p.versions.filter((v, i) => !(dead(v) && p.versions.slice(0, i).some(n => !dead(n))))
       if (kept.length && kept.length < p.versions.length) { p.versions = kept; p.count = kept.length }
-      // a newest version that failed does not name the card when an older one works
-      const ok = dead(p) && p.versions.find(v => !dead(v))
+      // a newest version that failed does not name the card when an older one works. A website's card never
+      // borrows: its newest build's own state names it (docs/ux/states/build.md, hole B2)
+      const ok = dead(p) && !p.state?.site && p.versions.find(v => !dead(v))
       if (ok?.state) p.state = ok.state
     }
     H.loaded = true
@@ -110,7 +123,10 @@ export function makeHome({ sw, C, root }) {
     H.me = await api('/api/me').catch(() => null)
     const name = H.me?.name || 'You'
     $('.hm-who .nm').textContent = name
-    $('.hm-who .av').textContent = name.slice(0, 1).toUpperCase()
+    $('.hm-who .av').dataset.l = name.slice(0, 1).toUpperCase()
+    // the button's visible word is the person's own name, so the name it is read by holds it (the avatar
+    // letter is hidden from the rules: it is a monogram, not a word)
+    $('.hm-who').setAttribute('aria-label', `You: ${name}`)
     $('.hm-feed').href = H.me?.feed || 'https://swarm.design-bakery.com'
   }
 
@@ -132,7 +148,8 @@ export function makeHome({ sw, C, root }) {
   const passes = p => {
     if (!H.filter) return true
     const [t, v] = [H.filter.slice(0, 1), H.filter.slice(2)]
-    return t === 'k' ? p.state?.kind === v : p.state?.status === v
+    // Live: every project with a version online, whatever its newest build's word (state.live)
+    return t === 'k' ? p.state?.kind === v : p.state?.status === v || (v === 'Live' && !!p.state?.live)
   }
   const filterName = () => H.filter.slice(2)
   const titleOf = () => H.stack ? (H.data.projects.find(p => p.id === H.stack)?.title || 'Versions') : H.view === 'folder' ? H.folder : { recent: 'Recent', all: 'All projects', chats: 'Chats', assets: 'Assets', trash: 'Trash' }[H.view]
@@ -148,7 +165,7 @@ export function makeHome({ sw, C, root }) {
   }
   function renderSide() {
     const n = live().length, t = H.data.projects.filter(p => p.trashed).length
-    const item = (v, icon, label, count) => `<button class="nv${H.view === v && !H.stack ? ' on' : ''}" data-v="${v}">${ic(icon)}<span>${label}</span>${count ? `<span class="n" aria-label="${count} projects">${count}</span>` : ''}</button>`
+    const item = (v, icon, label, count) => navRow(v, icon, label, count, H.view === v && !H.stack)
     nav.innerHTML = item('recent', 'clock', 'Recent') + item('all', 'grid', 'All projects', n) + (hosted() ? '' : item('chats', 'msg', 'Chats') + item('assets', 'image', 'Assets') + item('trash', 'trash', 'Trash', t))
     foldersEl.innerHTML = H.data.folders.map(f => `<button class="nv${H.view === 'folder' && H.folder === f.name && !H.stack ? ' on' : ''}" data-folder="${esc(f.name)}">${ic('folder')}<span>${esc(f.name)}</span>${f.count ? `<span class="n" aria-label="${f.count} projects">${f.count}</span>` : ''}</button>`).join('')
     root.classList.toggle('no-folders', hosted())
@@ -180,11 +197,11 @@ export function makeHome({ sw, C, root }) {
     ? `<img class="im${/^\/snaps\//.test(src) ? ' top' : ''}" src="${esc((sw.base || '') + src)}" alt="" loading="lazy" decoding="async" draggable="false">`
     : th?.colors?.length ? typeCover(title, th)
       : `<div class="blank">${ic('box', 28)}</div>`
-  const kinds = list => list?.length ? `<span class="kinds" aria-label="${list.map(k => KIND_NAME[k]).join(', ')}">${list.map(k => ic(KIND[k], 14)).join('')}</span>` : ''
+  const kinds = list => list?.length ? `<span class="kinds" role="img" aria-label="${list.map(k => KIND_NAME[k]).join(', ')}">${list.map(k => ic(KIND[k], 14)).join('')}</span>` : ''
   const crew = p => p.live ? `<div class="crew">${CREW.slice(0, 2 + (p.id.length % 3)).map(n => cursor(n)).join('')}</div>${p.progress == null && p.work ? `<div class="prog ind" role="progressbar" aria-label="Building ${WHAT[p.work.what] || ''}"><i></i></div>` : `<div class="prog" role="progressbar" aria-label="Building" aria-valuenow="${Math.round((p.progress ?? 0.1) * 100)}"><i style="width:${Math.max(6, Math.round((p.progress ?? 0.1) * 100))}%"></i></div>`}` : ''
   const WHAT = { site: 'the site', app: 'the app', game: 'the game', film: 'the film' }
   // what it is and how far it got, one quiet line: "App · Live · tidebreak-app.vercel.app"
-  const stateLine = p => p.state ? `<span class="st">${esc(p.state.kind)} · ${esc(p.state.status)}${p.state.host ? `<span class="h"> · ${esc(p.state.host)}</span>` : ''}</span>` : ''
+  const stateLine = p => p.state ? `<span class="st">${esc(p.state.kind)} · ${esc(p.state.status)}${p.state.live ? ' · Live' : ''}${p.state.host ? `<span class="h"> · ${esc(p.state.host)}</span>` : ''}</span>` : ''
   const ago = t => { const d = (Date.now() - t) / 1000; return d < 90 ? 'now' : d < 3600 ? `${Math.round(d / 60)}m` : d < 86400 ? `${Math.round(d / 3600)}h` : d < 86400 * 30 ? `${Math.round(d / 86400)}d` : new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) }
 
   // a card's own buttons, on its cover: Delete (to Trash) and Open, or in Trash, Restore and Delete forever
@@ -194,10 +211,14 @@ export function makeHome({ sw, C, root }) {
   function card(p) {
     const stack = p.count > 1 && !H.stack
     const sel = H.sel.has(p.id)
-    return `<div class="card${sel ? ' selc' : ''}${p.live ? ' live' : ''}" data-id="${esc(p.id)}" draggable="${!hosted() && !p.plan && H.view !== 'trash'}" tabindex="0" role="button" aria-label="${esc(p.title)}">
-      <div class="cv${stack ? ' stack' : ''}">${cover(p.cover, p.theme, p.title)}${stack ? `<span class="badge" aria-label="${p.count} versions">${p.count}</span>` : ''}${kinds(p.kinds)}${crew(p)}${acts(p)}</div>
+    // the card itself is not a button: it holds the More button and, in Trash, two more. The title is the card's
+    // one control, so a keyboard reaches it and a screen reader reads a button that is not wrapping other buttons
+    // `data-name` is how the checks and the walkthrough find a card by its name. It is not ARIA: the card has no
+    // role of its own any more, and its title button carries the accessible name.
+    return `<div class="card${sel ? ' selc' : ''}${p.live ? ' live' : ''}" data-id="${esc(p.id)}" data-name="${esc(p.title)}" draggable="${!hosted() && !p.plan && H.view !== 'trash'}">
+      <div class="cv${stack ? ' stack' : ''}">${cover(p.cover, p.theme, p.title)}${stack ? `<span class="badge" role="img" aria-label="${p.count} versions">${p.count}</span>` : ''}${kinds(p.kinds)}${crew(p)}${acts(p)}</div>
       ${sel ? '<div class="sel"><i></i><i></i><i></i><i></i></div>' : ''}
-      <div class="nm"><b>${esc(p.title)}</b>${hosted() || p.plan ? '' : `<button class="ib sm more" aria-label="More" aria-haspopup="menu">${ic('more', 16)}</button>`}</div>
+      <div class="nm"><button type="button" class="card-open"><b>${esc(p.title)}</b></button>${hosted() || p.plan ? '' : `<button class="ib sm more" aria-label="More" aria-haspopup="menu">${ic('more', 16)}</button>`}</div>
       ${stateLine(p)}
       ${H.layout === 'list' ? `<span class="meta">${p.count > 1 ? `<span aria-label="${p.count} versions">${ic('layers', 13)}${p.count}</span>` : ''}${p.folder && H.view !== 'folder' ? `<span>${ic('folder', 13)}${esc(p.folder)}</span>` : ''}<span>${ago(seen(p))}</span></span>` : ''}
     </div>`
@@ -234,9 +255,9 @@ export function makeHome({ sw, C, root }) {
     const tile = a => {
       const i = flat.push(a) - 1
       const img = a.kind === 'film' ? a.poster : a.kind === 'upload' && !/^image\//.test(a.type || '') ? null : a.src
-      return `<div class="card asset" data-asset="${i}" data-project="${esc(a.project)}" tabindex="0" role="button" aria-label="${esc(a.name)}">
+      return `<div class="card asset" data-asset="${i}" data-project="${esc(a.project)}">
         <div class="cv">${img ? `<img class="im" src="${esc((sw.base || '') + img)}" alt="" loading="lazy" decoding="async" draggable="false">` : `<div class="blank">${ic(a.kind === 'film' ? 'film' : 'file', 28)}</div>`}${a.kind === 'film' ? `<span class="kinds" aria-label="Film">${ic('film', 14)}</span>` : a.kind === 'upload' ? `<span class="kinds" aria-label="Upload">${ic('upload', 14)}</span>` : ''}</div>
-        <div class="nm"><b>${esc(a.name)}</b></div></div>`
+        <div class="nm"><button type="button" class="card-open"><b>${esc(a.name)}</b></button></div></div>`
     }
     const group = id => {
       const p = byId.get(id)
@@ -348,9 +369,15 @@ export function makeHome({ sw, C, root }) {
   foldersEl.onclick = e => { const b = e.target.closest('[data-folder]'); if (b && !b.querySelector('input')) go('folder', b.dataset.folder) }
   $('.hm-logo').onclick = () => go('recent')
 
+  async function openPlan(id) {
+    const list = await api('/api/chats').then(j => j.chats || []).catch(() => [])
+    const chat = list.find(c => c.kind === 'game' && c.plan === id)
+    return chat ? openChat(chat.id) : C.plan(id)
+  }
   function openProject(p, version = null) {
     if (!p) return
-    if (p.plan) return C.plan(p.id)
+    // a game plan opens beside its chat (spec 27), as it does from Chats: the chat is where it is shaped
+    if (p.plan) return openPlan(p.id)
     opened[p.id] = Date.now()
     // a Studio project with nothing built yet opens on its scaffold (spec 37)
     if (p.studio && !p.head) { store.set('home.opened', opened); return C.studio(p.id) }
@@ -394,7 +421,8 @@ export function makeHome({ sw, C, root }) {
   bodyEl.addEventListener('keydown', e => {
     const c = e.target.closest('.card')
     if (!c || e.target.closest('input')) return
-    if (e.key === 'Enter') { e.preventDefault(); c.click() }
+    // the title is a real button and opens on its own; Enter on any other control in the card is that control's
+    if (e.key === 'Enter') { if (e.target.closest('button')) return; e.preventDefault(); c.click() }
     if ((e.key === 'Delete' || e.key === 'Backspace') && !hosted() && !H.stack) { e.preventDefault(); act(H.view === 'trash' ? 'purge' : 'trash', idsFor(c.dataset.id)) }
     if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) { e.preventDefault(); menuFor(c.dataset.id, c) }
   })
@@ -485,12 +513,12 @@ export function makeHome({ sw, C, root }) {
       { k: 'trash', icon: 'trash', label: 'Delete', red: true, run: () => act('trash', ids) }
     ] : [
       { k: 'open', icon: 'ext', label: 'Open', run: () => open(id) },
-      ...(p.planId ? [{ k: 'plan', icon: 'layers', label: 'Open the plan', run: () => C.plan(p.planId) }] : []),
+      ...(p.planId ? [{ k: 'plan', icon: 'layers', label: 'Open the plan', run: () => openPlan(p.planId) }] : []),
       { k: 'rename', icon: 'type', label: 'Rename', run: () => rename(id) },
       { k: 'dup', icon: 'layers', label: 'Duplicate', run: () => act('duplicate', [id]) },
       { k: 'move', icon: 'folder', label: 'Move to', sub: b => subMenu(b, moveItems(ids)) },
       { k: 'dl', icon: 'download', label: 'Download', run: () => download(p.head) },
-      { k: 'show', icon: 'file', label: 'Show in Finder', run: () => post(`/api/projects/${encodeURIComponent(id)}/reveal`, {}).catch(() => {}) }, ...(sw.github ? [{ k: 'github', icon: 'branch', label: 'GitHub', run: () => sw.github.open(id) }] : []),
+      { k: 'show', icon: 'file', label: revealLabel(), run: () => post(`/api/projects/${encodeURIComponent(id)}/reveal`, {}).catch(() => {}) }, ...(sw.github ? [{ k: 'github', icon: 'branch', label: 'GitHub', run: () => sw.github.open(id) }] : []),
       '-',
       { k: 'trash', icon: 'trash', label: 'Delete', red: true, run: () => act('trash', ids) }
     ]
@@ -505,7 +533,7 @@ export function makeHome({ sw, C, root }) {
       { k: 'open', icon: 'ext', label: 'Open', run: () => openProject(p, run) },
       { k: 'split', icon: 'layers', label: 'Make its own project', run: () => act('split', [p.id], { run }) },
       { k: 'dl', icon: 'download', label: 'Download', run: () => download(run) },
-      { k: 'show', icon: 'file', label: 'Show in Finder', run: () => post(`/api/projects/${encodeURIComponent(p.id)}/reveal`, { run }).catch(() => {}) }
+      { k: 'show', icon: 'file', label: revealLabel(), run: () => post(`/api/projects/${encodeURIComponent(p.id)}/reveal`, { run }).catch(() => {}) }
     ], anchor, at)
   }
   // only the kinds and states the projects really have
@@ -513,7 +541,7 @@ export function makeHome({ sw, C, root }) {
     const ps = live()
     const pick = f => () => { H.filter = H.filter === f ? '' : f; store.set('home.filter', H.filter); render() }
     const kinds = KINDS.filter(k => ps.some(p => p.state?.kind === k)).map(k => ({ k: `k:${k}`, icon: KIND_ICON[k], label: k, on: H.filter === `k:${k}`, run: pick(`k:${k}`) }))
-    const states = STATUSES.filter(v => ps.some(p => p.state?.status === v)).map(v => ({ k: `s:${v}`, icon: STATUS_ICON[v], label: v, on: H.filter === `s:${v}`, run: pick(`s:${v}`) }))
+    const states = STATUSES.filter(v => ps.some(p => p.state?.status === v || (v === 'Live' && p.state?.live))).map(v => ({ k: `s:${v}`, icon: STATUS_ICON[v], label: v, on: H.filter === `s:${v}`, run: pick(`s:${v}`) }))
     showMenu([{ k: 'all', icon: 'grid', label: 'Everything', on: !H.filter, run: pick('') }, '-', ...kinds, ...(states.length ? ['-', ...states] : [])], b)
   }
   bar.addEventListener('click', e => {
@@ -714,7 +742,11 @@ export function makeHome({ sw, C, root }) {
   const offered = () => MAKES.filter(m => !m.kit || window.swarmKits?.[m.k])
   let make = offered().find(m => m.k === store.get('home.make', 'site')) || MAKES[0]
   const kindBtn = $('.hm-kind')
-  const showKind = () => { kindBtn.innerHTML = `${ic(make.icon, 16)}<span>${make.label}</span>${ic('chd', 14)}` }
+  const showKind = () => {
+    kindBtn.innerHTML = `${ic(make.icon, 16)}<span>${make.label}</span>${ic('chd', 14)}`
+    // the visible word is the kind ("Site", "App"), so the name holds it (axe: label-content-name-mismatch)
+    kindBtn.setAttribute('aria-label', `What to make: ${make.label}`)
+  }
   showKind()
   if (hosted()) kindBtn.hidden = true  // the hosted studio makes websites only
   // the way to begin last picked for a kind (Make's menu pre-selects it). The Studio's depth (what Grill
@@ -748,7 +780,7 @@ export function makeHome({ sw, C, root }) {
       // Not started: Projects stays, with the words back in the box. Another build running is
       // shown on the deck on request; anything else has said why in the chat (Hermes, a talk, the question
       // before a new website: web/canvas/loop.js opens it, decision 0020)
-      if (!input.value && !made?.ask) input.value = text
+      if (!input.value && !made?.ask && !made?.research) input.value = text
       if (made?.busy) toast('<span>A build is running. Yours can start when it ends.</span>', made.run ? 'Watch it' : null, made.run ? () => C.started(made.run, { room: 'deck' }) : null)
       return
     }
@@ -783,9 +815,10 @@ export function makeHome({ sw, C, root }) {
     document.querySelector('.hm-menu button.on, .hm-menu button')?.focus({ preventScroll: true })
   }
   async function begin(way, text) {
-    // no Hermes to answer the model: one calm line and what to do, before anything starts (the words stay)
+    // no Hermes to answer the model: a build waits, with why and what to do under the box until Hermes is there (the
+    // words stay; web/hermesline.js). A Studio builds nothing, so it opens, and its chat says the same (#541)
     const off = !sw.hermesReady ? null : await sw.hermesReady()
-    if (off) return toast(`<span>${esc(off.message)} ${esc(String(off.action || '').replace(/`/g, ''))}</span>`, 'Check again', () => begin(way, text))
+    if (hermesLine(form, off && !(way.k === 'studio' && make.k !== 'game') ? off : null, () => begin(way, text))) return
     G.sheet = false
     store.set(`home.mode.${make.k}`, way.k)
     if (way.k === 'now') return buildNow(text)
@@ -1007,7 +1040,7 @@ export function makeHome({ sw, C, root }) {
       { k: 'sound', icon: 'sound', label: 'Crew sound', on: sound === 'on', run: () => sw.sound?.(sound === 'on' ? 'muted' : 'on') },
       ...(hosted() ? [] : [{ k: 'models', icon: 'sliders', label: 'Models', run: () => sw.models?.(who) }, { k: 'setup', ...($('.hm-who').classList.contains('warn') ? { icon: 'alert' } : { icon: 'check' }), label: 'Setup', run: () => setup.open() },
         // what the studio is connected to and where its data goes (docs/specs/25-connections.md)
-        { k: 'settings', icon: 'link', label: 'Settings', run: () => openSettings({ sw, esc }) }])
+        { k: 'settings', icon: 'link', label: 'Settings', run: () => openSettings({ sw, esc }) }, { k: 'next', icon: 'chr', label: 'Use the new Studio', run: () => post('/api/ui', { ui: 'next' }).catch(() => {}).then(() => location.assign(`/${location.search}`)) }])
     ], who)
   }
 
@@ -1068,7 +1101,7 @@ export function makeHome({ sw, C, root }) {
     show() {
       root.hidden = false
       H.on = true
-      if (!H.me) loadMe()
+      if (!H.me) loadMe(); takeGameTalk(C)
       refresh()
       if (given) setTimeout(handover, 0) // after this view change has finished
       if (!setupAsked && !hosted()) { setupAsked = true; setup.first() }

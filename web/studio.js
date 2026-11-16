@@ -5,10 +5,12 @@ import { makeHome } from './home.js'
 import { makeProject } from './project.js'
 import { makeWork } from './work.js'
 import { makePlan } from './plan.js'
+import { planChatOpen } from './planchat.js'
 import { makeBrand } from './brand.js'
 import { makeScaffold } from './scaffold.js'
 import { makeNav, toAddress } from './nav.js'
 import { MODES, modeOf, studioMode, modesShown } from './modes.js'
+import { toNewStudio } from './uiswitch.js'
 const sw = window.swarm
 const W = window
 const body = document.body
@@ -134,6 +136,8 @@ addEventListener('popstate', () => {
   draw()
 })
 
+// whether the last screen drawn was the Overview: its chat opens on the way in, not on every redraw
+let wasOverview = false
 function draw(planId) {
   const { room, version, project, plan } = nav.view
   const m = MODE_OF[room]
@@ -145,6 +149,8 @@ function draw(planId) {
   drawnAt = spot(nav.view)
   queueMicrotask(() => C.work?.paint?.())
   setMode(m)
+  const inOverview = wasOverview
+  wasOverview = room === 'overview'
   if (room !== 'plan') C.planView?.hide()
   if (room !== 'brand') C.brandView?.hide()
   if (room !== 'studio') C.scaffoldView?.hide()
@@ -167,6 +173,8 @@ function draw(planId) {
     C.homeView.hide()
     C.projectView.hide()
     C.planView.show(planId || plan || C.planView.id, { fresh: !!C.planFresh })
+    // its chat docked at the bottom, on its own talk (decision 0015; web/planchat.js)
+    planChatOpen(planId || plan || C.planView.id, { chat: C.chat, api: sw.api, talk: sw.talk })
     C.planFresh = false
   } else if (room === 'home') {
     body.classList.remove('cosmos-chat')
@@ -176,11 +184,18 @@ function draw(planId) {
     if (sw.view !== 'canvas') sw.setView('canvas')
     C.projectView.show(version, project)
     C.homeView.hide()
+    // the chat is the Overview's one place to type (owner, 2026-11-15): open on every way in (Projects, Back from
+    // a room, an address, a build just started). Folded by the person (×), it stays folded until they come in
+    // again; the dock's Chat tool brings it back. On a phone the chat is a sheet over the stage, so it is left
+    // as it was and the dock's Chat tool opens it.
+    if (!inOverview && !matchMedia('(max-width: 700px)').matches) C.chat(true)
   } else {
     C.projectView.hide()
     C.homeView.hide()
     const want = room === 'deck' || room === 'draft' ? 'canvas' : room === 'game' ? 'app' : room
     if (sw.view !== want) sw.setView(want)
+    // the App room's chat is where a change is asked for: it opens with the room (issue #542)
+    if (room === 'app') C.chat(true)
   }
   renderBack()
   renderMode()
@@ -210,7 +225,8 @@ C.up = () => {
 C.plan = (id, fresh = false) => { C.planFresh = fresh; C.go('plan', id) }
 // a part of a plan, from the chat's "where to start" (spec 27): the board on that plan, the part in view and selected
 C.planAt = async (id, { focus, select } = {}) => {
-  if (C.mode !== 'plan' || C.planView.id !== id || C.planView.drafting) C.go('plan', id)
+  // the same plan: read it again, the chat may just have changed it (a lock, a pick, a picture started)
+  if (C.mode !== 'plan' || C.planView.id !== id || C.planView.drafting) C.go('plan', id); else await C.planView.reload()
   await C.planView.ready
   if (select) C.planView.select(select)
   if (focus) C.planView.focus(focus)
@@ -255,7 +271,7 @@ C.load = run => {
   return Promise.resolve(sw.openRun(run)).finally(() => { if (C.opening === run) C.opening = null })
 }
 // anything that answers Esc itself (a panel, a menu, the player, a selection) goes first
-const OPEN = '.game-pop, .models-pop, .export-pop, .show-sum, .fmenu, .ui-overlay, .ui-popover, .combo-list, .player:not([hidden]), .slash-pop:not([hidden]), .hm-menu, #more-menu:not([hidden]), #pub-menu:not([hidden]), .dpick, .finfo-wrap, .video-big, .cbox.open'
+const OPEN = '.av-compare, .game-pop, .models-pop, .export-pop, .show-sum, .fmenu, .ui-overlay, .ui-popover, .combo-list, .player:not([hidden]), .slash-pop:not([hidden]), .hm-menu, #more-menu:not([hidden]), #pub-menu:not([hidden]), .dpick, .finfo-wrap, .video-big, .cbox.open'
 function escUp(e) {
   if (e.key !== 'Escape' || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return
   if (e.target.closest?.('input, textarea, select, [contenteditable="true"]') || document.fullscreenElement) return
@@ -270,7 +286,8 @@ function chrome() {
     brand.innerHTML = '<span class="sw-logo">SWARM<i></i><i></i><i></i><i></i></span>'
     brand.setAttribute('role', 'button')
     brand.tabIndex = 0
-    brand.setAttribute('aria-label', 'Projects')
+    // the visible word is SWARM, so the name has to hold it: "SWARM Studio, Projects" (axe: label-content-name-mismatch)
+    brand.setAttribute('aria-label', 'SWARM Studio, Projects')
     brand.onclick = () => C.home()
     brand.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); C.home() } }
   }
@@ -285,14 +302,14 @@ function chrome() {
   const menu = $('#more-menu')
   if (menu) {
     menu.insertAdjacentHTML('beforeend', `<div class="cosmos-sep" role="separator"></div>
-      <button class="toggle cosmos-only" id="cosmos-sound" aria-pressed="false">${ico('sound')}<span>Crew sound</span></button>
+      <button class="toggle cosmos-only" id="cosmos-sound" aria-pressed="false">${ico('sound')}<span>Crew sound</span></button><button class="toggle cosmos-only" id="cosmos-next">${ico('chr')}<span>Use the new Studio</span></button>
 `)
     // the crew's voices and sounds (web/chatter.js): the same switch and words as the user menu's; ✓ while on
     const sound = $('#cosmos-sound')
     const paint = () => { const on = sw.sound?.() === 'on'; sound.classList.toggle('on', on); sound.setAttribute('aria-pressed', String(on)) }
     sound.onclick = () => { sw.sound?.(sw.sound() === 'on' ? 'muted' : 'on'); paint() }
     $('#more-btn')?.addEventListener('click', paint)
-    paint()
+    paint(); toNewStudio(document.getElementById('cosmos-next'), sw)
   }
   modeMenu()
   // in a room, the chat column comes back with one button

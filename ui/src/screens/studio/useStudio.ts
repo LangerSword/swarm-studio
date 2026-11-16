@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { KITS, type Kit, type KitCard, type KitCtx, type StoreItem, type Studio } from '../../legacy'
 import { useNav } from '../../nav/NavProvider'
+import { isResearchStop, stopText } from '@studio/researchstop'
 import { json, useFetch } from './source'
 
 export const STEP_NAME: Record<string, string> = { brand: 'Brand', references: 'What you have', assets: 'Assets', plan: 'Plan', proposal: 'Lock' }
@@ -17,7 +18,7 @@ export const TAKES = 3
 
 export interface Palette { bg: string, text: string, accent: string, link: string }
 export interface Pack { slug: string, name: string, why?: string, for?: string, palette: Palette, type: { heading: string, body: string }, voice?: { lines?: string[] }, pictures?: { photos?: { url: string }[] } }
-interface Brand { lockedAt?: unknown, palettes?: (Palette & { id: string })[], types?: { id: string, heading: string, body: string }[], pick?: { palette?: string, type?: string }, pack?: string | null, story?: { what?: string, who?: string }, voice?: { lines?: string[] } | null, pictures?: { photos?: { url: string }[] } | null }
+interface Brand { lockedAt?: unknown, radius?: string, palettes?: (Palette & { id: string })[], types?: { id: string, heading: string, body: string }[], pick?: { palette?: string, type?: string }, pack?: string | null, story?: { what?: string, who?: string }, voice?: { lines?: string[] } | null, pictures?: { photos?: { url: string }[] } | null }
 // the brand routes' view (server/brand.mjs): the sheet and its three options
 export interface BrandView { brand: Brand | null, packs?: Pack[] }
 export interface StudioData { project: { id: string, name: string, title?: string | null }, studio: Studio, brand: Brand | null, refs: StoreItem[], assets: StoreItem[] }
@@ -42,7 +43,8 @@ export function useStudio(pid: string | null) {
   const [error, setError] = useState<string | null>(null)
   const [takes, setTakes] = useState<{ pid: string, packs: Pack[] } | null>(null)
   // the Brand step's own board (decision 0015): the options to pick a mood from, and the moodboard that follows
-  const [moods, setMoods] = useState<{ pid: string, view: BrandView | null } | null>(null)
+  // `failed`: the options could not be made (no model, Hermes not there): the skeletons stop, the reason and Try again show
+  const [moods, setMoods] = useState<{ pid: string, view: BrandView | null, failed?: string } | null>(null)
   const [sel, setSel] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   // a kit's own state changed (it asked to be drawn again)
@@ -63,7 +65,29 @@ export function useStudio(pid: string | null) {
 
   // the Studio's own `sw`, as much of it as the kits use: the server, escaping, the chat's one line (there is no
   // chat here: the talk has not moved, so the line is shown as a toast)
-  const sw = useMemo(() => ({ api: fetcher, esc, base: window.SWARM?.base || '', say: (text: string) => fail(text) }), [fetcher, fail])
+  // `submit` is the current Studio's (web/canvas/hook.js) as a website's Build uses it: a build of this project,
+  // resolving to the new run's id, or null with the reason said (Hermia's question first, the crew still busy, no Hermes)
+  // a build that looked something up first (decision 0025): what it found is in this project's References; the
+  // next Build, once the person has seen it there, builds with what is left
+  const looked = useRef(false)
+  const sw = useMemo(() => {
+    const say = (text: string) => fail(text)
+    const submit = async (brief: string, _auto = false, project: string | null = null, from: string | null = null, opts: { chat?: string | null } = {}) => {
+      const r = await fetcher('/api/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ brief, ...(project ? { project } : {}), ...(from ? { from } : {}), ...(opts.chat ? { chat: opts.chat } : {}), ...(looked.current ? { researched: true } : {}) }) }).catch(() => null)
+      const j = await r?.json().catch(() => ({})) as { run?: string, error?: string, text?: string, message?: string } | undefined
+      if (r?.ok && j?.run) { looked.current = false; return j.run }
+      if (r?.status === 409 && isResearchStop(j)) {
+        looked.current = true
+        say(`${stopText(j)} They are in References: take out any there, then press Build again.`)
+        return null
+      }
+      say(r?.status === 409 && j?.error === 'ask' ? j.text || 'Hermia has a question first: answer it in the chat.'
+        : r?.status === 409 ? 'The crew are still on the last change.'
+        : j?.message || j?.error || "Couldn't start the build. Is the studio server running?")
+      return null
+    }
+    return { api: fetcher, esc, base: window.SWARM?.base || '', say, submit }
+  }, [fetcher, fail])
 
   const select = useCallback((key: string | null) => {
     setSel(key)
@@ -97,7 +121,8 @@ export function useStudio(pid: string | null) {
     if (step === 'references') return cur.refs.length ? 'done' : 'empty'
     if (step === 'assets') return cur.assets.length ? 'done' : 'empty'
     if (step === 'plan') return kit.plan?.done?.(ctx()) ? 'done' : Object.keys(cur.studio.kit || {}).length ? 'started' : 'empty'
-    if (step === 'proposal') return cur.studio.locked ? 'done' : cur.studio.proposal ? 'started' : 'empty'
+    // Lock is the look only (decision 0015): done once the brand's look is locked
+    if (step === 'proposal') return cur.brand?.lockedAt ? 'done' : lookOf(cur.brand) ? 'started' : 'empty'
     return 'empty'
   }, [kit, ctx])
 
@@ -116,9 +141,9 @@ export function useStudio(pid: string | null) {
       }
       // the Brand step: its options and moodboard, the brand made from the idea first (the slow part, under skeletons)
       if (got.studio.mode !== 'takes' && 'brand' in got.studio.steps && got.studio.idea) {
-        setMoods(cur => cur?.pid === pid ? cur : { pid, view: null })
+        setMoods(cur => cur?.pid === pid && !cur.failed ? cur : { pid, view: null })
         const made = got.brand ? api<BrandView>(proj('/brand')) : post<BrandView>(proj('/brand'), { brief: got.studio.idea, kind: got.studio.kind === 'app' ? 'app' : 'site' })
-        made.then(view => setMoods({ pid, view })).catch(fail)
+        made.then(view => setMoods({ pid, view })).catch(err => { setMoods({ pid, view: null, failed: err instanceof Error ? err.message : String(err) }); fail(err) })
       }
       // a kit that loads or drafts its own state does it once, before its cards are drawn
       const k = KITS[got.studio.kind] || KITS.site
@@ -127,6 +152,28 @@ export function useStudio(pid: string | null) {
   }, [pid, api, post, fail])
 
   useEffect(() => { setD(null); setSel(null); setTakes(null); prepared.current = null; void load() }, [pid, load])
+  // a picture kept from the chat (decision 0025 e, ui/src/chat/useTalk.ts pickCard): its References again, nothing else
+  useEffect(() => {
+    if (!pid) return
+    const again = () => { api<{ refs: StoreItem[] }>(proj('/refs')).then(j => take({ refs: j.refs })).catch(() => {}) }
+    window.addEventListener('swarm:refs', again)
+    return () => window.removeEventListener('swarm:refs', again)
+  }, [pid, api, take])
+
+  // What you have: while the crew reads something the person brought (or walks a site for its look), its card
+  // follows; once a read is done, what it filled in (the idea, the brand's story) is loaded with the rest
+  const reading = !!d?.refs.some(r => r.found?.state === 'reading' || r.look?.state === 'walking')
+  useEffect(() => {
+    if (!reading || !pid) return
+    const t = setInterval(() => {
+      api<{ refs: StoreItem[] }>(proj('/refs')).then(j => {
+        const was = dRef.current?.refs || []
+        const done = j.refs.some(r => r.found?.state === 'ready' && was.find(x => x.id === r.id)?.found?.state === 'reading')
+        if (done) void load(); else take({ refs: j.refs })
+      }).catch(() => {})
+    }, 2000)
+    return () => clearInterval(t)
+  }, [reading, pid, api, load, take])
 
   // the record follows what the board shows
   useEffect(() => {
@@ -147,13 +194,20 @@ export function useStudio(pid: string | null) {
     setStep: (step: string, state: string) => post<StudioData>(at('/step'), { step, state }).then(take),
     upload: async (to: 'ref' | 'asset', files: File[]) => {
       for (const f of files.slice(0, 12)) {
-        const q = `?name=${encodeURIComponent(f.name)}&source=upload`
+        // what is brought to the first step is read for what it says (source import); an asset is used as given
+        const q = `?name=${encodeURIComponent(f.name)}&source=${to === 'ref' ? 'import' : 'upload'}`
         try {
           const j = await api<{ refs?: StoreItem[], assets?: StoreItem[] }>(proj(to === 'asset' ? `/assets${q}` : `/refs${q}`), { method: 'POST', headers: { 'content-type': f.type || 'application/octet-stream' }, body: f })
           take(to === 'asset' ? { assets: j.assets } : { refs: j.refs })
         } catch (err) { fail(err) }
       }
     },
+    // the store as a drop to References left it (shared/RefDrop.tsx), and after its Use as is
+    stored: (refs: StoreItem[], assets?: StoreItem[]) => take(assets ? { refs, assets } : { refs }),
+    // a website given on the first step: read for what it says, and walked for its look
+    addLink: (url: string) => post<{ refs: StoreItem[] }>(proj('/refs/link'), { url, source: 'import' }).then(j => take({ refs: j.refs })),
+    // Lock (decision 0015): the look, locked or opened again
+    lock: (on: boolean) => post<BrandView>(proj(on ? '/brand/lock' : '/brand/unlock')).then(view => { take({ brand: view.brand }); setMoods(cur => cur?.pid === pid && cur.view ? { pid, view: { ...cur.view, brand: view.brand } } : cur) }),
     removeRef: (id: string) => post<{ refs: StoreItem[] }>(proj(`/refs/${id}/remove`)).then(j => take({ refs: j.refs })),
     refAsAsset: (id: string) => post<{ refs: StoreItem[], assets: StoreItem[], asset: StoreItem }>(proj('/assets'), { ref: id }).then(j => { take({ refs: j.refs, assets: j.assets }); return j.asset }),
     removeAsset: (id: string) => api<{ assets: StoreItem[] }>(proj(`/assets/${id}`), { method: 'DELETE' }).then(j => take({ assets: j.assets })),
@@ -164,5 +218,5 @@ export function useStudio(pid: string | null) {
     useTake: (slug: string) => post(proj('/brand/pick'), { part: 'pack', id: slug }).then(() => post<StudioData>(at('/mode'), { mode: 'studio' })).then(take)
   }
 
-  return { d, error, takes, moods: moods?.pid === pid ? moods.view : null, sel, select, toast, fail, kit, ctx, stateOf, steps, gone, planSections, cards, board, actions, tick, reload: load }
+  return { d, error, takes, moods: moods?.pid === pid ? moods.view : null, moodsFailed: moods?.pid === pid ? moods.failed ?? null : null, sel, select, toast, fail, kit, ctx, stateOf, steps, gone, planSections, cards, board, actions, tick, reload: load }
 }

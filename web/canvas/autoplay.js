@@ -7,6 +7,7 @@
 // The player runs in a browser of its own, so the game underneath is left as the person had it.
 // Pure rules first, with tests (tests/autoplayroom.test.mjs); the room (web/canvas/rooms.js) hands in what
 // the part that draws needs. Imports nothing from the other areas.
+import { frameStream } from '../headerstream.js'
 
 /**
  * The room, as the switch sees it.
@@ -53,6 +54,8 @@ export function autoplayNone(room, can) {
  * @param {HTMLElement | null} d.cover what lies over the game while the player plays
  * @param {(path: string, opts?: RequestInit) => Promise<Response>} d.api
  * @param {(run: string) => string} d.stream the address of the player's screen
+ * @param {string} d.token the server's token, sent in its header (web/headerstream.js), never in the address
+ * @param {typeof frameStream} [d.frames] reads the screen (frameStream; replaceable in tests)
  * @param {(name: string) => string} d.ico
  * @param {string} d.cursor a crew cursor, shown at work until the first picture
  * @param {() => void} d.showLive pin the Live view, in Preview
@@ -63,6 +66,14 @@ export function autoplayRoom(d) {
   const img = d.cover?.querySelector('img') || null, wait = /** @type {HTMLElement | null} */ (d.cover?.querySelector('.app-skel') || null), line = /** @type {HTMLElement | null} */ (d.cover?.querySelector('.app-auto-say') || null)
   const bot = wait?.querySelector('.as-bot')
   if (bot) bot.innerHTML = d.cursor
+  // the player's screen, read with the token in its header: each picture shown in the <img> as a blob URL
+  let screen = /** @type {{ close: () => void } | null} */ (null)
+  const show = (/** @type {Blob} */ b) => {
+    if (!img) return
+    const was = img.getAttribute('src')
+    img.src = URL.createObjectURL(b)
+    if (was?.startsWith('blob:')) URL.revokeObjectURL(was)
+  }
   // open: the server has a player for this run, so its stream can be asked for. stopping: a stop was sent, and
   // the decisions still on their way must not switch it back on.
   /** @type {{ run: string | null, can: boolean, asked: boolean, on: boolean, open: boolean, live: boolean, stopping: boolean, say: string }} */
@@ -91,8 +102,9 @@ export function autoplayRoom(d) {
     d.cover.hidden = !on
     if (img) {
       // the stream is asked for once the server has a player for this run (a 404 before that would end it)
-      if (on && st.open && st.run && !img.getAttribute('src')) img.src = d.stream(st.run)
-      if (!on && img.getAttribute('src')) img.removeAttribute('src')
+      if (on && st.open && st.run && !screen) screen = (d.frames || frameStream)(d.stream(st.run), { token: d.token, onFrame: show, onEnd: () => { screen = null } })
+      if (!on && screen) { screen.close(); screen = null }
+      if (!on && img.getAttribute('src')) { const was = img.getAttribute('src'); img.removeAttribute('src'); if (was?.startsWith('blob:')) URL.revokeObjectURL(was) }
       img.hidden = !st.live
     }
     if (wait) wait.hidden = st.live

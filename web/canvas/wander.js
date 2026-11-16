@@ -37,7 +37,8 @@ export function workSpot(pin, tileEl, i, working, now = performance.now()) {
 /**
  * What the room says to a message when there is nothing built to change yet. It names the thing (game or app)
  * and, when a build was stopped partway, says so and what continues it. (It used to answer every message with
- * "Build the app first", on a game, with a stopped build on screen.)
+ * "Build the app first", on a game, with a stopped build on screen.) For an app with nothing built it says so and
+ * names the typed way to build it (`buildAsk`).
  * @param {{ kind?: string, state?: string, message?: string, steps?: unknown[] }} app
  */
 export function noAppYet(app) {
@@ -45,7 +46,20 @@ export function noAppYet(app) {
   const partway = (app.steps || []).length > 0
   if (partway && (app.state === 'stopped' || app.message === 'stopped')) return `The ${what} build is stopped partway; what is painted and written is kept. Press Go on to continue it. Once it is building again I can answer questions and take changes.`
   if (partway && app.state === 'failed') return `The ${what} build did not finish. Try again from its card; once it is building I can answer questions and take changes.`
-  return what === 'game' ? 'There is no game here yet. Start it from this view, then ask or change it by chatting.' : 'Build the app first (the button in this view), then change it by chatting.'
+  return what === 'game' ? 'There is no game here yet. Start it from this view, then ask or change it by chatting.' : 'The app is not built yet. Say “build the app” to build it, then change it by chatting.'
+}
+
+/**
+ * "build the app", "build it", "build", "go", "make the app", "turn this into an app": the room's Build the app
+ * button, typed (anything a button does, the chat does). Only for an app with nothing built and no build stopped
+ * or failed partway (that one is `goOnAsk`), never a game (its start needs its spec) and never a question.
+ * @param {string} text  @param {{ kind?: string, state?: string, message?: string, hasApp?: boolean, steps?: unknown[] }} app
+ */
+export function buildAsk(text, app) {
+  const partway = (app.steps || []).length > 0 && (app.state === 'stopped' || app.state === 'failed' || app.message === 'stopped')
+  if (app.kind === 'game' || app.hasApp || partway) return false
+  const t = String(text || '').trim().replace(/[.!]+$/, '')
+  return /^(please\s+)?(ok(ay)?[, ]+)?((build|make|start|create)(\s+me)?(\s+(it|this|the app|an app|my app))?|go|go ahead|do it|let'?s (go|build)( it)?|turn (it|this) into (an|a working) app)(\s+(now|please))?$/i.test(t)
 }
 
 /**

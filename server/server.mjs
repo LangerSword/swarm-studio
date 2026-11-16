@@ -13,9 +13,10 @@ import { randomBytes, timingSafeEqual, createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync, appendFileSync, existsSync, readdirSync, statSync, copyFileSync, createReadStream, mkdtempSync, rmSync, openSync, readSync, closeSync } from 'node:fs'
 import { execFile, hermesEnv, pick, respawnSelf } from '../engine/proc.mjs'
 import { hermesBridge, imageBody, videoBody } from '../engine/bridge.mjs'
+import { engineTools, webReads } from '../engine/enginetools.mjs'
 import { hermesLlm, roleModel } from '../engine/hermesllm.mjs'
 import { hermesHealth, HERMES_SAYS } from '../engine/hermeshealth.mjs'
-import { reasonFromAbort, reasonFromFailure } from '../engine/stopreason.mjs'
+import { reasonFromAbort, reasonFromFailure, reasonFromTalk, reasonLine, STOPS } from '../engine/stopreason.mjs'
 import { basename, dirname, extname, join, normalize } from 'node:path'
 import { homedir, tmpdir, userInfo } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -27,24 +28,27 @@ import { reviewPage, fixSection, routeComment, reviewAgain, REVIEW_PASS, REVIEW_
 import { lintSection } from '../engine/lint/index.mjs'
 import { cleanMarks, openMarks, nextMarkId, readMarksMessages, parseReads, fixText, markLine } from '../engine/marks.mjs'
 import { handChanges, keepHand } from '../engine/handedit.mjs'
-import { exportRun, snapshot } from '../engine/export.mjs'
+import { exportRun, exportPages, snapshot } from '../engine/export.mjs'
 import { seoPass, currentSeo, cleanSeo, thumbOf } from '../engine/seo.mjs'
 import { seoAsk, lookAsk } from '../web/route.js'
 import { lookEdits, themeNow } from '../engine/lookask.mjs'
 import { standins as standinsMake } from '../engine/standins.mjs'
 import { githubLogin, publishGitHub, publishVercel, publishCloudflare } from '../engine/publish.mjs'
-import { connect, connections, credentials, PROVIDERS } from '../engine/connect.mjs'
+import { connect, connections, credentials, PROVIDERS, siteRepos } from '../engine/connect.mjs'
 import { MOTION_CSS, SNAPPY, swarmMotion, motionPreset } from '../engine/motion.mjs'
 import { speak, mix, VOICES, voiceToolsDir } from '../engine/sound.mjs'
 import { layoutSource, swarmLayout } from '../engine/layout.mjs'
 import { traced, readTrace } from '../engine/trace.mjs'
-import { canvasPage as sharedCanvasPage, webVersion as pageVersion } from './page.mjs'
+import { canvasPage as sharedCanvasPage, webVersion as pageVersion, playBoot } from './page.mjs'
 import { nextPage, nextVendor } from './next.mjs'
 import { makeProjects, stateOf, gameProgress } from './projects.mjs'
+import { buildState } from '../engine/buildstate.mjs'
+import { chatFacts, checkSaid, factsText, firstLine, nextStep, truthTurn } from '../engine/chatstep.mjs'
+import { kindState, KIND_EVENTS } from '../engine/kindstate.mjs'
 import { CHAT_ID } from '../engine/chats.mjs'
 import { askTurn, askedOf, askOptions, ASK_TEXT } from '../engine/askfirst.mjs'
 import { wordsRead } from '../engine/talkplan.mjs'
-import { deployName, isScreenName, PIECES } from '../engine/naming.mjs'
+import { deployName, isScreenName, pieceKind, PIECES } from '../engine/naming.mjs'
 import { autoJob, hermesKey } from '../engine/auto.mjs'
 import * as art from '../engine/artdirect.mjs'
 import { runBoard as boardOf } from './board.mjs'
@@ -70,16 +74,22 @@ import { chatMediaRoutes } from './chatmedia.mjs'
 import { autoplayRoutes } from './autoplay.mjs'
 import { bringInRoutes } from './bringin.mjs'
 import { sourceRoutes } from './sourcehub.mjs'
+import { savedOwner, siteNow, movedSites, saveMoved, currentSite } from '../engine/ghowner.mjs'
 import { joinHistory } from '../engine/sourcehub.mjs'
-import { pictureMessages, linksIn, readPage, pageRead, withRefs } from '../engine/chatmedia.mjs'
+import { pictureMessages, linksIn, readPage, pageRead, withRefs, publicUrl } from '../engine/chatmedia.mjs'
+import { wantsResearch, researchBrief, research } from '../engine/research.mjs'
 import { refStore } from '../engine/refs.mjs'
 import { workshopRoutes } from './workshops.mjs'
 import { setupRoutes } from './setup.mjs'
+import { uiChoice, UIS } from './uichoice.mjs'
 import { pictureRun, isPictures } from '../engine/setup.mjs'
 import { ckffPaint, ckffCreds } from '../engine/ckff.mjs'
 import { chooseImage, paintWithBackup } from '../engine/paintretry.mjs'
 import { library, PACKS as LIB_PACKS } from '../engine/library.mjs'
 import { assetLib, readPicks, setPick, pickedItem, creditsFor, SLOT_CATEGORIES, slotKind } from '../engine/assetlib.mjs'
+import { helperKit, cardsView, cardsLine } from '../engine/helpers.mjs'
+import { helperRoutes } from './helpers.mjs'
+import { chatTools } from './chattools.mjs'
 import { makeCharacter as planMakeCharacter, meshyKey as planMeshyKey } from '../engine/meshy.mjs'
 import { PLAN_QUESTIONS } from '../engine/plan.mjs'
 import { collect, composition, VOICE_LEAD, videoTools, render, stagePictures, TRANSITIONS, fxFor, SHAPES } from '../engine/video.mjs'
@@ -97,8 +107,11 @@ import { breakdown, merge as mergeRefs, refDir, safeName, kindOf } from '../engi
 import { mediaKeys, mediaSources, mcpScore, clipJobs, KEYS as MEDIA_KEYS, ELEVEN_MCP } from '../engine/media.mjs'
 import { idleOptions, optionOf, idleKey, priceOk, idleStartName, idlePrompt, idleMessages, IDLE_SAY } from '../engine/idle.mjs'
 import { heavyConfig, runHeavy, interpOf } from '../engine/heavy.mjs'
-import { makeImages } from '../engine/images.mjs'
+import { makeImages, imageTools } from '../engine/images.mjs'
 import { snapStore } from './snaps.mjs'
+// engine: godot
+import { installGodot, godotJob as godotJobOf, fileFor as godotFile, GODOT } from '../engine/godotinstall.mjs'
+// end engine: godot
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const BOOTED = Date.now()
@@ -106,11 +119,14 @@ const webDir = join(root, 'web')
 const uiDist = join(root, 'ui', 'dist')
 const runsDir = process.env.SWARM_RUNS_DIR || join(root, 'runs')
 const dataDir = process.env.SWARM_DATA_DIR || root
+// which Studio `/` opens: the next UI unless the person chose the classic one (decision 0024)
+const ui = uiChoice({ dataDir })
 const argPort = process.argv.indexOf('--port')
 // 0: the system picks a free one when the server listens (tests and check scripts: a port picked beforehand and
 // let go can be taken by another process before this one binds it); `port` is the real one from then on
 let port = Number(argPort >= 0 ? process.argv[argPort + 1] : process.env.SWARM_PORT || 4319)
 
+// engine: hermes
 // Endpoint and model per role (Nous catalog review, point 2). By default every model call goes to Hermes:
 // the studio's own loopback endpoint /llm/v1 (engine/hermesllm.mjs) forwards it to the Hermes bridge, and
 // Hermes answers with its own provider, model and key, so no provider key ever reaches this process.
@@ -132,7 +148,18 @@ const hermesGone = why => {
   const said = why.code === 'hermes_closed' ? HERMES_SAYS.gone : why
   current.controller.abort({ ...said, code: 'hermes' })
 }
-const llm = hermesLlm({ bridge: hermes, port: () => port, broadcast: e => broadcast(e), health, onGone: hermesGone, graceMs: Number(process.env.SWARM_HERMES_GRACE_MS) || 20000 })
+// The web, as the app engine's tools and the chat's read it: Hermes's web tools, the guarded walk, public addresses only
+const webAccess = {
+  web: body => hermes.call('/web', body, 90000),
+  walk: async url => (await import('../engine/sitelook.mjs')).walkSite(url, { dataDir, pages: 1, shots: 1 }),
+  check: url => publicUrl(url)
+}
+// the app engine's web search, page reading, site clone and pictures, on the same gateway (engine/enginetools.mjs):
+// through Hermes's web tools, the guarded site walk and the studio's own painting, never a key of their own
+const llm = hermesLlm({
+  bridge: hermes, port: () => port, broadcast: e => broadcast(e), health, onGone: hermesGone, graceMs: Number(process.env.SWARM_HERMES_GRACE_MS) || 20000,
+  tools: engineTools({ ...webAccess, paint: ({ prompt }) => planPaint({ prompt, aspect: 'landscape' }) })
+})
 const envRole = (role, fallback = DEFAULT_MODEL) => {
   const apiKey = process.env[`SWARM_${role}_API_KEY`] || process.env.SWARM_API_KEY || process.env.SWARM_STUDIO_API_KEY || ''
   if (!apiKey) return { ...llm.provider(), model: role.toLowerCase() }
@@ -142,6 +169,7 @@ const envRole = (role, fallback = DEFAULT_MODEL) => {
     model: process.env[`SWARM_${role}_MODEL`] || process.env[`SWARM_STUDIO_${role}_MODEL`] || fallback
   }
 }
+// end engine: hermes
 // the reviewer follows Hermes's vision model; with a key of its own it has no default
 const models = { planner: envRole('PLANNER'), worker: envRole('WORKER'), reviewer: envRole('REVIEWER', '') }
 const ROLES = ['planner', 'worker', 'reviewer']
@@ -200,6 +228,7 @@ const pyCommand = (call, timeout) => new Promise(resolve => {
   })
 })
 
+// engine: hermes
 // hermes_models.py's helpers (the Setup sheet's model picker), run once in Hermes's Python under the
 // profile's HERMES_HOME; `input` goes in on stdin, so a pasted key is never a process argument
 const pyModels = (call, input = '', timeout = 60000) => new Promise(resolve => {
@@ -295,13 +324,18 @@ async function imageChoice() {
   if (picks.image === 'off') return null
   return chooseImage(await loadImageProviders(), picks.image)
 }
+// end engine: hermes
 
 // The one-time Setup sheet (docs/specs/06-onboarding.md): what builds use for pictures (the
 // `pictures` pick: painted, stock or drawn) and whether the planner and the builders answer.
 const setup = setupRoutes({
   dataDir,
   roles: () => ({ planner: { ...models.planner, model: modelFor('planner') }, worker: { ...models.worker, model: modelFor('worker') } }),
-  call: (p, model) => streamChat({ baseUrl: p.baseUrl.replace(/\/$/, ''), apiKey: p.apiKey, ...(p.hermes ? { hermes: true } : {}) }, { trace: { kind: 'setup-test' }, model, maxTokens: 16, temperature: 0, messages: [{ role: 'user', content: 'Say ok' }], signal: AbortSignal.timeout(30000) }),
+  // The tiny call starts with a system message: every real call in the Studio does, and a route that
+  // only accepts a system prompt first would otherwise fail here alone (WorkBuddy: code 11128, "first
+  // message is not system prompt"), which reads as "the model didn't work" in a sheet whose one job is
+  // to say whether it does.
+  call: (p, model) => streamChat({ baseUrl: p.baseUrl.replace(/\/$/, ''), apiKey: p.apiKey, ...(p.hermes ? { hermes: true } : {}) }, { trace: { kind: 'setup-test' }, model, maxTokens: 16, temperature: 0, messages: [{ role: 'system', content: 'You are a model check. Answer in one word.' }, { role: 'user', content: 'Say ok' }], signal: AbortSignal.timeout(30000) }),
   image: async () => ({ providers: await loadImageProviders(), imagePick: picks.image || null, pick: picks.pictures || null }),
   media: () => mediaState(),
   feed: PY ? call => pyCommand(call, 60000) : null,
@@ -353,6 +387,7 @@ async function checkArt(path, guide, messages = art.checkMessages) {
 }
 // One picture through the art director. A picture sent back is made once more with
 // the reasons in its prompt; the second one stands.
+// engine: hermes
 // another image source than the one in use: ckff first, then Hermes, then any other
 async function backupImage(choice) {
   const list = (await loadImageProviders()).filter(x => x.available && x.provider !== choice?.provider)
@@ -360,17 +395,24 @@ async function backupImage(choice) {
   const p = list.find(x => x.provider === 'ckff') || list.find(x => x.provider === 'hermes') || list[0]
   return p ? { provider: p.provider, model: p.default || '' } : null
 }
+// end engine: hermes
 async function paintArt(choice, guide, { gen, aspect = 'landscape', hero = false, cutout = false, ref = '' }, onSentBack) {
   // ref: a picture to match in style (the hero's sprite, for a figure or prop painted to stand beside it)
   let withRef = !!(ref && existsSync(ref))
   const once = (c, strict) => { const pick = art.tierFor(c, { hero }); return imagegen(['--provider', pick.provider, ...(pick.model ? ['--model', pick.model] : []), '--aspect', aspect, ...(withRef ? ['--ref', ref] : []), art.promptFor(gen, guide, { aspect, strict, cutout })], hero ? 300000 : 150000) }
   // a refusal that isn't out of quota: once more after a pause, then on another provider (engine/paintretry.mjs)
   let first = await paintWithBackup(c => once(c, ''), { choice, backup: () => backupImage(choice), quota: OUT_OF_QUOTA, exists: existsSync })
-  // out of quota on a Hermes login: ckff paints it when it has a key, rather than no picture
-  if (OUT_OF_QUOTA.test(String(first?.error || '')) && choice?.provider !== 'ckff' && ckffProvider()) {
+  // engine: hermes
+  // out of quota on a Hermes login, OR no image tool on this machine at all: ckff paints it when it has a key,
+  // rather than no picture. `planPaint` (the plan's sheets, mocks and backdrops) already falls back on any
+  // failure; a close-up did not, so on a machine with a ckff key but no image provider in Hermes the sheets
+  // painted and the close-ups failed with "Image generation is unavailable in this environment" (found on the
+  // Pro, 2026-11-15). NO_IMAGE_TOOL is that second case.
+  if ((OUT_OF_QUOTA.test(String(first?.error || '')) || NO_IMAGE_TOOL.test(String(first?.error || ''))) && choice?.provider !== 'ckff' && ckffProvider()) {
     const alt = { provider: 'ckff', model: ckffProvider().default }, other = await once(alt, '')
     if (other?.ok && other.path && existsSync(other.path)) first = { ...other, backup: alt }
   }
+  // end engine: hermes
   // not every provider takes a reference picture: without one, rather than no picture
   if (withRef && (!first.ok || !first.path || !existsSync(first.path)) && !OUT_OF_QUOTA.test(String(first.error || ''))) {
     withRef = false
@@ -497,6 +539,35 @@ function broadcast(event) {
 }
 
 const LATE_PICTURE = new Set(['image', 'image:failed', 'image:sent-back'])
+// The one state of a website build (engine/buildstate.mjs), as every screen reads it: null for an app, a game
+// or a project brought in. The page never works it out itself (it may not import the engine): the Design deck
+// gets it on the stream while the build runs (`build:state`, below) and with a saved build
+// (GET /api/runs/<id>/state); the Overview with its board (server/board.mjs).
+const siteState = (id, events) => buildState(events, { live: current?.id === id && !current.done })
+// Every part of a build with its one state (engine/kindstate.mjs): what it is (site, app, game, film), the
+// website's state above, and the app's, the game's and the film's, read from the events and this server's own
+// jobs. It travels with the website's state, as `parts`: on the stream (`build:state`, sent before an app or film
+// event that changes it: record, below), with a saved build (GET /api/runs/<id>/state), on every card
+// (/api/runs) and on the Overview's board.
+// what the run or its brief says it is, at its start: an app is an app before anything of it is built
+const pieceFor = (id, events) => { const s = events.find(e => e.type === 'run:start'); return s ? pieceKind({ piece: runMeta(id).piece, kind: s.kind, brief: s.brief, pages: events.filter(e => e.type === 'page').length, video: existsSync(join(runsDir, id, 'video', 'promo.mp4')) }) : null }
+const jobFacts = id => { const j = appsNow?.jobs?.get(id); return { working: j?.state === 'working', stage: j?.stage || '', film: videos.get(id) || null, alive: appAlive, self: process.pid } }
+const partsFor = (id, events, piece = pieceFor(id, events)) => kindState(events, { live: current?.id === id && !current.done, piece, ...jobFacts(id) })
+function sayParts(id, events = readEvents(id)) {
+  if (events) broadcast({ type: 'build:state', run: id, state: siteState(id, events), parts: partsFor(id, events) })
+}
+// the events that can change it: it is sent again only when it did, just before the event that changed it,
+// so the page already holds the state an end event (run:done, run:stopped) is said from. Never recorded:
+// it is read from the events, not one of them.
+const STATE_EVENTS = new Set(['run:start', 'layer:plan', 'layer:done', 'layer:failed', 'run:done', 'run:stopped'])
+function sayState(run) {
+  const state = buildState(run.events, { live: true })
+  const key = JSON.stringify(state)
+  if (key === run.stateKey) return
+  run.stateKey = key
+  run.state = state
+  broadcast({ type: 'build:state', run: run.id, state })
+}
 function startRun({ brief, agents, base = null, ask = '', resume = false, project = null, piece = null, pageType = '', pictures = '', brand = null, template = '' }) {
   current?.controller.abort('replaced')
   const id = new Date().toISOString().replace(/[:.]/g, '-')
@@ -537,6 +608,7 @@ function startRun({ brief, agents, base = null, ask = '', resume = false, projec
     // run:start says whether the pictures will be painted: the deck tags a stand-in "real picture coming" only then
     const event = { type, t: Date.now(), run: id, ...data, ...(type === 'run:start' ? { paint: !!run.paint } : {}) }
     run.events.push(event)
+    if (STATE_EVENTS.has(type)) sayState(run)
     if (type === 'agent:assign') run.working.add(data.agent)
     if (type === 'layer:done' || type === 'layer:failed') run.working.delete(data.agent)
     if (type === 'run:done') run.result = data
@@ -595,7 +667,8 @@ function startRun({ brief, agents, base = null, ask = '', resume = false, projec
       const message = String(err.message || err)
       emit('error', { where: 'run', message })
       images?.drop('the build stopped before its pictures')
-      emit('run:stopped', { stopped: true, ms: 0, planned: 0, done: 0, failed: 0, pages: 0, reason: reasonFromFailure(message, { viaHermes: viaHermes('planner') }) })
+      // with sections kept, the way on is Resume, and the reason's action says so
+      emit('run:stopped', { stopped: true, ms: 0, planned: 0, done: 0, failed: 0, pages: 0, reason: reasonFromFailure(message, { viaHermes: viaHermes('planner'), resume: !!extendBase(run.events) }) })
     })
   return run
 }
@@ -627,6 +700,8 @@ function record(id, event) {
   if (!existsSync(file)) return false
   if (!event.type.endsWith(':delta')) appendFileSync(file, JSON.stringify(event) + '\n')
   if (current?.id === id) current.events.push(event)
+  // an app's, a game's or a film's state changed: the pages hold it before the event it is said from
+  if (KIND_EVENTS.has(event.type)) sayParts(id)
   broadcast(event)
   return true
 }
@@ -705,8 +780,14 @@ async function stopWork({ run, project } = {}) {
 let appsNow = null // the app jobs, once loaded, so this can stay synchronous
 // a Studio process that started a build: still running? (a killed one leaves its app:start behind)
 const appAlive = pid => { try { process.kill(pid, 0); return true } catch (e) { return e.code === 'EPERM' } }
+// how far a running website build is, 0..1, from its state: this build's own sections built of its own planned
+const siteProgress = b => (b.state === 'building' && b.planned ? Math.min(1, b.done / b.planned) : 0)
 function workOf(id) {
   if (current?.id === id && !current.done) {
+    // the website build's one state (engine/buildstate.mjs), the same the deck's strip reads: its own sections,
+    // never the ones a next version was handed (a full bar while the deck said "Planning what to add")
+    const b = current.state || buildState(current.events, { live: true })
+    if (b) return { what: 'site', stage: b.state === 'building' ? 'building pages' : 'planning', pct: siteProgress(b) }
     const plan = current.events.filter(e => e.type === 'layer:plan').length
     return { what: 'site', stage: plan ? 'building pages' : 'planning', pct: Math.min(1, current.events.filter(e => e.type === 'layer:done').length / Math.max(1, plan || 12)) }
   }
@@ -721,6 +802,27 @@ function workOf(id) {
   return null
 }
 const clipStage = s => String(s || '').replace(/\s+/g, ' ').trim().slice(0, 60) || null
+
+// A site whose repository moved to another owner is live at another address than the one its publish saved
+// (engine/ghowner.mjs). The moved addresses are read from the data folder, never asked of GitHub here.
+let movedSeen = { t: 0, map: {} }
+const movedNow = () => { if (Date.now() - movedSeen.t > 2000) movedSeen = { t: Date.now(), map: movedSites(dataDir) }; return movedSeen.map }
+const sitesNow = (id, sites) => (sites?.github && currentSite(movedNow(), id, sites.github) !== sites.github ? { ...sites, github: currentSite(movedNow(), id, sites.github) } : sites)
+// Asked when the person opens Publish for a build that is live on GitHub Pages: one question to GitHub for that
+// one build, at most every ten minutes. → true when the address changed
+const siteAsked = new Map()
+async function syncSite(id) {
+  if (Date.now() - (siteAsked.get(id) || 0) < 600000) return false
+  const last = (readEvents(id) || []).findLast(e => e.type === 'publish:done' && e.target === 'github' && e.url)
+  if (!last) return false
+  siteAsked.set(id, Date.now())
+  const repo = last.repo || siteRepos(dataDir)[id]
+  const now = await siteNow({ repo, url: last.url }).catch(() => null)
+  if (!now?.moved || now.url === currentSite(movedNow(), id, last.url)) return false
+  saveMoved(dataDir, id, { repo: now.repo, url: now.url, from: last.url })
+  movedSeen = { t: 0, map: {} }
+  return true
+}
 
 // A run's file card, from its events plus the person's meta. Cached by the
 // events file's size and time, so listing many runs stays quick.
@@ -790,6 +892,13 @@ function runCard(id) {
       gameAt: events.some(e => e.type === 'game:spec') ? gameProgress(events.filter(e => e.type === 'app:step').map(e => e.step)) : null,
       deployed: events.findLast(e => e.type === 'app:deployed' && e.url)?.url || null,
     } }
+    // a website build's one state (engine/buildstate.mjs), at rest and while this server runs it
+    card.site = { rest: buildState(events, { live: false }), live: buildState(events, { live: true }) }
+    // what it is, and its app's, game's and film's state at rest (engine/kindstate.mjs); `open`: a build left at
+    // its start, which is at work for as long as the Studio that drives it lives, so it is read again each time
+    card.piece = pieceFor(id, events)
+    card.parts = kindState(events, { piece: card.piece, alive: appAlive, self: process.pid })
+    card.open = events.findLast(e => ['app:start', 'app:done', 'app:failed', 'app:paused'].includes(e.type))?.type === 'app:start'
     cards.set(id, card)
   }
   const meta = runMeta(id)
@@ -808,11 +917,15 @@ function runCard(id) {
     // the 9:16 phone cut beside the wide one, when the run has it
     videoTall: existsSync(join(runsDir, id, 'video', SHAPES.tall.file)) ? `/video/${id}/${SHAPES.tall.file}` : null,
     live: current?.id === id && !current.done,
-    progress: current?.id === id && !current.done ? Math.min(1, (current.events.filter(e => e.type === 'layer:done').length) / Math.max(1, current.events.filter(e => e.type === 'layer:plan').length || 12)) : null,
+    sites: sitesNow(id, card.info.sites),
     work: workOf(id),
+    buildState: current?.id === id && !current.done ? card.site.live : card.site.rest,
+    parts: card.open || appsNow?.jobs?.get(id)?.state === 'working' || videos.get(id)?.state === 'working' ? partsFor(id, readEvents(id) || [], card.piece) : card.parts,
     // the cover: its hero picture, else a snapshot of its first page (saved by the canvas), else a film frame
     cover: card.info.cover || snapsOf().cover(id) || snapOf(id) || (existsSync(join(runsDir, id, 'video', 'p1.webp')) ? `/video/${id}/live/p1.webp` : null),
   }
+  // the card's bar: the same number as the top bar's chip (workOf), so the two never differ
+  out.progress = out.live ? out.work?.pct ?? null : null
   out.state = stateOf(out)
   return out
 }
@@ -888,6 +1001,7 @@ function versions(dir, stem, ext) {
   const last = nums.length ? Math.max(...nums) : 0
   return { last: last ? join(dir, `${stem}-v${last}${ext}`) : null, next: join(dir, `${stem}-v${last + 1}${ext}`) }
 }
+// engine: video
 // The build's video in the visible folder: the newest version, or a new one when
 // the build has a cut that is newer than every copy (made now if none exists yet).
 function shelveVideo(id, shape = 'wide') {
@@ -901,6 +1015,7 @@ function shelveVideo(id, shape = 'wide') {
     return v.next
   } catch { return null }
 }
+// end engine: video
 function shelveExport(id, zip) {
   if (!zip || !existsSync(zip)) return null
   try {
@@ -975,11 +1090,13 @@ async function reviewNow(id, input) {
   // overlaps the canvas measured at desktop and phone width: no model needed to see them
   const measured = (Array.isArray(input.measured) ? input.measured : []).filter(m => m && keys.has(m.section) && m.problem).slice(0, 6)
     .map(m => ({ section: m.section, problem: clip(m.problem, 160), fix: clip(m.fix, 220), measured: true }))
+  // engine: open-design
   // what the slop linter (engine/lint) still finds after each builder's own fix pass: the worst in each
   // section, handed on like the measured overlaps, and a section that ignores the design system's tokens (the
   // rest of a section's findings are P1 advice)
   const linted = sections.flatMap(s => lintSection(s.html, { tokens: theme?.system?.tokens }).filter(f => f.severity === 'P0' || f.id === 'tokens-unused').slice(0, 1)
     .map(f => ({ section: s.key, problem: clip(f.message, 160), fix: clip(f.fix, 220), lint: f.id })))
+  // end engine: open-design
   // the same page at phone width, for a second look
   const phone = input.mobile && /^data:image\/(jpeg|png|webp);base64,/.test(String(input.mobile.image || '')) && Array.isArray(input.mobile.sections)
     ? { image: String(input.mobile.image), sections: input.mobile.sections.filter(s => s && keys.has(s.key)).map(s => ({ key: s.key, role: String(s.role || s.key), top: Math.round(s.top) || 0, height: Math.round(s.height) || 0 })) }
@@ -1051,6 +1168,7 @@ async function reviewNow(id, input) {
   }
 }
 
+// engine: video
 // ---------- promo video: the planner storyboards the build, HyperFrames renders it
 const videos = new Map() // run id -> { state, pct, stage, src, file, seconds, message }
 // one film renders at a time (engine/video.mjs renders): the next one says so while it waits
@@ -1119,6 +1237,8 @@ async function videoNow(id, input = {}) {
   const halt = stopSignal(id)
   const job = { state: 'working', pct: 0, stage: 'storyboard', t: Date.now() }
   videos.set(id, job)
+  // the film is being made from this moment (its video:start comes once its material is read): the pages are told
+  sayParts(id, events)
   const send = (type, data) => record(id, { type, t: Date.now(), run: id, ...data })
   const progress = (pct, stage) => {
     if (halt.aborted) return
@@ -1208,6 +1328,7 @@ async function videoNow(id, input = {}) {
     }
     // a beat whose painted shot failed has no picture: it becomes a type card
     for (const sc of scenes) if ((sc.kind === 'image' || sc.kind === 'split') && !sc.image) { sc.kind = 'title'; sc.layer = 'type'; if (!sc.headline) sc.headline = c.brand }
+    // engine: hermes
     // moving clips: a video model animates a few story stills (Veo through Hermes's FAL, xAI…);
     // clips already in <run>/flow (made with Flow by hand) are used as they are
     const media = await mediaNow().catch(() => null)
@@ -1220,6 +1341,7 @@ async function videoNow(id, input = {}) {
           if (r.ok) made++
           else send('video:note', { message: `a still stayed still: ${String(r.error || 'no clip').slice(0, 120)}` })
         })))
+    // end engine: hermes
         if (made) send('video:clips', { by: media.clips.by, made })
       }
     }
@@ -1241,6 +1363,7 @@ async function videoNow(id, input = {}) {
         sc.speedName = name
       } catch { sc.speed = 1 }
     }
+    // engine: sound
     // the voice only when the film wants narration, or the person picked a voice
     const preset = motionPreset(c.theme)
     let voices = []
@@ -1288,6 +1411,7 @@ async function videoNow(id, input = {}) {
         else fx = fx.map(x => ({ ...x, at: retime(x.at, planned, lengths) }))
       } catch (err) { musicCut = { kept: `the track could not be measured: ${String(err.message || err).split('\n')[0].slice(0, 100)}` } }
     }
+    // end engine: sound
     const comp = composition(scenes, c, lengths, transition)
     // the tall cut for phones: the same storyboard, look and timing, laid out again for a 9:16 frame
     const tallComp = composition(scenes, c, lengths, transition, comp.look, { shape: 'tall' })
@@ -1337,6 +1461,7 @@ async function videoNow(id, input = {}) {
         squared = true
       } catch (err) { send('video:note', { message: `no square cut this time: ${String(err.message || err).split('\n')[0].slice(0, 160)}` }) }
     }
+    // engine: sound
     let sound = false
     try {
       progress(98, 'mixing the sound')
@@ -1345,6 +1470,7 @@ async function videoNow(id, input = {}) {
       send('video:note', { message: `sound failed, the video is silent: ${String(err.message || err).split('\n')[0].slice(0, 160)}` })
     }
     if (!sound) copyFileSync(silent, out)
+    // end engine: sound
     // the phone cut takes the wide cut's finished sound as it is (same scenes, same timing)
     if (tall) {
       try {
@@ -1387,19 +1513,27 @@ async function videoNow(id, input = {}) {
   })
   return job
 }
+// end engine: video
 
+// engine: dyad
 // ---------- the App tab's jobs, loaded the first time someone uses it
 let appsP = null
 const apps = () => (appsP ||= import('../engine/appjob.mjs').then(m => (appsNow = m.appJobs({ runsDir, record, broadcast, readEvents, provider, modelFor, paint: paintGame, fill: fillApp, nameFor, idleMs: () => idleStops().app * 60000 }))))
+// end engine: dyad
 // Autoplay in the Game room (server/autoplay.mjs): an AI player plays the game that is already running, never
 // starts one. Jev decides only when the person set JEV_KEY, an OpenRouter key kept for this (plugin.yaml; the
 // first name engine/autoplay.mjs reads); without it the moves are scripted and nothing leaves the machine.
 const autoplayRoute = autoplayRoutes({ urlOf: id => apps().then(a => a.seen(id).url), broadcast, key: () => hermesKey('JEV_KEY') })
 
 // ---------- ⚡ Auto mode: one prompt → design, review, video, app, games, credit shop, data, deploy
+// engine: hermes
 // sign-in connectors through Hermes (Supabase): no keys to paste
 const connectors = hermesConnectors({ bridge: hermes, broadcast })
+// end engine: hermes
 
+// engine: video
+// engine: sound
+// engine: hermes
 // The Film studio's outside services (engine/media.mjs): what Hermes already has, else a
 // pasted key, else the built-in path. The canvas learns where each comes from, never a key.
 async function mediaNow() {
@@ -1409,6 +1543,9 @@ async function mediaNow() {
   ])
   return mediaSources({ env: pick(['SWARM_ELEVENLABS_KEY']), keys: mediaKeyStore, mcp, images, videos, imagePick: picks.image })
 }
+// end engine: video
+// end engine: sound
+// end engine: hermes
 // The launch kit's pitch (engine/launch.mjs): one line on what the product is and who it is for,
 // written by the planner from the pages the crew planned. Never the person's words to the crew.
 async function writePitch(events, id) {
@@ -1458,6 +1595,7 @@ function appStats(id) {
   return { files, lines }
 }
 
+// engine: hermes
 // Messaging targets Hermes's gateway can send to (Discord, Slack, Telegram), from
 // `hermes send --list`. Read-only; cached a minute.
 const HERMES_BIN = [join(homedir(), '.local', 'bin', 'hermes'), 'hermes'].find(p => p === 'hermes' || existsSync(p))
@@ -1472,7 +1610,9 @@ function gatewayTargets() {
     ok(gateway.platforms)
   }))
 }
+// end engine: hermes
 
+// engine: sound
 // Occasional real words from the crew: a short fixed list, read by the studio's TTS (the
 // Pro's TTS job through SWARM_TTS_URL, or Kokoro when the video tools already have it),
 // pitched up in the browser, cached by text. Nothing is made for any other text.
@@ -1491,6 +1631,7 @@ async function chatterMake(text, voice) {
     if (r?.file) { mkdirSync(chatterDir, { recursive: true }); copyFileSync(r.file, file) }
   } catch {} finally { chatterBusy.delete(file); try { rmSync(dir, { recursive: true, force: true }) } catch {} }
 }
+// end engine: sound
 
 // ---------- the person talks to the crew while it builds
 // Talk (engine/talk.mjs) answers: a crew member whose only job is to talk, so the builder never
@@ -1635,11 +1776,20 @@ async function askApp(a, id, text, { chart = false } = {}) {
 // Fix: the facts about the Studio's own working parts (engine/doctor.mjs says what each is). Every lookup
 // has a few seconds: a part that does not answer in time reads "not known yet", and the rest still show.
 const CUT_PROBE = "import importlib.util, json; print(json.dumps([m for m in ['numpy', 'scipy', 'PIL'] if importlib.util.find_spec(m) is None]))"
+// The cutters' Python, for whoever asks: the doctor's facts and Setup's Parts row both read it, and it is the one
+// thing that says why a sprite shipped with its key colour still on it (web/setup-parts.js `cutter`).
+const cutPython = async (d) => {
+  const win = process.platform === 'win32'
+  return d.pythonFacts({
+    candidates: [process.env.SWARM_CUT_PY, win ? 'python' : 'python3', win ? '' : '/usr/bin/python3', PY],
+    missing: py => new Promise((ok, no) => execFile(py, ['-c', CUT_PROBE], { timeout: 15000 }, (err, out) => { try { if (err) throw err; ok(JSON.parse(String(out).trim().split('\n').pop())) } catch (e) { no(e) } })),
+    inUse: cutPyP ? await cutPy() : undefined
+  })
+}
 async function studioFacts(runId = null, { light = false } = {}) {
   const d = await import('../engine/doctor.mjs')
   const { GROUPS } = await import('../web/setup-parts.js')
   const soon = (p, ms = 6000) => Promise.race([Promise.resolve().then(p).catch(() => null), new Promise(r => { setTimeout(() => r(null), ms).unref?.() })])
-  const win = process.platform === 'win32'
   // light (Ask's one-paragraph view of the Studio): nothing that starts a program or calls a model
   const skip = () => null
   const well = await soon(() => health.now())
@@ -1650,16 +1800,14 @@ async function studioFacts(runId = null, { light = false } = {}) {
     soon(() => mediaNow()), soon(light ? skip : () => githubLogin()), soon(() => connections(dataDir)),
     soon(() => connectors.list()), soon(light ? skip : () => gatewayTargets()), soon(() => imageChoice()),
     // the cutters' Python, looked at now: cutPy (below) keeps its first answer until the Studio restarts
-    soon(light ? skip : async () => d.pythonFacts({
-      candidates: [process.env.SWARM_CUT_PY, win ? 'python' : 'python3', win ? '' : '/usr/bin/python3', PY],
-      missing: py => new Promise((ok, no) => execFile(py, ['-c', CUT_PROBE], { timeout: 15000 }, (err, out) => { try { if (err) throw err; ok(JSON.parse(String(out).trim().split('\n').pop())) } catch (e) { no(e) } })),
-      inUse: cutPyP ? await cutPy() : undefined
-    }), 40000)
+    soon(light ? skip : async () => cutPython(d), 40000)
   ])
   const st = hermes.status()
   const F = {
-    view, hermes: { ...st, health: well }, models: { roles: Object.fromEntries(ROLES.map(r => [r, { model: modelFor(r), picked: picks[r] || null }])) },
-    local: setup.local(), media, publish: conn || login ? { github: login, ...(conn || {}) } : null, conn: connList, gateway: gw ? { platforms: gw } : null
+    // `python` rides on the view: Setup's Sprite cutter row reads it (web/setup-parts.js), and it is the one
+    // thing that says why a sprite shipped with its key colour still on it
+    view: { ...view, python }, hermes: { ...st, health: well }, models: { roles: Object.fromEntries(ROLES.map(r => [r, { model: modelFor(r), picked: picks[r] || null }])) },
+    local: { ...setup.local(), ...(python ? { python } : {}) }, media, publish: conn || login ? { github: login, ...(conn || {}) } : null, conn: connList, gateway: gw ? { platforms: gw } : null
   }
   const events = runId ? readEvents(runId) : null
   const kind = events ? (events.findLast(e => e.type === 'app:start')?.kind === 'game' || events.some(e => e.type === 'run:start' && e.kind === 'game') ? 'game' : events.some(e => e.type === 'app:start') ? 'app' : 'site') : ''
@@ -1667,7 +1815,7 @@ async function studioFacts(runId = null, { light = false } = {}) {
   const roleName = role => { const m = modelFor(role); return named(m) || (m && ROLES.includes(m) ? 'through Hermes' : '') }
   return {
     parts: d.partStates(GROUPS, F),
-    run: events ? { id: runId, kind, working: (current?.id === runId && !current.done) || appsNow?.jobs.get(runId)?.state === 'working', built: !!(await apps().then(a => a.state(runId).hasApp).catch(() => false)), failures: d.failuresOf(events) } : null,
+    run: events ? { id: runId, kind, working: (current?.id === runId && !current.done) || appsNow?.jobs.get(runId)?.state === 'working', built: !!(await apps().then(a => a.state(runId).hasApp).catch(() => false)), failures: d.failuresOf(events), build: siteState(runId, events) } : null,
     python,
     hermes: { attached: !!st.attached, message: well && !well.ok ? `${well.message || ''} ${well.action || ''}`.trim() : '' },
     // a role Hermes routes has no model name of its own here: it is set up, and reads "through Hermes", never "none"
@@ -1678,14 +1826,20 @@ async function studioFacts(runId = null, { light = false } = {}) {
 // ---------- game mode: answers → a spec → a new build whose app is the game
 let gameP = null
 const gameMod = () => (gameP ||= import('../engine/game.mjs'))
+// engine: meshy
 let castP = null
 const castMod = () => (castP ||= import('../engine/cast.mjs'))
+// end engine: meshy
+// engine: hermes
 // The Plan board's pictures (spec 21): sketches and mocks at medium, backdrops and close-up art at
 // high, through the same image login as the builds. Image runs only; no Meshy credits.
 async function planPaint({ prompt, quality = 'medium', aspect = 'landscape', crop = '', refs = [] }) {
   const choice = await imageChoice()
-  // ckff (engine/ckff.mjs) is the fallback when no Hermes image login works (Codex out of quota)
-  const fallback = () => (ckffCreds() && !crop ? ckffPaint({ prompt, aspect, refs }) : null)
+  // ckff (engine/ckff.mjs) is the fallback when no Hermes image login works (Codex out of quota), or when this
+  // machine has no image tool at all. It takes the crop too now (engine/ckff.mjs cropTo, the same centre box
+  // bridge.py takes), so a cut-in is not the one picture a ckff key cannot paint — which is exactly what
+  // happened on the Pro (2026-11-15): the sheets painted, and every 16:9 close-up failed.
+  const fallback = () => (ckffCreds() ? ckffPaint({ prompt, aspect, refs, crop, tools: () => imageTools(dataDir) }) : null)
   if (!choice) return (await fallback()) || { ok: false, error: 'no image model' }
   const model = choice.model
   const args = ['--provider', choice.provider, ...(model ? ['--model', model] : []), '--aspect', aspect, ...(crop ? ['--crop', crop] : [])]
@@ -1694,25 +1848,55 @@ async function planPaint({ prompt, quality = 'medium', aspect = 'landscape', cro
   return r?.ok ? r : (await fallback()) || r
 }
 planPaint.ready = async () => !!ckffCreds() || !!(await imageChoice())
+// end engine: hermes
+// engine: meshy
 // The build (spec 21) spends Meshy credits only on a locked plan, inside the price it was locked at.
+// end engine: meshy
+// engine: godot
 // whether Godot 4 is on this machine (engine/port.mjs loads the game modules, so it is read once, late)
 let godotHere
-import('../engine/port.mjs').then(m => { godotHere = !!m.godotBin() }).catch(() => {})
+let godotBinOf = null
+import('../engine/port.mjs').then(m => { godotBinOf = m.godotBin; godotHere = godotStandIn.on ? godotStandIn.found : !!m.godotBin() }).catch(() => {})
+// "Check again" in the planner chat looks again (the person may have just installed it themselves)
+const godotCheck = () => { if (godotStandIn.on) godotHere = godotStandIn.found; else if (godotBinOf) godotHere = !!godotBinOf(); return !!godotHere }
+// "Install Godot 4" there installs it (engine/godotinstall.mjs): only when the person presses it or types it, one
+// install at a time, and it counts as work so the server neither idles out nor replaces itself under it.
+// SWARM_WALK_GODOT ("fail,ok") is the walkthrough's stand-in (scripts/walkthrough-chat.mjs): each install waits a
+// few seconds and ends as the list says (failed, once the list is used up), this computer counts as having no
+// Godot until one ends ok, and nothing is downloaded or run. The launcher never passes that name
+// (launcher.py KEEP_ENV, engine/proc.mjs SERVER_ENV), so a Studio opened from Hermes is never in it.
+const godotStandIn = { on: !!process.env.SWARM_WALK_GODOT, ends: String(process.env.SWARM_WALK_GODOT || '').split(',').filter(Boolean), found: false }
+const godotJob = godotJobOf({ install: ({ onProgress }) => godotStandIn.on
+  ? new Promise(done => {
+    const ok = godotStandIn.ends.shift() === 'ok'
+    onProgress({ route: 'archive', mb: Math.round((godotFile()?.size || 0) / 1e6), pct: 40 })
+    setTimeout(() => { if (ok) godotStandIn.found = godotHere = true; done(ok ? { ok, route: 'archive', version: GODOT.version } : { ok, route: 'archive', why: 'this computer could not reach github.com' }) }, 6000)
+  })
+  : installGodot({ dataDir, find: () => godotBinOf?.() || null, onProgress, log: line => console.log(`swarm studio: ${line}`) }) })
+// end engine: godot
+// engine: godot
+// engine: meshy
 const plans = planRoutes({
-  dataDir, builtInTemplates: [join(root, 'games', 'ares', 'plan.json')], paint: planPaint, make: { character: planMakeCharacter, key: () => planMeshyKey() },
+  dataDir, builtInTemplates: [join(root, 'gamemaker', 'plan.json')], paint: planPaint, make: { character: planMakeCharacter, key: () => planMeshyKey() },
   // the planner reads the idea's genre family; Godot asked for is said in the plan, and so is a missing Godot
   planner: () => models.planner.apiKey ? { provider: provider('planner'), model: modelFor('planner') } : null,
-  godot: () => godotHere
+  godot: () => godotHere,
+  // a game's art references join its project when its talk does: a look to match to References, one used as is to Assets
+  toProject: (pid, { name, buf, asIs }) => (asIs ? projectAssets.addFile(pid, { name }, buf) : refs.addFile(pid, { name, source: 'plan' }, buf))
 })
+// end engine: meshy
 // The planner conversation (docs/specs/27-plan-conversation.md): decide together in the left chat, then lock.
 // A locked game chat makes its plan through the Plan board's routes above.
 const talks = talkRoutes({
-  dataDir, plans, env: () => ({ godot: godotHere }),
+  dataDir, plans, helpers: () => helpers, env: () => ({ godot: godotHere, install: godotJob.state() }), godotCheck, godotInstall: godotJob,
+  // a website's or an app's saved talk is told what is true of its build (chatTruth, engine/chatstep.mjs)
+  facts: chat => chatTruth({ pid: chat.project || null, run: chat.run || null, kind: chat.kind, chat }),
   model: () => models.planner.apiKey && modelFor('planner') ? async messages => (await streamChat(provider('planner'), {
     trace: { kind: 'talk' }, model: modelFor('planner'), maxTokens: 700, temperature: 0.3, signal: AbortSignal.timeout(60000),
     extra: { reasoning_effort: 'none', reasoning: { enabled: false } }, messages
   })).text : null
 })
+// end engine: godot
 // Chats (docs/specs/29-chats-references-marks.md): conversations live apart from builds and move into
 // their project when they build. On start: empty old chats go, and game plans made before chats existed
 // each get a chat that points at them (the plan files stay where they are).
@@ -1789,7 +1973,65 @@ function matchLook(pid, ref, run) {
   })()
   return now
 }
-const refsRoute = refRoutes({ refs, head: pid => projects.get(pid)?.head || null, comment: (run, input) => comment(run, input), walk: walkLook, match: matchLook, fixText: lookFixText })
+// engine: hermes
+// Research before planning (engine/research.mjs; decision 0025 part a): when the person's own words ask to look
+// something up (a build stops with what it found, /api/run), or they press Research. Hermes searches and reads
+// (bridge.py /web); the planner's model picks the searches and what to take from each page. Each finding is kept in
+// the project's References, with its link and what was taken, where the person sees it and keeps or removes it
+// before a build reads it (refs.brief); outside a project the stop carries them, and the ones kept join the project
+// the build starts. The canvas hears { type: 'research', state: 'looking' | 'done', … } so the person sees it happen.
+const researching = new Set()
+// the planner's model for research (picking the searches, what to take from each page), or null with none; the chat's
+// web_research tool uses it too (server/researchtool.mjs)
+const researchChat = () => models.planner.apiKey && modelFor('planner') ? async (messages, { signal: s } = {}) => (await streamChat(provider('planner'), {
+  trace: { kind: 'research' }, model: modelFor('planner'), maxTokens: 900, temperature: 0.2, signal: s,
+  extra: { reasoning_effort: 'none', reasoning: { enabled: false } }, messages
+})).text : null
+// the findings a build outside a project was sent again with (the ones the person kept): only what research makes
+const keptFindings = list => list.slice(0, 6).filter(f => f && /^https?:\/\//.test(String(f.url || ''))).map(f => ({ url: String(f.url).slice(0, 1000), title: String(f.title || '').slice(0, 120), took: String(f.took || '').slice(0, 400), query: String(f.query || '').slice(0, 200) })).filter(f => f.took)
+async function lookUp({ ask, kind = 'site', pid = null, signal = null }) {
+  broadcast({ type: 'research', state: 'looking', ask, project: pid })
+  const chat = researchChat()
+  const got = await research({ ask, kind, chat, signal, web: (body, s) => hermes.call('/web', body, 40000, { grace: 5000 }).then(r => (s?.aborted ? { ok: false, error: 'stopped' } : r)) })
+  const kept = []
+  if (pid) for (const f of got.findings) try { kept.push(refs.addFinding(pid, f)) } catch {}
+  broadcast({ type: 'research', state: 'done', ask, project: pid, findings: got.findings, searched: got.searched, read: got.read, note: got.note, kept: kept.map(r => r.id) })
+  return got
+}
+// end engine: hermes
+// What you have (decision 0015): a file or a site brought to the Studio's first step is read in the background,
+// one read per reference at a time, and what it says fills in the walk: the idea while the Studio has none, and
+// the brand's story where it is still empty. The planner's model reads it; with none, its first words do.
+const readings = new Set()
+function readWhatYouHave(pid, ref) {
+  // a picture, a clip or a sound has no words: it stays a reference, unread
+  if (ref.kind !== 'link' && !/\.(pdf|txt|md)$/i.test(ref.name || '')) return null
+  const key = `${pid}/${ref.id}`
+  if (readings.has(key)) return null
+  readings.add(key)
+  const now = refs.setFound(pid, ref.id, { state: 'reading', at: Date.now() })
+  ;(async () => {
+    try {
+      const { textOf, findIn } = await import('../engine/importer.mjs')
+      const got = await textOf(ref, { file: ref.file ? join(refs.dir(pid), ref.file) : null })
+      if (!got.text) return refs.setFound(pid, ref.id, { state: 'failed', note: got.note, at: Date.now() })
+      const chat = models.planner.apiKey && modelFor('planner') ? async messages => (await streamChat(provider('planner'), {
+        trace: { kind: 'read' }, model: modelFor('planner'), maxTokens: 600, temperature: 0.2, signal: AbortSignal.timeout(60000),
+        extra: { reasoning_effort: 'none', reasoning: { enabled: false } }, messages
+      })).text : null
+      const found = await findIn(got.text, { chat })
+      if (!found) return refs.setFound(pid, ref.id, { state: 'failed', note: 'nothing to read in it', at: Date.now() })
+      if (found.idea) try { studioRoute.setIdea(pid, found.idea) } catch {}
+      await brands.story(pid, studios.get(pid)?.idea || found.idea, found)
+      // the words themselves, cut short, go with it: the crew's brief quotes them (engine/refs.mjs brief)
+      refs.setFound(pid, ref.id, { state: 'ready', at: Date.now(), ...found, words: String(got.text).replace(/\s+/g, ' ').trim().slice(0, 1500) })
+    } catch (err) {
+      try { refs.setFound(pid, ref.id, { state: 'failed', note: String(err.message || err).split('\n')[0].slice(0, 160), at: Date.now() }) } catch {}
+    } finally { readings.delete(key) }
+  })()
+  return now
+}
+const refsRoute = refRoutes({ refs, head: pid => projects.get(pid)?.head || null, comment: (run, input) => comment(run, input), walk: walkLook, match: matchLook, read: readWhatYouHave, fixText: lookFixText })
 // The Studio (docs/specs/37-studio-first.md): a project's studio record, its one brand and its Assets store
 const studios = studioStore({ projectsDir: projects.projectsDir })
 const projectAssets = assetStore({ projectsDir: projects.projectsDir, known: pid => !!projects.get(pid) })
@@ -1816,7 +2058,9 @@ const filmRoute = filmRoutes({
     projects.claim(id, pid)
     return id
   },
+  // engine: video
   startFilm: (id, input) => makeVideo(id, input)
+  // end engine: video
 })
 // Media in a chat (spec 29, server/chatmedia.mjs): a picture is read by the reviewer's vision model, with
 // reasoning off and the vision fallbacks after it, the same way Scribble's marks are read
@@ -1854,7 +2098,9 @@ async function askMedia(who, messages, { maxTokens = 600, kind = 'media-read' } 
   const res = await streamChat(provider(mediaRole()), { trace: { kind }, model, messages, maxTokens, temperature: 0.2, extra: { reasoning_effort: 'none', reasoning: { enabled: false } }, signal: AbortSignal.timeout(150000) })
   return res.text
 }
+// engine: video
 // watch and listen to a finished film; the review is kept beside it as review.json
+// engine: sound
 async function criticize({ ffmpeg, file, dir, music = true }) {
   const board = JSON.parse(readFileSync(join(dir, 'storyboard.json'), 'utf8'))
   const tmp = mkdtempSync(join(tmpdir(), 'swarm-critic-'))
@@ -1866,6 +2112,8 @@ async function criticize({ ffmpeg, file, dir, music = true }) {
     return kept
   } finally { rmSync(tmp, { recursive: true, force: true }) }
 }
+// end engine: sound
+// end engine: video
 // read one clip or sound from a chat: what it shows and sounds like, and what happened
 async function readClip(file, kind) {
   const tmp = mkdtempSync(join(tmpdir(), 'swarm-read-'))
@@ -1882,8 +2130,9 @@ async function readClip(file, kind) {
 // Bring a game or app in (docs/specs/45-intake.md): POST /api/intake
 const bringInRoute = bringInRoutes({ runsDir, projects, apps: () => apps(), record, readEvents, broadcast, join: joinHistory })
 // A project's source on GitHub (the same spec): GET and POST /api/projects/<id>/github
-const sourceRoute = sourceRoutes({ runsDir, dataDir, projects, readEvents, record, broadcast, bringIn: bringInRoute.bringIn, working: async id => (await apps()).state(id)?.state === 'working' })
-const chatMediaRoute = chatMediaRoutes({ chats, projectOf: run => RUN_ID.test(String(run || '')) ? projects.projectOf(run) : null, see: seePicture, read: readClip })
+const sourceRoute = sourceRoutes({ runsDir, dataDir, projects, readEvents, record, broadcast, bringIn: bringInRoute.bringIn, working: async id => (await apps()).state(id)?.state === 'working', connectors })
+const chatMediaRoute = chatMediaRoutes({ chats, projectOf: run => RUN_ID.test(String(run || '')) ? projects.projectOf(run) : null, see: seePicture, read: readClip,
+  toProject: (pid, { name, buf, chat }) => projects.get(pid) ? refs.addFile(pid, { name, source: 'chat', from: chat }, buf) : null })
 const brands = brandRoutes({
   chats,
   projectBrands: studios.brands,
@@ -1909,20 +2158,30 @@ const storyRoute = storyRoutes({
     trace: { kind: 'story' }, model: modelFor('planner'), maxTokens: 1400, temperature: 0.5, signal: AbortSignal.timeout(60000),
     extra: { reasoning_effort: 'none', reasoning: { enabled: false } }, messages
   })).text : null,
-  // the page shots a beat's screen uses: a fresh export, every page at desktop and phone size
-  shots: async id => {
+  // the page shots a beat's screen uses: the pages asked for (a story's few), at desktop and phone size. Run after
+  // the story's answer (server/story.mjs later), never on a request (issue #565)
+  shots: async (id, want = null) => {
     const events = readEvents(id)
     if (!events) return []
-    // the newest export on disk when there is one (Post to Feed and ⬇ Export leave one); else a fresh one
+    const name = nameFor(id)?.name, pages = snapshot(events, [], { name }).pages
+    // the newest export on disk when there is one (Post to Feed and ⬇ Export leave one); else the pages alone, in the
+    // story's own folder: no search pass, no zip, and never the export Publish reads
     const changed = events.findLast(e => e.type === 'layer:done' || e.type === 'theme' || e.type === 'image')?.t || 0
     const last = events.findLast(e => e.type === 'export' && e.t >= changed && e.dir && Array.isArray(e.html) && existsSync(join(e.dir, 'html', e.html[0] || '')))
-    const out = last ? { dir: last.dir, html: last.html } : await exportRun({ events, runId: id, runDir: join(runsDir, id), sections: [], name: nameFor(id)?.name, fill: fillExport(id) })
+    const out = last ? { dir: last.dir, html: last.html } : await exportPages({ events, runId: id, runDir: join(runsDir, id), outDir: join(runsDir, id, 'story', 'site'), name, fill: fillExport(id) })
+    const files = out.html.filter((f, i) => !want || want.includes(pages[i]?.id))
     const { pageShots } = await import('../engine/pageshots.mjs')
-    const got = await pageShots({ htmlDir: join(out.dir, 'html'), files: out.html, dataDir })
-    const pages = snapshot(events, [], { name: nameFor(id)?.name }).pages
-    return out.html.map((file, i) => { const s = got.shots.find(x => x.file === file) || {}; return { page: pages[i]?.id, desktop: s.shot, phone: s.phoneShot } }).filter(s => s.page)
-  }
+    const got = await pageShots({ htmlDir: join(out.dir, 'html'), files, dataDir })
+    return out.html.map((file, i) => { const s = got.shots.find(x => x.file === file) || {}; return { page: pages[i]?.id, desktop: s.shot, phone: s.phoneShot } }).filter(s => s.page && (s.desktop || s.phone))
+  },
+  // a page's saved picture of how it looks now (spec 36's snapshots, taken by the browser that showed it)
+  savedShot: id => {
+    const now = snapsOf().list(id, readEvents(id) || [])
+    return page => { const u = now.pages[page]?.f || now.pages[page]?.s; return u ? snapsOf().file(id, u.split('/').pop()) : null }
+  },
+  notify: (id, type, data) => broadcast({ type, run: id, t: Date.now(), ...data })
 })
+// engine: open-design
 // the Deck kit (docs/specs/35-open-design.md section 7): its slides written by the planner, through Hermes
 const decks = deckRoutes({
   dataDir, runsDir, chats,
@@ -1931,6 +2190,7 @@ const decks = deckRoutes({
     extra: { reasoning_effort: 'none', reasoning: { enabled: false } }, messages
   })).text : null
 })
+// end engine: open-design
 try {
   chats.cleanup()
   const pd = join(dataDir, 'plans')
@@ -1971,6 +2231,9 @@ async function askBeforeBuild({ chatId, typed, pid }) {
   const turn = await chats.update(id, c => {
     c.turns ||= []
     const last = [...c.turns].reverse().find(t => t.who === 'planner')
+    // (a brief that carries the question, from a page that still sends its Build here: the question is that one,
+    // in the question's own words, and the brief built is the one sent now, as the person left it)
+    if (last && askedOf(last) && c.turns.at(-1) === last && last.brief) { c.ask = { brief: typed.slice(0, 8000), at: Date.now() }; return { ...last, text: ASK_TEXT } }
     if (last && askedOf(last) && c.turns.at(-1) === last) return last
     const lastPerson = [...c.turns].reverse().find(t => t.who === 'person')
     if (known && lastPerson?.text !== typed) c.turns.push({ id: `t${c.turns.length + 1}`, who: 'person', at: Date.now(), text: typed.slice(0, 8000), refs: [], marks: [], layers: [] })
@@ -1985,33 +2248,72 @@ async function askBeforeBuild({ chatId, typed, pid }) {
 }
 // What a project's talk is told is there (engine/talkplan.mjs): its name, the pages its newest site
 // version has, the look, and what is running now. Empty outside a project.
-function projectState(pid) {
+// facts: what is true of the build the chat is about (chatTruth below); with them the planner is told the build's
+// one state (engine/chatstep.mjs factsText), never a count of pages that reads as "built" whatever happened
+function projectState(pid, facts = null) {
   const p = pid && projects.get(pid)
-  if (!p) return ''
+  if (!p) return facts && (facts.site || facts.app) ? factsText(facts) : ''
   const lines = [`Project: "${String(p.title || p.name || 'untitled').slice(0, 80)}".`]
   const site = (p.versions || []).find(v => (readEvents(v.id) || []).some(e => e.type === 'page'))
   const ev = site ? readEvents(site.id) : null
   if (ev) {
     const pages = [...new Map(ev.filter(e => e.type === 'page').map(e => [e.id, e.title])).values()]
-    lines.push(`Built: ${pages.length} page${pages.length === 1 ? '' : 's'} (${pages.slice(0, 12).join('; ')}).`)
+    lines.push(facts ? factsText(facts) : `Built: ${pages.length} page${pages.length === 1 ? '' : 's'} (${pages.slice(0, 12).join('; ')}).`)
     const th = ev.findLast(e => e.type === 'theme')
     if (th?.vars) lines.push(`Its look: "${th.name || 'theme'}", background ${th.vars['--background']}, text ${th.vars['--foreground']}, main colour ${th.vars['--primary']}${th.fonts?.heading ? `, headings in ${th.fonts.heading}` : ''}.`)
     const brief = ev.find(e => e.type === 'run:start')?.brief
     if (brief) lines.push(`It was made from: ${String(brief).split('\n')[0].slice(0, 300)}`)
-  } else lines.push('No pages are built yet.')
+  } else lines.push(facts ? factsText(facts) : 'No pages are built yet.')
   const work = (p.versions || []).map(v => workOf(v.id)).filter(Boolean)
   lines.push(work.length ? `Running now: ${work.map(w => `${w.what} (${w.stage || 'working'})`).join(', ')}.` : 'Nothing is running now.')
   return lines.join('\n')
+}
+// What is true of the build a chat is about, for engine/chatstep.mjs: the website build's one state (siteState:
+// the open build when the chat names one, else the project's newest website build), its pages, the app's state
+// when the chat is the App room's or the build has an app, and where it is live. Reads only. Null for a game, a
+// film or a project brought in: those keep their own states, and their chats are not checked by a website's rules.
+async function chatTruth({ pid = null, run = null, kind = 'site', chat = null } = {}) {
+  if (kind !== 'site' && kind !== 'app') return null
+  const own = run ? readEvents(run) : null
+  const start = own?.find(e => e.type === 'run:start')
+  if (own && (start?.intake || ['game', 'video', 'film'].includes(start?.kind) || own.some(e => typeof e.type === 'string' && (e.type.startsWith('game:') || e.type.startsWith('video:'))))) return null
+  const p = pid && projects.get(pid)
+  const ids = [...(run ? [run] : []), ...((p?.versions || []).map(v => v.id))]
+  let build = null, id = null, events = null
+  for (const v of ids) {
+    const ev = readEvents(v)
+    const b = ev ? siteState(v, ev) : null
+    if (b) { build = b; id = v; events = ev; break }
+  }
+  // an app's design is a build of its own kind: the chat about it is the app's, whichever chat asks. A later
+  // version of its pages counts only while it builds; one that ended is not a website that "is built"
+  if (start?.kind === 'app') {
+    kind = 'app'
+    if (build && !['planning', 'building'].includes(build.state)) { build = null; id = run; events = own }
+  }
+  events ||= own
+  id ||= run
+  const pages = events ? [...new Map(events.filter(e => e.type === 'page').map(e => [e.id, String(e.title || e.id)])).values()] : []
+  let app = null
+  if (id && (kind === 'app' || events?.some(e => typeof e.type === 'string' && e.type.startsWith('app:')))) {
+    try { app = (await apps()).state(id) } catch {}
+    app ||= { state: 'idle', hasApp: false, steps: [] }
+  }
+  const published = events?.findLast(e => (e.type === 'publish:done' && e.url && e.target !== 'local') || (e.type === 'app:deployed' && e.url && !e.pending))?.url || null
+  return chatFacts({ kind, run: id, build, pages, app, published, locked: chat?.state === 'locked' })
 }
 // Guided game making (engine/workshop.mjs): the spec walked one step at a time, with pictures
 const workshops = workshopRoutes({
   dataDir,
   paint: planPaint,
   planner: () => ({ provider: provider('planner'), model: modelFor('planner') }),
-  voices: (() => { try { return JSON.parse(readFileSync(join(root, 'games', 'ares', 'data', 'heroes.json'), 'utf8')).voices || {} } catch { return {} } })(),
+  voices: (() => { try { return JSON.parse(readFileSync(join(root, 'gamemaker', 'heroes.json'), 'utf8')).voices || {} } catch { return {} } })(),
+  // engine: sound
   speak: (voice, text, out) => import('../engine/voice.mjs').then(v => v.speakLine(voice, text, out)),
+  // end engine: sound
   build: (spec, copy) => startGame(spec, copy)
 })
+// engine: meshy
 let meshyP = null
 const meshyMod = () => (meshyP ||= import('../engine/meshy.mjs'))
 
@@ -2058,6 +2360,7 @@ function meshyAddArt(input = {}) {
 // one list of jobs for the studio: one character or several at once, each worked by a crew member
 let meshyJobsP = null
 const meshyJobs = () => (meshyJobsP ||= meshyMod().then(m => m.meshyJobs({ outDir: join(dataDir, 'models'), resolveArt: meshyImage })))
+// end engine: meshy
 // stand-ins load lazily; the vision tagger is the reviewer model; Octo's public lane when the studio has a key
 let standinP = null
 const standinsOf = () => (standinP ||= (() => {
@@ -2122,6 +2425,17 @@ const artJobs = new Map()
 const assetLibrary = library({ dataDir })
 // the library on purpose (engine/assetlib.mjs): searched and picked from, with packs of one's own
 const assets = assetLib({ dataDir })
+// the chat as the helper (decision 0025 e): the tools the planner can call from any talk, and the press of a card
+const helpers = helperKit(chatTools({
+  assets, refs, plans, projects, runsDir,
+  // the app builder's web tools (part c): the same reads the app engine's tools use, and a press that clones
+  reads: webReads(webAccess),
+  change: (run, ask) => apps().then(a => a.start(run, { ask })),
+  // research from the chat (#606): Hermes's /web, and the planner's model to pick the searches (server/researchtool.mjs)
+  web: (body, signal) => hermes.call('/web', body, 40000, { grace: 5000 }).then(r => (signal?.aborted ? { ok: false, error: 'stopped' } : r)),
+  chat: () => researchChat()
+}))
+const helperRoute = helperRoutes({ kit: helpers, chats })
 // the library picture for a slot: the closest packs of the build's style first, then any pack
 async function libraryFor(it, style, used) {
   const category = SLOT_CATEGORIES[slotKind(it.id)] || []
@@ -2133,6 +2447,11 @@ async function libraryFor(it, style, used) {
   return null
 }
 const OUT_OF_QUOTA = /\b(429|402)\b|usage limit|quota|insufficient|no capacity|rate.?limit|billing|credits?\b/i
+// No image tool on this machine at all (Hermes's own words when no image provider is set up): not a refusal to
+// retry, a reason to use the Studio's own key (engine/ckff.mjs) instead. The pattern names no environment
+// variable on purpose: this server never reads Hermes's keys (tests/bridge.test.mjs holds that), and it only
+// matches the sentence Hermes hands back.
+const NO_IMAGE_TOOL = /Image generation is unavailable|no image model|image generation (?:is )?not (?:configured|available)/i
 // Cut a sprite out, then check it: the cut's own numbers first, and a sprite that looks off
 // goes to the reviewer on dark and on magenta. → { ok, path, problems, report }
 async function cutAndCheck(src, it, guide) {
@@ -2415,7 +2734,7 @@ async function paintGame(runId, spec, items, appDir, step, signal = null, { have
     }
   }
   // A sprite sheet: painted over the figure's own picture so it stays on-model, cut into a
-  // strip of frames (games/ares/tools/sheets/cut.py), then checked by its numbers and by the
+  // strip of frames (gamemaker/cut.py), then checked by its numbers and by the
   // reviewer on dark and magenta. One sent back is painted once more; the second one stands.
   const quota = (it, slot, why) => {
     if (!OUT_OF_QUOTA.test(why) || stopped) return false
@@ -2453,7 +2772,7 @@ async function paintGame(runId, spec, items, appDir, step, signal = null, { have
       const strip = join(dirname(r.path), `${it.id}-strip.webp`), view = join(dirname(r.path), `${it.id}-check.png`)
       const py = await cutPy()
       if (!py) { live(slot, it, 'failed', { problems: ['cutting sheets needs numpy and scipy'] }); step({ kind: 'setup', text: `could not cut the ${it.what}: no Python with numpy and scipy (set SWARM_CUT_PY)`, ok: false }); return }
-      const cut = await new Promise(ok => execFile(py, [join(root, 'games', 'ares', 'tools', 'sheets', 'cut.py'), r.path, strip, ...(it.fx ? ['--fx'] : [])], { timeout: 120000 }, (err, out, errOut) => ok({ ok: !err, out: String(out || ''), why: String(errOut || err?.message || '').trim() })))
+      const cut = await new Promise(ok => execFile(py, [join(root, 'gamemaker', 'cut.py'), r.path, strip, ...(it.fx ? ['--fx'] : [])], { timeout: 120000 }, (err, out, errOut) => ok({ ok: !err, out: String(out || ''), why: String(errOut || err?.message || '').trim() })))
       let meta = null
       try { meta = JSON.parse(cut.out.trim().split('\n').pop()) } catch {}
       if (!cut.ok || !meta || !existsSync(strip)) {
@@ -2536,14 +2855,18 @@ async function paintGame(runId, spec, items, appDir, step, signal = null, { have
     live(slot, it, 'painting', { src: img(startName) })
     say('making', { text: IDLE_SAY.making(o.by), start: img(startName), line: o.line })
     const tag = randomBytes(4).toString('hex'), clipName = `idle-${tag}.mp4`, clip = join(imgDir, clipName)
+    // engine: hermes
     const v = await videogen(['--provider', o.provider, ...(o.model ? ['--model', o.model] : []), '--image', start, '--seconds', String(o.seconds), '--aspect', aspect, '--out', clip, idlePrompt({ who: it.who, look: it.look, key, tune: o.tune })], 900000)
+    // end engine: hermes
     if (!v.ok || !existsSync(clip)) return fail(`the video model made no clip (${String(v.error || 'no answer').slice(0, 100)})`)
+    // engine: video
     await makePoster(clip, { ffmpeg: posterFfmpeg(dataDir, findFfmpeg) })
+    // end engine: video
     say('clip', { text: IDLE_SAY.clip(), clip: `/img/${runId}/${clipName}`, model: v.model || null })
     live(slot, it, 'cutting', { src: img(startName) })
     const heavy = heavyConfig(dataDir)
     const out = `idle-${tag}.webp`, outs = [out, `idle-${tag}.json`, `idle-${tag}-check.png`, `idle-${tag}-loop.webp`]
-    const r = await runHeavy({ config: heavy, script: join(root, 'scripts', 'idle_sheet.py'), files: [join(root, 'games', 'ares', 'tools', 'sheets', 'cut.py'), clip], args: ['sheet', clipName, out, ...(interpOf(heavy)?.args || [])], outputs: outs, outDir: imgDir, timeout: 600000 })
+    const r = await runHeavy({ config: heavy, script: join(root, 'scripts', 'idle_sheet.py'), files: [join(root, 'gamemaker', 'cut.py'), clip], args: ['sheet', clipName, out, ...(interpOf(heavy)?.args || [])], outputs: outs, outDir: imgDir, timeout: 600000 })
     await idleKeep(slot, it, r, outs, fail, 'the clip could not be cut into a loop', meta => ({
       how: 'the clip', step: `animated the ${it.who} idle from a ${o.by} clip: ${meta.frames} frames at ${meta.fps} fps${meta.video?.rife ? `, ${meta.video.rife} in-between frames on the seam` : ''}`
     }))
@@ -2589,7 +2912,7 @@ async function paintGame(runId, spec, items, appDir, step, signal = null, { have
     const tag = randomBytes(4).toString('hex'), out = `idle-${tag}.webp`, outs = [out, `idle-${tag}.json`, `idle-${tag}-check.png`, `idle-${tag}-loop.webp`]
     const sName = `keys-${tag}${extname(strip)}`, mName = `keys-${tag}.json`
     copyFileSync(strip, join(imgDir, sName)); copyFileSync(meta, join(imgDir, mName))
-    const r = await runHeavy({ config: heavy, script: join(root, 'scripts', 'idle_sheet.py'), files: [join(root, 'games', 'ares', 'tools', 'sheets', 'cut.py'), join(imgDir, sName), join(imgDir, mName)], args: ['keys', sName, mName, out, '--key', idleKey(it.look).hex, ...interp.args], outputs: outs, outDir: imgDir, timeout: 600000 })
+    const r = await runHeavy({ config: heavy, script: join(root, 'scripts', 'idle_sheet.py'), files: [join(root, 'gamemaker', 'cut.py'), join(imgDir, sName), join(imgDir, mName)], args: ['keys', sName, mName, out, '--key', idleKey(it.look).hex, ...interp.args], outputs: outs, outDir: imgDir, timeout: 600000 })
     await idleKeep(slot, it, r, outs, fail, 'the keyframes could not be in-betweened', m => ({
       how: `${m.keys?.keys || 4} keyframes and ${interp.name}`, step: `animated the ${it.who} idle from ${m.keys?.keys || 4} close keyframes with ${interp.name}: ${m.frames} frames at ${m.fps} fps, no ghost blends`
     }))
@@ -2636,7 +2959,9 @@ async function startGame(spec, extraCopy = {}, { idle } = {}) {
   // cast made from the project's art (spec 20): Meshy models from the library, sprites from the site's pictures
   const cm = await castMod()
   for (const c of cm.cleanCast(spec.cast)) {
+    // engine: meshy
     if (c.source === 'meshy') for (const f of [c.file, ...Object.values(c.clips || {})]) { if (isGltf(join(lib, f))) copy[`public/models/${f}`] = join(lib, f) }
+    // end engine: meshy
     if (c.source === 'art') { const [, run, f] = c.art.match(/^\/img\/([^/]+)\/(.+)$/); if (existsSync(join(runsDir, run, 'img', f))) copy[`public/models/${cm.spriteFile(c)}`] = join(runsDir, run, 'img', f) }
   }
   Object.assign(copy, extraCopy)
@@ -2688,7 +3013,8 @@ async function publish(id, input = {}) {
   const rebase = base => { try { out.rebase(base) } catch (err) { send('error', { where: 'seo', message: String(err.message || err) }) } }
   const go = target === 'vercel' ? publishVercel({ dir, name: hostName, creds, dataDir, rebase, onStage })
     : target === 'cloudflare' ? publishCloudflare({ dir, name: hostName, creds, dataDir, rebase, onStage })
-    // each version of a project is its own site: Bot Wiki at <login>.github.io/bot-wiki, its version 2
+    // each version of a project is its own site: Bot Wiki at <owner>.github.io/bot-wiki (the person's login, or the
+    // organization builds go to: engine/ghowner.mjs), its version 2
     // at …/bot-wiki-2, so publishing one never replaces another (owner, 2026-11-12)
     : publishGitHub({ dir, name: versionOf(id) > 1 ? `${out.name}-${versionOf(id)}` : out.name, title, key: id, dataDir, rebase, onStage })
   go.then(r => finish(r.url, { repo: r.repo, pending: !!r.pending }))
@@ -2792,7 +3118,9 @@ async function commentNow(id, input) {
     if (gen) return void repaint(id, send, s, agent, text, gen, picChoice)
     send('comment:take', { text, page: k.split('/')[0], layer: k.split('/').pop(), role: s.role, agent, reply: i === 0 ? reply : '' })
     // a section the person changed by hand (web/edit/patches.js): its builder keeps those changes
+    // engine: open-design
     rework(id, send, s, agent, theme, { comment: keepHand(text, handChanges(events, k.split('/')[0], k.split('/').pop())) })
+    // end engine: open-design
   })
   return { sections: keys, reply }
 }
@@ -2854,7 +3182,9 @@ async function markRequest(id, { events, start, theme, sections, text, input, se
     const s = known.get(k), list = bySection.get(k)
     const agent = agents[(commentTurn++ * 3 + 2) % Math.max(1, agents.length)]?.id
     send('comment:take', { text: text || `${list.length} mark${list.length > 1 ? 's' : ''}`, page: k.split('/')[0], layer: k.split('/').pop(), role: s.role, agent, reply: i === 0 ? reply.slice(0, 90) : '', marks: list.map(m => m.id) })
+    // engine: open-design
     rework(id, send, s, agent, theme, { comment: keepHand(fixText({ text, marks: list, reads, role: s.role }), handChanges(events, k.split('/')[0], k.split('/').pop())) }, { draft: { marks: list.map(m => m.id) } })
+    // end engine: open-design
   })
   if (!keys.length && !asked.size) send('comment:none', { text })
   return { sections: keys, reply, reads, ids }
@@ -2924,7 +3254,9 @@ async function seoRequest(id, { events, start, theme, given, text, send }) {
     if (!s) return
     const who = agents[(commentTurn++ * 3 + 2) % Math.max(1, agents.length)]?.id
     send('comment:take', { text, page: c.key.split('/')[0], layer: c.key.split('/').pop(), role: s.role, agent: who, reply: i === 0 ? c.ask.slice(0, 90) : '' })
+    // engine: open-design
     rework(id, send, s, who, theme, { comment: keepHand(c.ask, handChanges(events, c.key.split('/')[0], c.key.split('/').pop())) })
+    // end engine: open-design
   })
   return { sections: r.copy.map(c => c.key), reply: r.reply, seo: r.changes }
 }
@@ -2971,21 +3303,46 @@ const server = createServer((req, res) => {
       res.writeHead(204).end()
       return
     }
-    const given = req.headers['x-swarm-token'] || url.searchParams.get('k')
+    // only in its header: never ?k= in an address, which ends up in logs, history and Referer (catalog review of
+    // e8ae13c4). The streams and downloads that used to need it there read it with fetch (web/headerstream.js)
+    const given = req.headers['x-swarm-token']
     if (url.pathname !== '/api/state' && !tokenOk(given)) {
       res.writeHead(401, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'token required' }))
       return
     }
   }
 
-  if (url.pathname === '/' || url.pathname === '/index.html') {
+  // the person's choice of Studio (decision 0024, server/uichoice.mjs)
+  if (url.pathname === '/api/ui') {
+    if (req.method === 'GET') return void res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ ui: ui.get() }))
+    if (req.method === 'POST') {
+      let body = ''
+      req.on('data', c => { body += c; if (body.length > 1000) req.destroy() })
+      req.on('end', () => {
+        let want = ''
+        try { want = JSON.parse(body || '{}').ui } catch {}
+        if (!UIS.includes(want)) return void res.writeHead(400, { 'content-type': 'application/json' }).end(JSON.stringify({ error: `ui is one of ${UIS.join(', ')}` }))
+        res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ ui: ui.set(want) }))
+      })
+      return
+    }
+  }
+
+  // `/` is the next UI (decision 0024), unless the person chose the classic Studio or there is no next UI built
+  // (decision 0018); `/classic/` is always the classic Studio, at the same address
+  const classic = url.pathname === '/classic/' || url.pathname === '/classic/index.html'
+  if (url.pathname === '/classic') return void res.writeHead(302, { location: `/classic/${url.search}` }).end()
+  if (url.pathname === '/' || url.pathname === '/index.html' || classic) {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
     // the code changed under this server (an update): the page's parts would no longer fit. With no work
     // running, a new server takes over and the page opens again on it
     if (replaceSelf()) return res.end('<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="2"><title>Swarm Studio</title><body style="margin:0;background:#0f0f0f">')
-    res.end(canvasPage())
+    const next = !classic && ui.get() === 'next' ? nextPage(uiDist, { token, ...playBoot() }) : null
+    res.end(next || canvasPage())
     return
   }
+  // the classic page's own files beside it (its brand mark): the same files as at /
+  if (url.pathname.startsWith('/classic/')) url.pathname = url.pathname.slice('/classic'.length)
 
   // the Studio's next UI, its screens moving over one at a time (docs/decisions/0013-react-ui-coexists.md). Same
   // address as /: ?project=…&version=…&room=… opens the same place in either
@@ -3004,7 +3361,7 @@ const server = createServer((req, res) => {
     return
   }
   if (url.pathname === '/next/' || url.pathname === '/next/index.html') {
-    const page = nextPage(uiDist, { token })
+    const page = nextPage(uiDist, { token, ...playBoot() })
     if (!page) return void res.writeHead(404).end('not found')
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
     res.end(page)
@@ -3023,12 +3380,40 @@ const server = createServer((req, res) => {
     res.write(': hello\n\n')
     // Late joiners replay the current run so the canvas can always rebuild itself.
     // A finished run skips the streaming deltas: each layer:done carries its final HTML.
+    // The build's state first (sayState): the page holds it before the end event it is said from.
+    if (current?.stateKey) res.write(`data: ${JSON.stringify({ type: 'build:state', run: current.id, state: siteState(current.id, current.events) })}\n\n`)
     for (const e of current?.events || []) {
       if (current.done && e.type.endsWith(':delta')) continue
       res.write(`data: ${JSON.stringify(e)}\n\n`)
     }
     clients.add(res)
     req.on('close', () => clients.delete(res))
+    return
+  }
+
+  // Research (engine/research.mjs), pressed by the person: what they typed, else the project's idea, is looked up
+  // now and kept in its References; the next build reads it. One at a time per project.
+  const researchAt = /^\/api\/projects\/([\w-]{1,64})\/research$/.exec(url.pathname)
+  if (researchAt && req.method === 'POST') {
+    const pid = researchAt[1]
+    if (!projects.get(pid) && !studios.get(pid)) return void res.writeHead(404, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'no such project' }))
+    if (researching.has(pid)) return void res.writeHead(409, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'already looking things up for this project' }))
+    let body = ''
+    req.on('data', c => (body += c))
+    req.on('end', async () => {
+      let input = {}
+      try { input = JSON.parse(body || '{}') } catch {}
+      const st = studios.get(pid)
+      const ask = String(input.ask || '').trim().slice(0, 500) || String(st?.idea || projects.get(pid)?.title || '').trim()
+      if (!ask) return void res.writeHead(400, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'say what to look up' }))
+      researching.add(pid)
+      try {
+        const got = await lookUp({ ask, kind: st?.kind || 'site', pid })
+        res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ ...got, refs: refs.shown(pid) }))
+      } catch (err) {
+        res.writeHead(500, { 'content-type': 'application/json' }).end(JSON.stringify({ error: String(err?.message || err).slice(0, 200) }))
+      } finally { researching.delete(pid) }
+    })
     return
   }
 
@@ -3051,6 +3436,16 @@ const server = createServer((req, res) => {
         return
       }
       const typed = String(input.brief).trim(), chatId = typeof input.chat === 'string' && CHAT_ID.test(input.chat) ? input.chat : null
+      // research before planning: the person's words ask for it ("look up…", "look at how X does it"), or Research
+      // (decision 0025: what was found is shown, with its source, before it is used. A build that looked something up
+      // stops with what it found; it is sent again with researched: true once the person has seen it, and outside a
+      // project with found: the findings they kept)
+      const lookFor = input.research === true ? wantsResearch(typed) || typed : wantsResearch(typed)
+      const researched = input.researched === true
+      const seen = researched && Array.isArray(input.found) ? keptFindings(input.found) : []
+      delete input.research
+      delete input.researched
+      delete input.found
       // redo: this project from scratch, new pages and a new look; its old versions stay restorable
       const redo = input.redo === true
       // sure: a script's explicit "I'm sure" (hermes swarm --build, remix, the evals); never a model's (decision 0020)
@@ -3064,6 +3459,10 @@ const server = createServer((req, res) => {
       // and the art director matches the new pictures to them (art.styleGuide reads the brief)
       // links in the person's own words (before anything is added to the brief): pages named as what to make
       const askedLinks = linksIn(String(input.brief || ''), 2)
+      // outside a project the findings go in the brief itself; inside one, References' brief carries them (refs.brief)
+      if (seen.length && typeof input.project !== 'string') input.brief = `${String(input.brief).trim()}
+
+${researchBrief(seen)}`
       if (typeof input.project === 'string') {
         const ups = projects.uploadsOf(input.project).filter(u => /^image\//.test(u.type)).slice(0, 12)
         if (ups.length) input.brief = `${String(input.brief).trim()}\n\nThe owner uploaded these pictures. Use them where they fit, as they are (<img src="…">, no data-gen), and make every new picture match their look:\n${ups.map(u => `- ${u.name}: ${u.src}`).join('\n')}`
@@ -3106,6 +3505,8 @@ const server = createServer((req, res) => {
       // build that exists (it resolved to that build, engine/extend.mjs followUp), a redo of a project that has versions, a Studio project's
       // Build (the walk is the answer), a chat whose person answered "Skip all" (once), or a script's sure
       // build. Anything else asks in the chat and builds nothing; an error while asking still asks.
+      // (Try again is not this route: POST /api/runs/<id>/again builds a failed build's own words again, only
+      // where its state names it, so it asks nothing and starts nothing new.)
       const goChat = chatId ? chats.get(chatId) : null
       const answered = sure || !!next || (redo && !!pid && (projects.get(pid)?.versions?.length || 0) > 0)
         || (!!pid && !!studios.get(pid)) || (goChat?.go?.path === 'all' && !goChat.go.run)
@@ -3113,16 +3514,41 @@ const server = createServer((req, res) => {
         const asked = await askBeforeBuild({ chatId, typed, pid }).catch(() => ({ error: 'ask', ask: 'skips', chat: null, text: ASK_TEXT, options: askOptions(null), recommended: 'pick' }))
         return void res.writeHead(409, { 'content-type': 'application/json' }).end(JSON.stringify(asked))
       }
+      // research before planning, once the build is going ahead: what it found stops the build until the person has
+      // seen it (in References, in a project); nothing found, or a script's sure build, goes on without it
+      if (lookFor && !researched && !sure) {
+        const looked = await lookUp({ ask: lookFor, kind: 'site', pid }).catch(() => null)
+        if (looked?.findings.length) return void res.writeHead(409, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'research', ask: lookFor, project: pid, findings: looked.findings, searched: looked.searched, read: looked.read, note: looked.note, ...(pid ? { refs: refs.shown(pid).filter(r => r.source === 'research') } : {}) }))
+      }
+      // engine: open-design
       // the look, in Open Design's order (decision 0016 point 3): a design system the request names, then the
       // project's (a locked brand sheet, or a Studio project's own brand, spec 37), then the default (the planner's).
       // A follow-up keeps the project's
       const brand = !base ? requestedBrand(input.system, String(input.brief)) || lockedBrand(chats, chatId) || (pid ? lockedBrand(studios.brands, pid) : null) : null
       if (brand) input.brand = brand
+      // end engine: open-design
       const run = startRun(input)
       // one answer is one build: the chat's "Skip all" is used up by this run
       if (goChat?.go && !next) await chats.update(chatId, c => { if (c.go) c.go.run = run.id }).catch(() => {})
       // "Tell the crew…" inside a project: the new run is that project's next version
       if (pid) projects.claim(run.id, pid)
+      // what a build outside a project looked up joins the project it starts, so the person can still remove it: a new
+      // build has its project once its first events are written, so this waits for it (up to 15 s), in the background
+      if (!pid && seen.length) void (async () => {
+        for (let i = 0; i < 30; i++) {
+          const home = projects.projectOf(run.id)
+          if (home) {
+            // the build was given these and nothing else of that project's References (its brief had no refs.brief)
+            const ids = new Set()
+            for (const f of seen) try { ids.add(refs.addFinding(home, f).id) } catch {}
+            try { writeFileSync(join(runsDir, run.id, 'refs-used.json'), JSON.stringify(refs.used(home).filter(r => ids.has(r.id)))) } catch {}
+            return
+          }
+          await new Promise(r => setTimeout(r, 500))
+        }
+      })()
+      // which references this build read (issue #543): the Overview shows them with its pages
+      if (pid) try { writeFileSync(join(runsDir, run.id, 'refs-used.json'), JSON.stringify(refs.used(pid))) } catch {}
       // the words go into a chat: the talk that led here, else a new one (or the project's newest)
       const chat = chatFor({ chat: chatId, text: typed, kind: 'site', project: pid })
       chatBuilt(chat, run.id, pid, typed)
@@ -3192,6 +3618,17 @@ const server = createServer((req, res) => {
   // POST /api/discuss/read { text, kind, answerTo? } -> { intent, by }
   // POST /api/discuss { said: [{ who: 'you' | 'hermia', text }], kind, brief? } -> { reply } | { brief }
   // These stay until the web side moves onto /api/talk (server/talk.mjs), which saves the chat.
+  // POST /api/discuss/step { kind, room?, from?, chat?, talked? } -> { first, step }: a website's or an app's chat
+  // before a turn (a new chat, or one opened again): Hermia's first line and the real next step, from the build's
+  // one state (engine/chatstep.mjs). No model is asked and nothing is saved.
+  if (url.pathname === '/api/discuss/step' && req.method === 'POST') {
+    return readJson(1e4, async input => {
+      const run = typeof input.from === 'string' && RUN_ID.test(input.from) ? input.from : null
+      const chat = typeof input.chat === 'string' && CHAT_ID.test(input.chat) ? chats.get(input.chat) : null
+      const facts = await chatTruth({ pid: chat?.project || (run ? projects.projectOf(run) : null), run, kind: input.room === 'app' ? 'app' : ['app', 'film', 'game'].includes(input.kind) ? input.kind : 'site', chat })
+      json(200, facts ? { first: firstLine(facts), step: nextStep(facts, { talked: input.talked === true }) } : { first: '', step: null })
+    })
+  }
   if ((url.pathname === '/api/discuss/read' || url.pathname === '/api/discuss') && req.method === 'POST') {
     const model = modelFor('planner')
     const chat = (maxTokens, ms) => model && models.planner.apiKey ? async messages => (await streamChat(provider('planner'), {
@@ -3206,7 +3643,7 @@ const server = createServer((req, res) => {
       import('../engine/talkplan.mjs').then(async d => {
         if (url.pathname === '/api/discuss/read') return json(200, await d.readIntent({ text: String(input.text || '').slice(0, 4000), answerTo: String(input.answerTo || '').slice(0, 300), kind, chat: chat(8, 9000) }))
         const talk = chat(input.brief ? 400 : 600, 60000)
-        if (!talk) return json(503, { error: 'No planner model yet: pick one in Models.' })
+        if (!talk) return json(503, { error: 'No planner model yet: pick one in Models.', reason: reasonFromFailure('No planner model yet') })
         const said = Array.isArray(input.said) ? input.said.slice(-40) : []
         const inRun = typeof input.from === 'string' && RUN_ID.test(input.from) ? input.from : null
         const inPid = typeof input.project === 'string' ? input.project : inRun ? projects.projectOf(inRun) : null
@@ -3215,8 +3652,12 @@ const server = createServer((req, res) => {
         if (input.ask === true) {
           const [{ answerOnly }, { factLines }, facts] = await Promise.all([import('../engine/ask.mjs'), import('../engine/doctor.mjs'), studioFacts(inRun, { light: true }).catch(() => null)])
           const plan = typeof input.chat === 'string' && CHAT_ID.test(input.chat) ? String(chats.get(input.chat)?.spec?.brief || '').slice(0, 1500) : ''
-          const project = [projectState(inPid), plan ? `The plan agreed so far in the chat:\n${plan}` : ''].filter(Boolean).join('\n\n')
-          return json(200, await answerOnly({ said, kind, chat: talk, project, studio: facts ? factLines(facts).join('\n').slice(0, 2400) : '' }))
+          // a question about how far things are is answered by the build's one state; any other answer is checked against it
+          const truth = await chatTruth({ pid: inPid, run: inRun, kind: input.room === 'app' ? 'app' : kind })
+          const project = [projectState(inPid, truth), plan ? `The plan agreed so far in the chat:\n${plan}` : ''].filter(Boolean).join('\n\n')
+          const answerIt = () => answerOnly({ said, kind, chat: talk, project, studio: facts ? factLines(facts).join('\n').slice(0, 2400) : '' })
+          const answer = truth ? await truthTurn({ text: String(said.at(-1)?.text || ''), facts: truth, ask: true, plan: answerIt }) : await answerIt()
+          return json(200, { reply: answer.reply })
         }
         // media (spec 29): the pictures attached to this turn, and its links read as pages; the planner is
         // told how each one was read, and the ones from earlier turns stay in view
@@ -3238,7 +3679,38 @@ const server = createServer((req, res) => {
         }
         const before = had.filter(r => !now.includes(r)).slice(-6)
         const told = now.length || before.length ? said.map((t, i) => i === said.length - 1 && t.who !== 'hermia' ? { ...t, text: withRefs(t.text, now) + (before.length ? `\n[Attached earlier in this talk]\n${before.map(r => `- ${r.kind === 'link' ? r.url : r.name}: ${r.read?.by === 'none' ? 'not read' : (r.read?.text || '').slice(0, 200)}`).join('\n')}` : '') } : t) : said
-        const out = await (input.brief ? d.writeBrief : d.discuss)({ said: told, kind, chat: talk, project: projectState(inPid || (chats.get(input.chat)?.project ?? null)) })
+        // a link given in a project's talk goes to its References with what the person wrote around it, and its look
+        // is walked (decision 0022), before the planner is asked: a planner that fails or is slow never loses it (#543)
+        {
+          const lp = typeof input.project === 'string' ? input.project : inPid || (typeof input.chat === 'string' && CHAT_ID.test(input.chat) ? chats.get(input.chat)?.project ?? null : null)
+          const from = typeof input.chat === 'string' && CHAT_ID.test(input.chat) ? input.chat : null
+          if (lp && projects.get(lp)) for (const r of fresh.filter(r => r.kind === 'link')) {
+            if (refs.list(lp).some(x => x.kind === 'link' && x.url === r.url)) continue
+            const note = String(last.text || '').replace(/\bhttps?:\/\/\S+/gi, ' ').replace(/\s+/g, ' ').trim()
+            try { walkLook(lp, refs.addLink(lp, { url: r.url, use: note, source: 'chat', from })) } catch (err) { console.warn('look:', err.message) }
+          }
+        }
+        // The planner is told what is true (engine/chatstep.mjs), its answer is checked against it, and the turn ends
+        // with the real next step. A typed "resume", "try again" or "build the app" is that step's action: the
+        // planner is not asked, and the page runs it as the button does. "build it" writes the brief.
+        const talkChat = typeof input.chat === 'string' && CHAT_ID.test(input.chat) ? chats.get(input.chat) : null
+        const talkPid = inPid || (talkChat?.project ?? null)
+        const truth = await chatTruth({ pid: talkPid, run: inRun, kind: input.room === 'app' ? 'app' : kind, chat: talkChat })
+        const project = projectState(talkPid, truth)
+        const planIt = () => (input.brief ? d.writeBrief : d.discuss)({ said: told, kind, chat: talk, project, helpers: input.brief ? null : helpers })
+        let out = truth ? await truthTurn({ text: !input.brief && last && last.who !== 'hermia' ? String(last.text || '') : '', facts: truth, plan: planIt }) : await planIt()
+        if (out.act === 'do:brief') out = { ...(await d.writeBrief({ said: told, kind, chat: talk, project })), step: out.step }
+        // a tool the planner asked for (decision 0025 e): it only reads; its cards are kept on the planner's turn below,
+        // and a press runs their action from there (/api/helper/pick)
+        let cards = []
+        if (out.tool) {
+          const got = out.tool.unknown ? { text: 'That is not something I can do from this chat.', cards: [] }
+            : await helpers.run(out.tool.name, out.tool.args, { kind, project: inPid || (chats.get(input.chat)?.project ?? null), run: inRun, plan: null, chat: typeof input.chat === 'string' ? input.chat : null })
+          // (what she said before the tool ran is her own words, so it is checked like any answer)
+          out.reply = [truth && out.tool.say ? checkSaid(out.tool.say, truth).text : out.tool.say, got.text].filter(Boolean).join(' ') || 'Here is what I found.'
+          cards = got.cards
+          delete out.tool
+        }
         // the talk is kept in its chat (spec 29): made on the first turn, inside the project when it
         // started in one; the person's newest words and Hermia's answer are added, a brief is the spec's
         let id = typeof input.chat === 'string' && CHAT_ID.test(input.chat) && chats.get(input.chat) ? input.chat : null
@@ -3246,20 +3718,38 @@ const server = createServer((req, res) => {
           const pid = typeof input.project === 'string' ? input.project : typeof input.from === 'string' && RUN_ID.test(input.from) ? projects.projectOf(input.from) : null
           if (!id) id = chats.create({ kind, project: pid }).id
           if (fresh.length) await chats.update(id, c => { c.refs = [...(c.refs || []), ...fresh].slice(-60) })
-          // a link given in a project's talk goes to its References with what the person wrote around it, and
-          // its look is walked (decision 0022); the chat and the turn are kept so the look traces back to them
-          const lp = pid || inPid
-          if (lp && projects.get(lp)) for (const r of fresh.filter(r => r.kind === 'link')) {
-            if (refs.list(lp).some(x => x.kind === 'link' && x.url === r.url)) continue
-            const note = String(last.text || '').replace(/\bhttps?:\/\/\S+/gi, ' ').replace(/\s+/g, ' ').trim()
-            try { walkLook(lp, refs.addLink(lp, { url: r.url, use: note, source: 'chat', from: id })) } catch (err) { console.warn('look:', err.message) }
-          }
           if (!input.brief && last && last.who !== 'hermia') await chats.say(id, { who: 'person', text: last.text, refs: now.map(r => r.id) })
-          if (out.reply) await chats.say(id, { who: 'planner', text: out.reply })
+          if (out.reply) await chats.say(id, { who: 'planner', text: out.reply, ...(cards.length ? { cards } : {}) })
+          if (cards.length) { const t = chats.get(id)?.turns?.at(-1); if (t?.cards) { out.cards = cardsView(t.cards); out.turn = t.id } }
           if (out.brief) await chats.update(id, c => { c.spec = { brief: String(out.brief).slice(0, 8000), open: [], art: [], engine: null, time: null, cost: null, lockedAt: null, ...(c.spec || {}), ...{ brief: String(out.brief).slice(0, 8000) } } })
+          // A new website's brief is where the question before a build is answered (decision 0020): the brief is
+          // kept as Hermia's turn with the question's three answers, the recommended one first, so pressing one
+          // on the brief builds (or opens the walk) with no second question, and the brief is still there when
+          // the chat is opened again. Inside a project a build is its next version, which asks nothing.
+          if (out.brief && kind === 'site' && !pid && !chats.get(id)?.project) {
+            const turn = await chats.update(id, c => {
+              c.turns ||= []
+              delete c.go
+              c.ask = { brief: String(out.brief).slice(0, 8000), at: Date.now() }
+              const q = { ...askTurn(`t${c.turns.length + 1}`, c.turns.filter(t => t.who === 'person').map(t => t.text).concat(String(out.brief)).join('\n')), text: String(out.brief).slice(0, 8000), brief: true }
+              c.turns.push(q)
+              return q
+            })
+            out.options = turn.options
+          }
         } catch (err) { console.warn('chat:', err.message) }
+        // cards not saved (the chat could not be written) are shown to look at, never to press
+        if (cards.length && !out.cards) out.cards = cardsView(cards).map(({ pick, ...c }) => c)
+        // what the client keeps of this answer for the next turn: the reply and the cards it showed
+        if (out.cards) out.heard = out.reply + cardsLine(out.cards)
         json(200, id ? { ...out, chat: id } : out)
-      }).catch(err => json(502, { error: String(err.message || err) }))
+      }).catch(err => {
+        // the planner did not answer: the turn is not Hermia's. The reason and the one thing to do go back in plain
+        // words (engine/stopreason.mjs); the provider's own text stays here, in the server's log and the trace
+        console.warn('discuss:', String(err.message || err).slice(0, 400))
+        const reason = reasonFromTalk(err, { viaHermes: viaHermes('planner') })
+        json(502, { error: reasonLine(reason), reason })
+      })
     })
   }
   // Post to Feed from the canvas, and Connect Hermes when it is not connected yet.
@@ -3282,12 +3772,25 @@ const server = createServer((req, res) => {
   // and pick a picture for a slot of a build (used instead of painting that slot)
   if (url.pathname === '/api/library' && req.method === 'GET') {
     const q = url.searchParams
+    // ?id=: one picture, as a search answers it (the agent's pick names its credit, commands.py library_pick)
+    if (q.get('id')) { const one = assets.one(q.get('id')); return json(200, { results: one ? [{ ...one, src: `/api/library/file?id=${encodeURIComponent(one.id)}` }] : [] }) }
     const results = assets.search({ q: q.get('q') || '', category: q.getAll('category').filter(Boolean), pack: q.get('pack') || '', all: q.get('all') === '1', limit: Number(q.get('limit')) || 40 })
     return json(200, { results: results.map(r => ({ ...r, src: `/api/library/file?id=${encodeURIComponent(r.id)}` })) })
   }
   if (url.pathname === '/api/library/packs' && req.method === 'GET') return json(200, { packs: assets.packs() })
+  // engine: open-design
   // Open Design's design templates, for the person to pick one for a build (engine/odlibrary.mjs, decision 0016)
   if (url.pathname === '/api/library/templates' && req.method === 'GET') return json(200, { templates: odTemplates() })
+  // end engine: open-design
+  // a library picture already on disk, for a chat card's <img> (decision 0025 e): like /ref/ and /plans/ it needs
+  // no token, and it never fetches, so showing what the chat found downloads nothing
+  if (url.pathname === '/library/pic' && req.method === 'GET') {
+    const f = assets.local(url.searchParams.get('id'))
+    if (!f) return void res.writeHead(404).end('not found')
+    // as it is: a card's small picture is not worth a copy in the image service
+    res.writeHead(200, { 'content-type': { '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif' }[extname(f).toLowerCase()] || 'image/jpeg', 'cache-control': 'private, max-age=86400', 'content-security-policy': 'sandbox', 'x-content-type-options': 'nosniff' })
+    return void res.end(readFileSync(f))
+  }
   if (url.pathname === '/api/library/file' && req.method === 'GET') {
     assets.file(url.searchParams.get('id')).then(got => {
       if (!got) return json(404, { error: 'no such picture' })
@@ -3361,15 +3864,15 @@ const server = createServer((req, res) => {
   if (runBoard && req.method === 'GET') {
     const id = runBoard[1], events = readEvents(id)
     if (!events) return json(404, { error: 'no such build' })
-    const b = boardOf(id, events, runsDir, current?.id === id && !current.done, pictureTh)
+    const b = boardOf(id, events, runsDir, current?.id === id && !current.done, pictureTh, { piece: pieceFor(id, events), ...jobFacts(id) })
     // the game made from this site lives in its own run: it shows here, as part of this version
     const linked = events.findLast(e => e.type === 'game:linked' && e.game)
     if (!b.game && linked && RUN_ID.test(linked.game)) {
       const gev = readEvents(linked.game)
       if (gev) {
-        const g = boardOf(linked.game, gev, runsDir, false, pictureTh)
+        const g = boardOf(linked.game, gev, runsDir, false, pictureTh, { piece: 'game', ...jobFacts(linked.game) })
         const work = workOf(linked.game)
-        b.game = { ...(g.game || { title: linked.title || 'Game', cover: null }), run: linked.game, work }
+        b.game = { ...(g.game || { title: linked.title || 'Game', cover: null }), run: linked.game, work, part: g.parts.game }
         // no title screen yet: the site's key art stands in
         if (!b.game.cover) b.game.cover = b.pages.find(p => p.cover)?.cover || b.art?.[0]?.src || null
         if (work) b.busy = true
@@ -3440,7 +3943,7 @@ const server = createServer((req, res) => {
         })).text : null
         const out = await d.diagnose({ facts, text: String(input.text || '').slice(0, 1200), chat })
         json(200, { ...out, facts })
-      } catch (err) { json(500, { error: String(err.message || err) }) }
+      } catch (err) { console.warn('doctor:', String(err.message || err).slice(0, 400)); json(500, { error: reasonLine(reasonFromFailure(err.message || err, { talk: true })) }) }
     })
   }
   if (url.pathname === '/api/stop' && req.method === 'POST') {
@@ -3462,6 +3965,45 @@ const server = createServer((req, res) => {
       const pid = projects.projectOf(id)
       const run = startRun({ brief: base.brief, base, resume: true, ask: '' })
       if (pid) projects.claim(run.id, pid)
+      broadcast({ type: 'reset', run: run.id })
+      json(200, { run: run.id, from: id })
+    })
+  }
+  // The one state of a build, for a page opening a saved one: { run, state, parts }. state: the website build's
+  // (null for an app, a game or a project brought in); parts: what the build is and each part's own state
+  // (site, app or game, film: engine/kindstate.mjs)
+  const runState = url.pathname.match(/^\/api\/runs\/([\w-]{1,64})\/state$/)
+  if (runState && req.method === 'GET') {
+    const id = runState[1], events = readEvents(id)
+    if (!events) return json(404, { error: 'no such build' })
+    return json(200, { run: id, state: siteState(id, events), parts: partsFor(id, events) })
+  }
+  // Try again: a website build that failed, was halted or was cut off with nothing to resume from is built
+  // afresh from its own words, in its project. Only where the build state names it (`next: 'again'`), and the
+  // words are the build's own, never the request's: it is the build the person already said yes to, so nothing
+  // is asked again (docs/decisions/0020-ask-before-build.md), and no other build can be started this way.
+  const runAgain = url.pathname.match(/^\/api\/runs\/([\w-]{1,64})\/again$/)
+  if (runAgain && req.method === 'POST') {
+    const id = runAgain[1], events = readEvents(id)
+    if (!events) return json(404, { error: 'no such build' })
+    if (current?.id === id && !current.done) return json(409, { error: 'busy', run: id })
+    const state = siteState(id, events)
+    if (state?.next !== 'again') return json(400, { error: state?.next === 'resume' ? 'this build has sections to keep: resume it instead' : 'nothing to try again here' })
+    const brief = String(events.find(e => e.type === 'run:start')?.brief || '').trim()
+    return void hermesGate().then(gate => {
+      if (gate) return json(503, gate)
+      const pid = projects.projectOf(id)
+      // engine: open-design
+      // the look as a first build finds it (above, /api/run): a design system the words name, then the project's
+      // locked brand. A loose chat's locked sheet is not found from a run, so it is not carried.
+      const brand = requestedBrand(undefined, brief) || (pid ? lockedBrand(studios.brands, pid) : null)
+      // end engine: open-design
+      const run = startRun({ brief, ...(brand ? { brand } : {}) })
+      if (pid) {
+        projects.claim(run.id, pid)
+        // the references the first try read are the ones in these words
+        try { copyFileSync(join(runsDir, id, 'refs-used.json'), join(runsDir, run.id, 'refs-used.json')) } catch {}
+      }
       broadcast({ type: 'reset', run: run.id })
       json(200, { run: run.id, from: id })
     })
@@ -3634,6 +4176,7 @@ const server = createServer((req, res) => {
     return
   }
 
+  // engine: video
   const runVideo = url.pathname.match(/^\/api\/runs\/([^/]+)\/video$/)
   // a style reference for the film (an image, a video or a piece of music), kept in the run's video/refs
   const runRef = url.pathname.match(/^\/api\/runs\/([^/]+)\/video\/ref$/)
@@ -3666,6 +4209,7 @@ const server = createServer((req, res) => {
     })
     return
   }
+  // end engine: video
 
   // a new picture for one <img data-gen> in a finished section
   const runImage = url.pathname.match(/^\/api\/runs\/([^/]+)\/image$/)
@@ -3719,11 +4263,16 @@ const server = createServer((req, res) => {
     const id = runPublish[1]
     const reply = (code, data) => res.writeHead(code, { 'content-type': 'application/json' }).end(JSON.stringify(data))
     if (req.method !== 'POST') {
-      // what is live for this build, by host, from its saved events: it survives a restart
-      const events = readEvents(id) || [], live = {}
-      for (const e of events) if (e.type === 'publish:done' && e.url) live[e.target] = e.url
-      const last = events.filter(e => e.type === 'publish:done' || e.type === 'publish:failed').pop()
-      return reply(200, { ...(publishes.get(id) || (last ? { state: last.type === 'publish:failed' ? 'failed' : 'done', ...last } : { state: 'none' })), live })
+      // what is live for this build, by host, from its saved events: it survives a restart. A GitHub site whose
+      // repository moved answers with where it is now; ?sync=1 (the Publish menu, opened) asks GitHub first
+      const answer = () => {
+        const events = readEvents(id) || [], live = {}
+        for (const e of events) if (e.type === 'publish:done' && e.url) live[e.target] = e.url
+        const last = events.filter(e => e.type === 'publish:done' || e.type === 'publish:failed').pop()
+        reply(200, { ...(publishes.get(id) || (last ? { state: last.type === 'publish:failed' ? 'failed' : 'done', ...last } : { state: 'none' })), live: sitesNow(id, live) })
+      }
+      if (url.searchParams.get('sync') === '1') return void syncSite(id).catch(() => false).then(answer)
+      return answer()
     }
     let body = ''
     req.on('data', c => { body += c; if (body.length > 8e6) req.destroy() })
@@ -3738,7 +4287,7 @@ const server = createServer((req, res) => {
   // Where a site can be published, and who is signed in there (never a token).
   if (url.pathname === '/api/publish' && req.method === 'GET') {
     Promise.all([githubLogin(), connections(dataDir)])
-      .then(([login, conn]) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ github: login, ...conn, providers: PROVIDERS })))
+      .then(([login, conn]) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ github: login, githubOwner: savedOwner(dataDir), ...conn, providers: PROVIDERS })))
     return
   }
 
@@ -3778,6 +4327,7 @@ const server = createServer((req, res) => {
     })
     return
   }
+  // engine: hermes
   // One picture through Hermes's image tool, for tools outside the server (engine/skins.mjs's command line):
   // { prompt, aspect, refs, edit } -> { ok, path } | { ok:false, error }
   if (url.pathname === '/api/hermes/image' && req.method === 'POST') {
@@ -3792,6 +4342,8 @@ const server = createServer((req, res) => {
     })
     return
   }
+  // end engine: hermes
+  // engine: hermes
   // whether Hermes is there to answer, and if not why not; ?ready=1 gives a Hermes that is starting up a
   // few seconds to attach (the Make box asks this before it does anything)
   if (url.pathname === '/api/hermes' && req.method === 'GET') {
@@ -3801,6 +4353,8 @@ const server = createServer((req, res) => {
     })
     return
   }
+  // engine: video
+  // engine: sound
   if (url.pathname === '/api/media' && req.method === 'GET') {
     mediaNow().then(m => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(m)), err => res.writeHead(500, { 'content-type': 'application/json' }).end(JSON.stringify({ error: String(err.message || err) })))
     return
@@ -3818,6 +4372,8 @@ const server = createServer((req, res) => {
     })
     return
   }
+  // end engine: video
+  // end engine: sound
   // Hermes sign-in connectors: GET their state, POST {name} to connect (or to cancel a sign-in)
   if (url.pathname === '/api/connectors' || url.pathname === '/api/connectors/connect' || url.pathname === '/api/connectors/cancel') {
     const reply = (code, data) => res.writeHead(code, { 'content-type': 'application/json' }).end(JSON.stringify(data))
@@ -3833,6 +4389,7 @@ const server = createServer((req, res) => {
     })
     return
   }
+  // end engine: hermes
   // Pro packs (docs/specs/09-demo-modes.md): what the Auto window's Pro side lists
   if (url.pathname === '/api/packs' && req.method === 'GET') {
     import('../engine/packs.mjs').then(m => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ packs: m.listPacks().map(m.packSummary) })))
@@ -3900,6 +4457,15 @@ const server = createServer((req, res) => {
   if (/^\/api\/runs\/[^/]+\/story(\/|$)/.test(url.pathname)) { storyRoute.handle(req, res, url); return }
   if (url.pathname.startsWith('/story/') && storyRoute.file(req, res, url)) return
   if (decks(req, res, url)) return
+  // a build's own address for its project's References and Assets: the Design deck knows its build, not always its
+  // project (web/refdrop.js, issue #543); the request goes on as the project's own
+  const byRun = url.pathname.match(/^\/api\/runs\/([^/]+)\/(refs|assets)(\/[^?]*)?$/)
+  if (byRun && RUN_ID.test(byRun[1])) {
+    const pid = projects.projectOf(byRun[1])
+    if (!pid) return void res.writeHead(404, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'this build is not in a project yet' }))
+    url.pathname = `/api/projects/${pid}/${byRun[2]}${byRun[3] || ''}`
+  }
+  if (helperRoute(req, res, url)) return
   if (refsRoute(req, res, url)) return
   if (studioRoute(req, res, url)) return
   if (filmRoute(req, res, url)) return
@@ -3935,6 +4501,7 @@ const server = createServer((req, res) => {
     return
   }
 
+  // engine: meshy
   // Make with Meshy (spec 20). GET ?from=<site run> -> { ready, cost, art }: whether a key is set (never
   // the key), the price of one character, and the project's pictures to make it from.
   // POST { role, label, art, credits } spends credits, so it starts only when `credits` is the price the
@@ -3989,6 +4556,7 @@ const server = createServer((req, res) => {
     res.end(readFileSync(file))
     return
   }
+  // end engine: meshy
 
   if (url.pathname === '/api/game' || url.pathname === '/api/game/spec') {
     const reply = (code, data) => res.writeHead(code, { 'content-type': 'application/json' }).end(JSON.stringify(data))
@@ -4044,6 +4612,7 @@ const server = createServer((req, res) => {
       try {
         if (!sub) return reply(200, await launchKit(id))
         if (sub === 'mark') return reply(200, markLaunch(dir, input))
+        // engine: hermes
         // send: one post, one platform, confirmed by the person in the canvas's confirm box
         const kit = readLaunch(dir)
         const post = kit?.posts.find(p => p.id === input.post)
@@ -4061,16 +4630,20 @@ const server = createServer((req, res) => {
           if (err) return reply(502, { error: String(errOut || err.message).split('\n').filter(Boolean).at(-1)?.slice(0, 300) || 'the send failed' })
           reply(200, markLaunch(dir, { post: post.id, action: 'sent', target }))
         })
+        // end engine: hermes
       } catch (err) { reply(err.code === 409 ? 409 : 400, { error: String(err.message || err) }) }
     })
     return
   }
 
+  // engine: hermes
   if (url.pathname === '/api/gateway' && req.method === 'GET') {
     gatewayTargets().then(p => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ platforms: p })))
     return
   }
+  // end engine: hermes
 
+  // engine: sound
   // A crew line's audio: cached, or made in the background (the canvas babbles meanwhile).
   if (url.pathname === '/api/chatter/say' && req.method === 'GET') {
     const text = CHATTER_LINES.find(l => l === url.searchParams.get('text'))
@@ -4081,7 +4654,9 @@ const server = createServer((req, res) => {
     chatterMake(text, voice)
     return res.writeHead(202, { 'content-type': 'application/json' }).end(JSON.stringify({ making: true }))
   }
+  // end engine: sound
 
+  // engine: dyad
   // The app advisor: POST { sections } for its questions (each with a recommended
   // answer), then { sections, qa: [{ q, a }] } for the app plan the engine builds from.
   const runAdvise = url.pathname.match(/^\/api\/runs\/([^/]+)\/advise$/)
@@ -4104,7 +4679,7 @@ const server = createServer((req, res) => {
     return
   }
 
-  const runApp = url.pathname.match(/^\/api\/runs\/([^/]+)\/app(?:\/(files|map|stop|open|scripts|seen|deploy|tell|idle|ask))?$/)
+  const runApp = url.pathname.match(/^\/api\/runs\/([^/]+)\/app(?:\/(files|map|versions|back|stop|open|scripts|seen|deploy|tell|idle|ask))?$/)
   if (runApp && RUN_ID.test(runApp[1])) {
     const [, id, sub] = runApp
     const reply = (code, data) => res.writeHead(code, { 'content-type': 'application/json' }).end(JSON.stringify(data))
@@ -4112,6 +4687,8 @@ const server = createServer((req, res) => {
     if (req.method === 'GET') {
       // map: the plan as diagrams for the app build wall (spec 44); null when the run kept no plan, which is not an error
       if (sub === 'map') return void apps().then(a => reply(200, a.map(id))).catch(fail)
+      // the app's versions: its first build and each change, with the one it is at (issue #542)
+      if (sub === 'versions') return void apps().then(a => reply(200, a.versions(id))).catch(fail)
       // the app's state carries its project's name, for the app build wall's breadcrumb (spec 44)
       apps().then(a => reply(200, sub === 'files' ? a.files(id, url.searchParams.get('path')) : { ...a.state(id), name: nameFor(id)?.name || null })).catch(fail)
       return
@@ -4128,6 +4705,8 @@ const server = createServer((req, res) => {
         if (sub === 'ask') return askApp(a, id, input.text, { chart: input.chart === true })
         if (sub === 'tell') return tellBuilder(a, id, input.text, { who: input.who, on: input.on, confirm: typeof input.confirm === 'string' ? input.confirm.slice(0, 1200) : '', now: input.now === true })
         if (sub === 'open') return a.open(id, input)
+        // back to one of the app's versions, as one more commit (issue #542)
+        if (sub === 'back') return a.back(id, typeof input.rev === 'string' ? input.rev.slice(0, 64) : '')
         // a brought-in project's install scripts: the person's own answer, typed in the chat (docs/specs/45-intake.md)
         if (sub === 'scripts') return a.scripts(id, input.allow === true)
         if (sub === 'seen') return a.seen(id)
@@ -4147,7 +4726,9 @@ const server = createServer((req, res) => {
     })
     return
   }
+  // end engine: dyad
 
+  // engine: godot
   // An engine port (Godot, Unity, Unreal) the game job wrote to app/ports/<target>/, zipped on request
   const portZip = url.pathname.match(/^\/api\/runs\/([^/]+)\/port\/(godot|unity|unreal)\.zip$/)
   if (portZip && RUN_ID.test(portZip[1])) {
@@ -4161,6 +4742,7 @@ const server = createServer((req, res) => {
     })
     return
   }
+  // end engine: godot
 
   // Export: static HTML, a React + Vite + Tailwind project and an ABA handoff,
   // written to runs/<id>/export/ and zipped.
@@ -4400,7 +4982,7 @@ const server = createServer((req, res) => {
     res.end(body)
     return
   }
-  const img = url.pathname.match(/^\/img\/([\w-]{1,64})\/((?:\d{1,3}|snap|kept-\d{1,3}|(?:edit|video)-[a-z0-9]{1,12}-?\d{0,2}|(?:game|peek|lib|idle)-[a-z0-9-]{1,56})\.(png|jpe?g|webp))$/)
+  const img = url.pathname.match(/^\/img\/([\w-]{1,64})\/((?:\d{1,3}|snap|app(?:-[a-f0-9]{7})?|kept-\d{1,3}|(?:edit|video)-[a-z0-9]{1,12}-?\d{0,2}|(?:game|peek|lib|idle|clone)-[a-z0-9-]{1,56})\.(png|jpe?g|webp))$/)
   if (img) {
     const file = join(runsDir, img[1], 'img', img[2])
     if (!existsSync(file)) return res.writeHead(404).end('not found')
@@ -4509,6 +5091,29 @@ function closeStoppedVideos() {
 }
 closeStoppedVideos()
 
+// A website build that was running when the server stopped (or that a newer build replaced, whose own stop is
+// dropped) has no end in its file, so nobody could say what happened to it (docs/ux/states/build.md W14, B6).
+// On start no build is live, so every website build with no end is closed here, once, with the stop it never
+// got: run:stopped and the reason code `interrupted`. The build state then reads it as halted, with Resume when
+// sections are kept and Try again when nothing is (engine/buildstate.mjs). Only the file's own lines are read.
+// Like the films above, this takes every unended build in the runs folder to be this server's.
+// SWARM_CLOSE_BUILDS=0 leaves them as they are: the motion check and the board gauge seed a build with no end to
+// stand for one the crew is still on (scripts/motion-check.mjs, scripts/board-gauge.mjs).
+function closeStoppedBuilds() {
+  if (process.env.SWARM_CLOSE_BUILDS === '0' || !existsSync(runsDir)) return
+  for (const id of readdirSync(runsDir).filter(x => RUN_ID.test(x))) {
+    let text
+    try { text = readFileSync(join(runsDir, id, 'events.jsonl'), 'utf8') } catch { continue }
+    if (!text.includes('"run:start"') || text.includes('"run:done"') || text.includes('"run:stopped"')) continue
+    const events = text.split('\n').filter(Boolean).flatMap(line => { try { return [JSON.parse(line)] } catch { return [] } })
+    if (buildState(events, { live: false })?.state !== 'unsure') continue
+    // a last line cut short by the stop is left as it is, on a line of its own
+    if (!text.endsWith('\n')) appendFileSync(join(runsDir, id, 'events.jsonl'), '\n')
+    record(id, { type: 'run:stopped', t: Date.now(), run: id, stopped: true, reason: { code: 'interrupted', message: STOPS.interrupted, action: '' } })
+  }
+}
+closeStoppedBuilds()
+
 server.listen(port, '127.0.0.1', () => {
   // --port 0: the port the system picked is the server's own from here on, for its Host check and for the
   // roles that call the model through this server's /llm/v1 (their address was made before it was known)
@@ -4528,6 +5133,7 @@ for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, shutdown)
 // Nothing to do for Settings › Background's time (20 min): no pane open (an /events stream), no request, no
 // build, Auto run, film, publish or app build. The server exits; the launcher's ensure_server() starts it again
 // on next use (decision 0017, issue #450).
+// engine: hermes
 // Work that stopping the server would lose: a site build, an Auto run, a film, a publish, or an app or game being
 // built. One answer for everyone who asks: the idle stop, the server replacing itself, and /api/state's `busy`,
 // which the launcher reads before it retires a stale server. (`busy` used to leave out films, publishes and
@@ -4535,6 +5141,9 @@ for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, shutdown)
 function workRunning() {
   if ((current && !current.done) || (current?.working.size || 0) > 0 || auto.state()?.state === 'working') return true
   if ([...videos.values()].some(v => v.state === 'working') || [...publishes.values()].some(p => p.state === 'working') || sourceRoute.busy()) return true
+  // engine: godot
+  if (godotJob.busy()) return true
+  // end engine: godot
   return !!appsNow?.busy()
 }
 function serverBusy() { return clients.size > 0 || workRunning() }
@@ -4556,6 +5165,7 @@ function replaceSelf() {
   setTimeout(() => server.closeAllConnections?.(), 300).unref()
   return true
 }
+// end engine: hermes
 const POLLS = /^\/api\/(state|hermes(\/attach)?)$/
 // checked every 30 s, or a quarter of the time when it is shorter (a test sets SWARM_SERVER_IDLE_MIN to seconds)
 const idle = idleWatch({ ms: () => idleStops().server * 60000, busy: serverBusy, every: Math.max(200, Math.min(30000, (idleStops().server * 60000) / 4 || 30000)), onIdle: () => {

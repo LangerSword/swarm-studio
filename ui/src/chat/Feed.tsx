@@ -7,7 +7,9 @@ import { useLayoutEffect, useRef, type MouseEvent } from 'react'
 import { TextArea } from 'react-aria-components'
 import { Button } from '../primitives/Button'
 import type { Turn } from './useTalk'
-import type { BuildRoute, ChatLine, ChatOption } from './types'
+import type { BuildRoute, ChatCard, ChatLine, ChatOption, SheetPick } from './types'
+import { ChatCards } from './ChatCards'
+import { base } from './api'
 
 // beside New project or Start over, the build that stays in this project is Add here
 const ROUTE: Record<BuildRoute, string> = { add: 'Build', new: 'New project', redo: 'Start over' }
@@ -20,6 +22,8 @@ export interface FeedActs {
   briefGo: (t: Turn, route: BuildRoute) => void
   brandSheet: (id: string, text: string) => void
   keepTalking: (id: string) => void
+  // a helper card pressed (decision 0025 e): the line it is under, the saved turn, the card
+  pickCard?: (line: string, turn: string | undefined, card: ChatCard) => void
   busy: boolean
 }
 
@@ -33,7 +37,8 @@ export function Suggested({ t, a, done }: { t: Turn, a: FeedActs, done: () => vo
   if (acts.type === 'build') {
     return <div className="flex flex-wrap gap-2"><Button role="primary" className={chip} isDisabled={a.busy} onPress={() => { a.build(); done() }}>Build</Button></div>
   }
-  // under the spec: Lock (first) and Keep talking; else the open question's options, each with what it gets
+  // under the spec: Lock (first) and Keep talking, or a plan's next step; else the open question's options, each with
+  // what it gets
   if (acts.spec || acts.options.every(o => o.id.startsWith('start:'))) {
     return (
       <div className="flex flex-wrap gap-2">
@@ -57,6 +62,42 @@ export function Suggested({ t, a, done }: { t: Turn, a: FeedActs, done: () => vo
   )
 }
 
+// A game plan's next step (server/talk.mjs): what the person can do now is in the turn itself, never only in a drawer
+// (owner, 2026-11-14: "everything should have been done in chat"). Every button runs on the server; the sketch sheet
+// that waits on picks is drawn here, and a click on a design picks it.
+function Step({ t, a }: { t: Turn, a: FeedActs }) {
+  const acts = t.acts
+  if (acts?.type !== 'options' || !t.step) return null
+  const cells = acts.options.filter(o => o.id.startsWith('do:cell:'))
+  const rest = acts.options.filter(o => !o.id.startsWith('do:cell:'))
+  return (
+    <div className="mt-2 flex flex-col gap-2">
+      {t.sheet && <Sheet sheet={t.sheet} onCell={c => { const o = cells.find(x => x.id.split(':')[3] === String(c)); if (o && !a.busy) a.pick(t.id, o) }} />}
+      {cells.length > 0 && (
+        <div className="flex flex-wrap gap-1" role="group" aria-label="Pick a number">
+          {cells.map(o => <Button key={o.id} role="secondary" className="min-h-10 min-w-10 rounded-[8px] px-0 font-monospace! text-xs! normal-case!" isDisabled={a.busy} onPress={() => a.pick(t.id, o)}>{o.label}</Button>)}
+        </div>
+      )}
+      {rest.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {rest.map((o, i) => <Button key={o.id} role={!i && !cells.length ? 'primary' : 'secondary'} className={chip} isDisabled={a.busy} onPress={() => a.pick(t.id, o)}>{o.label}</Button>)}
+        </div>
+      )}
+    </div>
+  )
+}
+function Sheet({ sheet, onCell }: { sheet: SheetPick, onCell: (cell: number) => void }) {
+  const [cols, rows] = sheet.grid
+  if (!sheet.src) return null
+  return (
+    <div role="img" aria-label="Sketch sheet" className="relative cursor-pointer overflow-hidden rounded-[8px] border border-line"
+      onClick={e => { const r = e.currentTarget.getBoundingClientRect(); onCell(Math.min(rows - 1, Math.floor((e.clientY - r.top) / r.height * rows)) * cols + Math.min(cols - 1, Math.floor((e.clientX - r.left) / r.width * cols))) }}>
+      <img src={`${base()}${sheet.src}`} alt="" draggable={false} className="block h-auto w-full" />
+      {sheet.picks.map(c => <i key={c} aria-hidden className="pointer-events-none absolute box-border rounded-[3px] border-2 border-accent" style={{ left: `${(c % cols) / cols * 100}%`, top: `${Math.floor(c / cols) / rows * 100}%`, width: `${100 / cols}%`, height: `${100 / rows}%` }} />)}
+    </div>
+  )
+}
+
 // the brief, in its turn: read it, edit it, then Build (or New project / Start over), the brand sheet first, or keep
 // talking
 function Brief({ t, a }: { t: Turn, a: FeedActs }) {
@@ -69,7 +110,7 @@ function Brief({ t, a }: { t: Turn, a: FeedActs }) {
         className="w-full resize-y rounded-[10px] border border-line-2 bg-void p-3 font-monospace text-sm text-text outline-none data-[focused]:border-frame-hi disabled:opacity-60" />
       {acts.open && !acts.done && (
         <div className="flex flex-wrap gap-2">
-          {acts.routes.map((r, i) => <Button key={r} role={i ? 'secondary' : 'primary'} className={chip} onPress={() => a.briefGo(t, r)}>{routeLabel(r, acts.routes.length === 1)}</Button>)}
+          {acts.routes.map((r, i) => <Button key={r} role={i ? 'secondary' : 'primary'} className={chip} onPress={() => a.briefGo(t, r)}>{!i && acts.go ? acts.go : routeLabel(r, acts.routes.length === 1)}</Button>)}
           {acts.sheet && <Button role="secondary" className={chip} onPress={() => a.brandSheet(t.id, acts.text)}>{acts.sheetLabel}</Button>}
           <Button role="ghost" className={chip} onPress={() => a.keepTalking(t.id)}>Keep talking</Button>
         </div>
@@ -93,8 +134,14 @@ function Line({ t, acts, onHover }: { t: Turn, acts?: FeedActs, onHover?: (el: H
     return (
       <div className={`item bot text-sm ${t.working ? 'working' : ''}`} aria-busy={t.working || undefined}>
         <b className="flex items-baseline gap-2 font-label text-xs font-semibold uppercase tracking-[.07em] text-text">Hermia<small className="font-monospace text-[11px] normal-case tracking-normal text-muted">planner</small></b>
-        <span className={`txt mt-1 block whitespace-pre-wrap ${t.working ? 'text-muted motion-safe:animate-pulse' : ''}`}>{t.text}</span>
+        {/* a reply on its way with no words yet: two lines in the shape of hers, not a dot (#392) */}
+        {t.working && t.text === '…'
+          ? <span aria-hidden className="mt-2 flex flex-col gap-[7px]"><i className="block h-[9px] w-[86%] rounded-full bg-[color-mix(in_srgb,var(--text)_9%,transparent)] motion-safe:animate-pulse" /><i className="block h-[9px] w-[54%] rounded-full bg-[color-mix(in_srgb,var(--text)_9%,transparent)] motion-safe:animate-pulse" /></span>
+          : <span className={`txt mt-1 block whitespace-pre-wrap ${t.working ? 'text-muted motion-safe:animate-pulse' : ''}`}>{t.text}</span>}
+        {'card' in t && t.card}
+        {t.cards?.length ? <ChatCards cards={t.cards} busy={acts?.busy} onPick={acts?.pickCard && t.cardsTurn ? c => acts.pickCard?.(t.id, t.cardsTurn, c) : undefined} /> : null}
         {acts && <Brief t={t} a={acts} />}
+        {acts && <Step t={t} a={acts} />}
       </div>
     )
   }
@@ -123,7 +170,7 @@ export function Feed({ lines, acts, label, empty, onHover }: { lines: (Turn | Ch
     <div ref={box} role="log" aria-label={label} tabIndex={0} className="feed outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-frame-hi flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3"
       onScroll={e => { const b = e.currentTarget; stick.current = b.scrollHeight - b.scrollTop - b.clientHeight < 60 }}>
       {!lines.length && empty && <p className="empty-chat m-auto max-w-56 text-center font-monospace text-xs text-muted">{empty}</p>}
-      {lines.map(t => <Line key={t.id} t={t} acts={acts && 'acts' in t ? acts : undefined} onHover={onHover} />)}
+      {lines.map(t => <Line key={t.id} t={t} acts={acts && ('acts' in t || 'cards' in t) ? acts : undefined} onHover={onHover} />)}
     </div>
   )
 }

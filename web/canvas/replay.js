@@ -1,8 +1,8 @@
 // @ts-check
 // web/canvas.js, split by area (web/canvas/README.md): saved runs (files) and traces, replay.
-import { REPLAY_WORD, REPLAY_SAYS, replayAsk, appPill } from '../replaytalk.js'
-import { api, S, els, ico, setReplayId, Q, WALL, $, replayId, BOOT } from './core.js'
-import { feed, botMsg, setText, push } from './panels.js'
+import { REPLAY_WORD, REPLAY_SAYS, replayAsk, appPill, buildLive, buildLeft } from '../replaytalk.js'
+import { api, S, els, ico, setReplayId, Q, WALL, $, replayId, BOOT, setBuild } from './core.js'
+import { feed, botMsg, setText, push, stoppedMsg, leftMsg } from './panels.js'
 import { esc } from './design.js'
 import { talkEnd } from './talk.js'
 import { connect } from './start.js'
@@ -13,6 +13,7 @@ import { setAuto } from './deck.js'
 import { navOf, followPlayer } from './player.js'
 import { review } from './marks.js'
 import { shownRun } from './film.js'
+import { revealLabel } from '../reveal.js'
 
 // ---------- files: every saved run is a file with its own canvas
 // `viewing` is null while following the live stream, or the id of a saved run
@@ -171,7 +172,7 @@ export function fileInfo(f) {
       ${row('Video', f.video ? `video/promo.mp4${f.videoSeconds ? ` · ${Math.round(f.videoSeconds)}s` : ''}` : '')}
       ${row('ID', `<code>${esc(f.id)}</code>`)}
     </dl>
-    <div class="fi-foot"><button class="fi-reveal">Show in Finder</button><button class="fi-save">Save</button></div>
+    <div class="fi-foot"><button class="fi-reveal">${revealLabel()}</button><button class="fi-save">Save</button></div>
   </div>`
   document.body.append(wrap)
   const $q = c => wrap.querySelector(c)
@@ -192,6 +193,11 @@ export function fileInfo(f) {
 }
 
 let openSeq = 0
+// the server's one state of a saved website build (engine/buildstate.mjs); null when there is none to read
+// (its other parts, an app's, a game's or a film's state, are kept as they come: core.js partsOf)
+const buildRead = id => api(`/api/runs/${encodeURIComponent(id)}/state`).then(r => (r.ok ? r.json() : null)).then(j => { if (j?.parts) setBuild(id, j.state, j.parts); return j?.state || null }).catch(() => null)
+// the builds this page just started (showRun, started): one of them can be read before its end is written
+export const startedRuns = new Set()
 export async function openRun(id) {
   const seq = ++openSeq
   claimed = id
@@ -201,11 +207,23 @@ export async function openRun(id) {
     viewing = null
     connect()
   } else {
-    const res = await api(`/api/runs/${encodeURIComponent(id)}/events`).catch(() => null)
+    // with its events, the server's one state of the build (null: not a website build, or the hosted studio)
+    const [res, build] = await Promise.all([api(`/api/runs/${encodeURIComponent(id)}/events`).catch(() => null), buildRead(id)])
     if (!res?.ok) return
     const events = await res.json()
     // another build was opened while this one loaded: the newer one stands
     if (seq !== openSeq) return
+    setBuild(id, build)
+    // a build the server is still running (opened by its address, or after a reload) is followed on the stream
+    // like any live build: it is not a saved file, has no end time and is never called old
+    if (buildLive(build)) {
+      liveId = id
+      viewing = null
+      connect()
+      setAuto(true)
+      if (navOf()) followPlayer(navOf().view)
+      return
+    }
     viewing = id
     fresh(id)
     for (const e of events) {
@@ -214,8 +232,25 @@ export async function openRun(id) {
     if (!S.tEnd && events.length) S.tEnd = events.at(-1).t
     if (S.t0) els.timer.textContent = `${((S.tEnd - S.t0) / 1000).toFixed(1)}s`
     if (S.progress) { S.progress.classList.remove('working'); S.progress.querySelector('.txt').textContent = 'This run stopped before it finished.' }
+    // a saved build: its agents may still hold sections, but none is working, so the camera does not follow them
+    // (web/canvas/deck.js bboxActive); a replay or the live build starts afresh and follows
+    S.stalled = true
+    // a build that stopped for a reason (the model, Hermes, a timeout) says that reason, with what to do: never
+    // that the file is old (#541)
+    const stop = events.findLast(e => e.type === 'run:stopped' && e.reason && e.reason.code !== 'person')
+    // a build this page just started that has not ended yet (one that fails at once can be read before its end is
+    // written) is not an old file: it is read again once, a moment later. A build caught half way stays as it is
+    const ended = events.some(e => e.type === 'run:done' || e.type === 'run:stopped')
+    if (!ended && startedRuns.delete(id)) { setTimeout(() => { if (seq === openSeq) openRun(id) }, 1500); return }
     if (S.kind === 'game') setView('app')
+    // a website build that stopped or was cut off with something left says so again, with its way on (Resume, or
+    // Try again), whoever stopped it; one that ran to its end with sections failed said it as its end was read
+    // (web/canvas/panels.js summarize)
+    else if (buildLeft(build)) { if (build.state !== 'partly' && build.state !== 'failed') leftMsg(build) }
+    else if (stop) stoppedMsg(stop)
     else if (!events.some(e => e.type === 'layer:done' && e.html)) botMsg('This file was saved before Swarm Studio kept finished sections, so only its plan is shown.')
+    // an App room the address named (a reload, Back, a link) was entered before its build was here: it reads the app now
+    if (S.kind !== 'game' && view === 'app') setView('app')
   }
   setAuto(true)
   // a player the address names (a reload, Back) opens once its build is here
@@ -255,9 +290,12 @@ export const rec = { on: false, run: '', at: 0, event: false, n: 0 }
 const gapOf = (e, prev, speed) => Math.min(Math.max(0, (e.t || prev) - prev) / speed, 1500)
 export async function replayRun(id, speed = 8) {
   const seq = ++replaySeq
-  const res = await api(`/api/runs/${encodeURIComponent(id)}/events`).catch(() => null)
+  // with the recording, the build's own state: what its last line says is made from it too (a failed build is
+  // not replayed as built)
+  const [res, build] = await Promise.all([api(`/api/runs/${encodeURIComponent(id)}/events`).catch(() => null), buildRead(id)])
   if (!res?.ok) { if (replayAsked) endReplay(); return botMsg('That run could not be loaded.') }
   if (seq !== replaySeq) return
+  setBuild(id, build)
   const events = withTyping((await res.json()).filter(e => e.type !== 'cmd'))
   let clock = 0, prev = events[0]?.t || 0, total = 0
   for (const e of events) { total += gapOf(e, prev, speed); prev = e.t || prev }

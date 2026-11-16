@@ -25,6 +25,7 @@ The sheet SHALL show a breadcrumb that reads `Home › Projects › <project> �
 - **WHEN** the person presses Brand sheet under a chat's brief, before any project exists
 - **THEN** the breadcrumb reads `Home › Projects › Chat › Brand sheet`
 - Gate: `manual`
+- Manual: the brief under a chat, with its Brand sheet button, is written by the planner's model; the test Studio has no model
 
 #### Scenario: Going back where it came from
 - **WHEN** the sheet was opened from the scaffold's Brand step and the person presses Esc with nothing selected
@@ -63,6 +64,7 @@ heading and paragraph, plus one input each for the person's own colours and font
 - **WHEN** the person types "deep green and brass" in Your own colours and presses Enter
 - **THEN** a fourth palette made from those words appears and is picked
 - Gate: `manual`
+- Manual: the fourth palette is written by a model from the person's words; the test Studio has no model
 
 #### Scenario: A pack in part
 - **WHEN** the person selects a pack and presses Type in the inspector
@@ -83,6 +85,7 @@ was opened from; on a locked sheet the same button SHALL read Unlock, at the sam
 - **WHEN** the person never opens the sheet and presses Build in the chat
 - **THEN** the build starts; the sheet is optional
 - Gate: `manual`
+- Manual: starting a build needs the planner's model; the test Studio has no model
 
 ### Requirement: Empty state
 

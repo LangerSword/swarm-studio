@@ -3,16 +3,16 @@
 import { routeMessage } from '../route.js'
 import { modeSend, mountChatMode, MODE_LINE } from '../chatmode.js'
 import { mountAgentsChip } from '../composer.js'
-import { githubDoor } from '../github.js'
+import { githubDoor, ownerSay } from '../github.js'
 import { zoomToSection } from './zoom.js'
-import { cam, S, els, setLabel, FRAME_W, commandOps, api, $, BOOT } from './core.js'
+import { cam, S, els, setLabel, FRAME_W, commandOps, api, $, BOOT, buildOf } from './core.js'
 import { syncSlots, bboxActive, fit, startGesture, gestureStep, toScreen, dockCell, agentTarget, DOCK, runBanter, drawWires, doing, setAuto, focusPage, slotFor } from './deck.js'
 import { lite, litePass, frameBusy, togglePanel, toggleModels } from './settings.js'
-import { renderAgents, setText, renderToolbar, treeSel, renderTree, renderStatus, botMsg, feed, hermesReady, hermesSays, resumeRun } from './panels.js'
+import { renderAgents, setText, renderToolbar, treeSel, renderTree, renderStatus, botMsg, feed, hermesReady, hermesSays, resumeRun, againRun, failSay } from './panels.js'
 import { renderDesign, drawSelBox, exp, design, selectAt, exportRunNow, undo, redo, esc } from './design.js'
 import { drawComment, review, cmt, reviewRun, sendLayers } from './marks.js'
 import { paintReplay, viewing, files, loadFiles, fileMatch, fileInfo, saveMeta, traceView, fileInto, rec, replaySay } from './replay.js'
-import { progressLine } from '../replaytalk.js'
+import { progressLine, buildProgress, buildLive } from '../replaytalk.js'
 import { pub, liveUrl, publishNow } from './publish.js'
 import { shownRun, video, VIDEO_STYLES, makeVideo, showRun, runNow } from './film.js'
 import { appv, appAsk, setView, buildApp, openGame, openCastOnly, sliceGo, view, stageSay, mediaBlock, mapSay, mapShow, intakeSay } from './rooms.js'
@@ -21,6 +21,7 @@ import { talk, talkSay, readTalk, talkStart, talkAsk, openAsk } from './talk.js'
 import { links, refLines } from './base.js'
 import { carryStep, carryMoving } from './carry.js'
 import { hosted } from './hosted.js'
+import { isResearchStop, stopText, stopItems, againBody, takeOut } from '../researchstop.js'
 
 // ---------- loop
 
@@ -144,16 +145,20 @@ export function frameLoop(now) {
     paintReplay()
     const pubbing = pub.run === shownRun() && pub.state === 'working'
     const deploying = appv.deploying && appv.run === shownRun()
-    els.publishBtn.disabled = (!S.done && !pubbing) || deploying || rec.on
+    // a website build with no section yet still opens the menu, where Website says why it can not go out
+    els.publishBtn.disabled = (!S.done && !pubbing && !buildOf()) || deploying || rec.on
     setLabel(els.publishBtn, pubbing || deploying ? 'Publishing…' : liveUrl() ? 'Live' : 'Publish')
     const mine = video.run === shownRun()
     els.videoBtn.disabled = (!S.done && !(mine && video.src)) || rec.on
     setLabel(els.videoBtn, mine && video.busy ? `Video ${video.pct ? `${video.pct | 0}%` : 'writing…'}` : 'Video')
     if (S.progress) {
       const done = [...S.layers.values()].filter(l => l.status === 'done').length
-      setText(S.progress.querySelector('.txt'), progressLine({ replay: rec.on, plan: S.planText, working, done, total: S.layers.size, pages: S.frames.length }))
+      // a running website build counts its own work, from the server's state of it (a next version that has
+      // planned nothing says it is planning, not "0 agents building · 9/9" of the sections it was handed)
+      const b = rec.on ? null : buildOf(), own = buildLive(b) ? b : null
+      setText(S.progress.querySelector('.txt'), own ? buildProgress(own, { plan: S.planText, working, pages: S.frames.length }) : progressLine({ replay: rec.on, plan: S.planText, working, done, total: S.layers.size, pages: S.frames.length }))
       if (!S.progress.querySelector('.pbar')) S.progress.insertAdjacentHTML('beforeend', '<span class="pbar"><i></i></span>')
-      S.progress.querySelector('.pbar i').style.width = `${S.layers.size ? (done / S.layers.size * 100).toFixed(1) : 4}%`
+      S.progress.querySelector('.pbar i').style.width = `${own ? (own.planned ? (own.done / own.planned * 100).toFixed(1) : 4) : S.layers.size ? (done / S.layers.size * 100).toFixed(1) : 4}%`
     }
     if (S.t0 && !(viewing && !S.tEnd)) setText(els.timer, `${(((S.tEnd || Date.now()) - S.t0) / 1000).toFixed(1)}s`)
   }
@@ -375,7 +380,7 @@ els.brief.addEventListener('blur', () => setTimeout(() => (slashPop.hidden = tru
 
 // A message goes to the open build (web/route.js): an edit of the selected section (/fix), or the
 // project's next version, which keeps every page and adds what was asked. window.swarm.submit
-// says where its words go: Projects home starts a new project, a project's dock extends it.
+// says where its words go: Projects home starts a new project, a project's Overview extends it.
 export let nextRoute = null
 export function setNextRoute(v) { return (nextRoute = v) }
 // one message at a time: while one is being read (talk or build?) or its build is starting, another
@@ -394,7 +399,7 @@ els.form.addEventListener('submit', async e => {
 // The chat's mode (web/chatmode.js): a typed switch, and Ask, Plan and Fix take the message. Build, and a
 // send made in code (a Build button under a brief, a project's dock: nextRoute), go on below as ever.
 const modeHelp = {
-  box: els.brief, form: els.form, api, botMsg, feed, hermesReady, hermesSays, appAsk, talkStart, resume: resumeRun, media: mediaBlock, chart: mapShow,
+  box: els.brief, form: els.form, api, botMsg, feed, hermesReady, hermesSays, failSay, appAsk, talkStart, resume: resumeRun, again: againRun, media: mediaBlock, chart: mapShow,
   quiet: () => { slashPop.hidden = true }, next: v => setNextRoute(v), run: () => shownRun(), runNow: () => runNow(), app: () => appv,
   site: () => S.kind !== 'game' && S.frames.length > 0, kind: () => (S.kind === 'game' ? 'game' : 'site'), chat: () => talk.chat,
   // @ts-ignore
@@ -410,11 +415,25 @@ mountAgentsChip({ select: els.agentsSel, button: $('#agents-btn') })
 export const github = githubDoor({ api, esc: s => esc(s), botMsg, youSaid: text => feed(null, text, 'you'), run: () => shownRun() || null, project: () => /** @type {any} */ (window).swarmCosmos?.project || shownRun() || null, off: !!BOOT.hosted })
 const githubBtn = $('#github-btn')
 if (githubBtn) { if (BOOT.hosted) githubBtn.remove(); else githubBtn.onclick = () => github.open() }
+// The Overview is the room (web/project.js): the chat is its one place to type (owner, 2026-11-15), so what is
+// selected or marked there decides where the words go. null in every other room.
+const overview = () => { const c = /** @type {any} */ (window).swarmCosmos; return c?.mode === 'project' ? c.projectView : null }
+const ovLines = { you: t => { feed(null, t, 'you') }, bot: t => { botMsg(t) } }
 async function sendDock() {
   // a replay comes first (web/replaytalk.js): "stop", "is this building?", "replay"; anything else ends it, then goes on
   if (!nextRoute && await replaySay(els.brief.value)) return
+  // marks drawn on the Overview's pages go with the words, or with none
+  if (!nextRoute && overview()?.marked && !/^\/[a-z?]/i.test(els.brief.value.trim())) { if (overview().sendMarks(els.brief.value.trim(), ovLines)) els.brief.value = ''; return }
   // a typed GitHub move is never a brief, in any mode and from any dock
   if (!nextRoute?.fresh && github.say(els.brief.value)) { nextRoute?.done?.(null); nextRoute = null; els.brief.value = ''; return }
+  // where builds go on GitHub ("publish to <organization>", "where do builds go"): taken only when the name is the
+  // person's account or one of their organizations, with or without a project open
+  const typed = els.brief.value
+  if (!nextRoute?.fresh && !BOOT.hosted && await ownerSay(typed, { api, said: t => feed(null, t, 'you'), answer: t => { botMsg(t) } })) {
+    nextRoute?.done?.(null); nextRoute = null
+    if (els.brief.value === typed) els.brief.value = ''
+    return
+  }
   // the Map, asked for in any mode ("show the map", "what's going on?", "show the enemy AI as a state chart"): shown
   // at once, before a mode or the room could take the words as a change for the builder
   if (!nextRoute && !talk.on && mapSay(els.brief.value.trim())) { els.brief.value = ''; return }
@@ -446,6 +465,15 @@ async function sendDock() {
   if (links.count('layer') && shownRun() && !nextRoute?.fresh) { skip(); return sendLayers(brief) }
   // a guest names themself before the first build (docs/specs/13-hosted-studio.md)
   if (hosted && !(await hosted.ready())) return skip()
+  // typed on the Overview: a fix of the selected section, a picture painted again, the app's change, a talk
+  // with the planner, or the route of the project's next version (web/project.js say)
+  const ov = !nextRoute && overview()
+  if (ov) {
+    const took = await ov.say(brief, ovLines)
+    if (took === true) { if (els.brief.value.trim() === brief) els.brief.value = ''; return }
+    if (took === 'kept') return
+    nextRoute = took
+  }
   const to = nextRoute || { from: runNow(), selected: !!S.sel }
   nextRoute = null
   // a project's dock has already decided (web/project.js): its open version is what the words
@@ -470,7 +498,7 @@ async function sendDock() {
   }
   setAuto(true)
   const media = links.take('ref')
-  const res = await api('/api/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ brief: refLines(brief, media), agents: Number(els.agentsSel.value), ...(to.project ? { project: to.project } : {}), ...(route === 'extend' || route === 'redo' ? { from: to.from } : {}), ...(route === 'redo' ? { redo: true } : {}), ...(to.pictures ? { pictures: to.pictures } : {}), ...(to.template ? { template: to.template } : {}), ...(to.chat ? { chat: to.chat } : {}) }) }).catch(() => null)
+  const res = await api('/api/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ brief: refLines(brief, media), agents: Number(els.agentsSel.value), ...(to.project ? { project: to.project } : {}), ...(route === 'extend' || route === 'redo' ? { from: to.from } : {}), ...(route === 'redo' ? { redo: true } : {}), ...(to.pictures ? { pictures: to.pictures } : {}), ...(to.template ? { template: to.template } : {}), ...(to.chat ? { chat: to.chat } : {}), ...(to.research || {}) }) }).catch(() => null)
   const j = res ? await res.clone().json().catch(() => ({})) : {}
   // a new website asks first (docs/decisions/0020-ask-before-build.md): the question waits in its chat, or "don't
   // build yet" opens the talk. Not an error, and not busy. Whoever sent it moves to the deck first (web/home.js)
@@ -486,6 +514,14 @@ async function sendDock() {
     }
     return void openAsk(j.chat)
   }
+  // it looked something up first (decision 0025): what it found is shown, with its source, before the crew uses it
+  if (res?.status === 409 && isResearchStop(j)) {
+    to.done?.({ research: true })
+    els.brief.value = ''
+    // from the Make box: the stop is in the Design deck's chat, so it opens there (as the question's chat does)
+    if (!to.from && !to.project) window.swarmCosmos?.go?.('station', 'canvas')
+    return void researchStop(j, kept => { nextRoute = { ...to, done: to.done && (() => {}), research: againBody(j, kept) }; els.brief.value = brief; els.form.requestSubmit() })
+  }
   to.done?.(res?.ok ? j.run || null : res?.status === 409 ? { busy: true, run: j.run || null } : null)
   if (!res?.ok) for (const m of media) links.add(m)
   if (res?.ok) { els.brief.value = ''; hosted?.refresh() }
@@ -495,4 +531,42 @@ async function sendDock() {
   else if (res?.status === 503 && j.hermes) hermesSays(j)
   else if (hosted && res) hosted.refuse(j)
   else feed(null, `Couldn't start the run${res ? ` (${res.status})` : ''}. Is the canvas server running?`, 'err')
+}
+
+// Hermia's line, each page it found with its link and what was taken, ✕ to take one out, and Build with what is left
+/** @param {any} j @param {(kept: any[]) => void} build */
+function researchStop(j, build) {
+  window.swarmCosmos?.chat?.(true)
+  const item = botMsg(stopText(j))
+  item.classList.add('research-stop')
+  let kept = stopItems(j)
+  const list = document.createElement('ul')
+  list.className = 'found'
+  const draw = () => {
+    list.replaceChildren(...kept.map(k => {
+      const li = document.createElement('li')
+      li.innerHTML = `<a target="_blank" rel="noopener noreferrer"></a><span class="took"></span><button class="out" aria-label="Take it out" title="Take it out">✕</button>`
+      const a = /** @type {HTMLAnchorElement} */ (li.querySelector('a'))
+      const took = /** @type {HTMLElement} */ (li.querySelector('.took'))
+      const out = /** @type {HTMLButtonElement} */ (li.querySelector('.out'))
+      a.href = k.url
+      a.textContent = `${k.title} · ${k.host}`
+      took.textContent = k.took
+      out.onclick = async () => {
+        await takeOut(j, k, (path, body) => api(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).catch(() => {})
+        kept = kept.filter(x => x !== k)
+        draw()
+      }
+      return li
+    }))
+    go.textContent = kept.length ? 'Build with these' : 'Build without them'
+  }
+  const acts = document.createElement('div')
+  acts.className = 'chips'
+  const go = document.createElement('button')
+  go.onclick = () => { acts.remove(); list.querySelectorAll('button').forEach(b => b.remove()); build(kept) }
+  acts.append(go)
+  draw()
+  item.append(list, acts)
+  return item
 }

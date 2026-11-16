@@ -5,6 +5,9 @@
 // runs before that click; the server checks the same number again (engine/plan.mjs lockPlan).
 import { ic, cursor, CREW, painterOf } from './icons.js'
 import { makeBoard } from './board.js'
+import { planRefsHtml, planRefInsp, planRefWire } from './planrefs.js'
+import { planFitWatch } from './planfit.js'
+import { planTileStop, planNextHtml, planTileChip, planTileNoPainter, planTilePaints } from './plantiles.js'
 
 export function makePlan({ sw, C, root }) {
   const esc = sw.esc
@@ -15,6 +18,8 @@ export function makePlan({ sw, C, root }) {
   const bd = makeBoard({ root, cls: 'project plan', label: 'Plan', fit: [0.3, 1.25], on: () => P.on, selected: () => !!P.sel, clear: () => select(null) })
   const { world, insp } = bd
   const applyCam = bd.applyCam, frameAll = bd.frameAll, toast = bd.toast
+  // the whole plan fits again when the pane or the chat changes the stage, until the person moves the view (web/planfit.js)
+  const fitWatch = planFitWatch(bd, { framed: () => !!P.framed })
 
   // ---------- the top bar: Projects › name, and the one primary button (the price)
   const bar = document.querySelector('.topbar')
@@ -58,9 +63,11 @@ export function makePlan({ sw, C, root }) {
   async function load() {
     if (!P.id) return
     try { P.plan = await api(url()) } catch (err) { toast(err.message); return }
+    P.noPainter = P.plan.painter === false
     render()
   }
   function take(plan) { P.plan = plan; render() }
+  planRefWire({ root, insp, id: () => (P.draft ? null : P.id), api: sw.api, toast, take, select: k => select(k), selected: () => P.sel })
 
   // ---------- render
   const price = () => P.plan?.price || { credits: 0, runs: 0, images: 0, parts: [], first: { credits: 0 }, rest: { credits: 0 } }
@@ -69,7 +76,8 @@ export function makePlan({ sw, C, root }) {
     if (c.id === 'cast') return `${(b.roster || []).length}`
     if (c.id === 'systems') return `${Object.values(b).filter(v => v === 'on').length}`
     const first = Object.values(b).find(v => typeof v === 'string' && v.trim())
-    return first ? first.split(/[,.]/)[0].slice(0, 28) : ''
+    // the whole first clause: the card clamps it to two lines with an ellipsis (plan.css), never mid-word
+    return first ? first.split(/[,.]/)[0].trim() : ''
   }
   // ---------- the pictures: sheets, mocks, backdrops, close-ups (engine/planart.mjs)
   // the sheets and shots follow the plan's genre family (engine/planshape.mjs); the action RPG's by default
@@ -80,12 +88,14 @@ export function makePlan({ sw, C, root }) {
   const shotsOf = p => p?.art?.shots ? p.art.shots.map(([k]) => [k, named(k)]) : SHOTS
   const painting = p => p.build?.state === 'building' || [...(p.sheets || []), ...(p.mocks || []), ...(p.backdrops || []), ...(p.build?.sprites || []), ...(p.build?.characters || []).flatMap(c => [c.cutin, c.portrait, c.front, c.side, c.back])].some(e => e?.state === 'painting')
   const sel = key => P.sel === key ? '<div class="sel"><i></i><i></i><i></i><i></i></div>' : ''
-  // one picture slot: the picture when done, the crew at work while painting, an empty frame before
-  function slot(key, cls, name, e, extra = '') {
+  // one picture slot: the picture when done, the crew at work while painting, else why it is empty and what makes it
+  function slot(key, cls, name, e, extra = '', does = null) {
     const pic = e?.state === 'done' && e.src ? `<img src="${esc(base() + e.src)}" alt="" draggable="false" loading="lazy">` : ''
     const work = e?.state === 'painting' ? `<div class="pl-work" aria-busy="true"></div>${cursor(painterOf(key))}` : ''
     const failed = e?.state === 'failed' ? ' failed' : ''
-    return `<div class="ab ppic ${cls}${failed}" data-key="${esc(key)}" tabindex="0" role="button" aria-label="${esc(name)}">${pic}${work}${extra}<em>${esc(name)}</em>${sel(key)}</div>`
+    // an empty or failed picture says why, with the one action that makes it (web/plantiles.js)
+    const stop = pic || work ? '' : planTileStop(e, does, { noPainter: !!P.noPainter, esc })
+    return `<div class="ab ppic ${cls}${failed}" data-key="${esc(key)}" tabindex="0" role="button" aria-label="${esc(name)}">${pic}${work}${extra}${stop}<em>${esc(name)}</em>${sel(key)}</div>`
   }
   // the made model: its picture when done, the crew at work while Meshy makes it
   function modelSlot(r, m) {
@@ -101,31 +111,34 @@ export function makePlan({ sw, C, root }) {
   }).join('')
   function render() {
     const p = P.plan
-    if (!p) { world.innerHTML = P.id ? `<div class="col"><section class="pj-sec"><span class="al">Plan</span><div class="abs">${'<div class="ab pcard wait-in" aria-busy="true"><b></b><span></span></div>'.repeat(3)}</div></section></div>` : ''; return }
+    // a plan being opened, or a new game's talk drafting one, shows three waiting cards until it comes (#392)
+    if (!p) { world.innerHTML = P.id || P.draft ? `<div class="col"><section class="pj-sec"><span class="al">Plan</span><div class="abs">${'<div class="ab pcard wait-in" aria-busy="true"><b></b><span></span></div>'.repeat(3)}</div></section></div>` : ''; return }
     crumb.querySelector('.pl-name').textContent = p.title || 'Plan'
     renderPrimary()
     const cards = p.cards.map((c, i) => `<div class="ab pcard${P.writing != null && i >= P.writing ? ' wait' : ''}" data-key="card:${esc(c.id)}" tabindex="0" role="button" aria-label="${esc(c.name)}">
       <b>${esc(c.name)}</b><span>${esc(cardValue(c))}</span>${sel(`card:${c.id}`)}${P.writing != null && i === P.writing - 1 ? cursor(CREW[i % CREW.length]) : ''}</div>`).join('')
-    const writing = P.writing != null
-    const sheets = sheetsOf(p).map(([k, n]) => { const s = (p.sheets || []).find(x => x.kind === k); return slot(`sheet:${k}`, 'sheet', n, s, s?.state === 'done' ? rings(s) : '') }).join('')
-    const mocks = shotsOf(p).map(([k, n]) => slot(`mock:${k}`, 'mock', n, (p.mocks || []).find(x => x.shot === k))).join('')
+    const writing = P.writing != null // an empty sheet says what it waits on (owner, 2026-11-14: crew only while it really paints)
+    const sheets = sheetsOf(p).map(([k, n]) => { const s = (p.sheets || []).find(x => x.kind === k); return slot(`sheet:${k}`, 'sheet', n, s, s?.state === 'done' ? rings(s) : '', { paint: `sheet:${k}` }) }).join('')
+    const mocks = shotsOf(p).map(([k, n]) => slot(`mock:${k}`, 'mock', n, (p.mocks || []).find(x => x.shot === k), '', { paint: `mock:${k}` })).join('')
     const bds = (p.backdrops || []).slice().sort((a, b) => a.stage - b.stage || a.n - b.n)
-    const worldSec = bds.length ? bds.map(b => slot(`bd:${b.id}`, `bd ${b.shape}`, b.n === 1 ? b.name : '', b)).join('') : slot('bd:new', 'bd equirect', 'Backdrops', null)
+    const worldSec = bds.length ? bds.map(b => slot(`bd:${b.id}`, `bd ${b.shape}`, b.n === 1 ? b.name : '', b, '', p.style?.locked ? { paint: `bd:${b.stage}` } : { style: true })).join('') : slot('bd:new', 'bd equirect', 'Backdrops', null, '', p.style?.locked ? { paint: 'bd:' } : { style: true })
     const cast = (p.cards.find(c => c.id === 'cast')?.body.roster || []).filter(r => r?.name)
     const chars = new Map((p.build?.characters || []).map(c => [c.name, c]))
     const shown = p.gate?.locked || (p.build?.characters || []).length
     const flat = !!p.art?.sprites?.length
     const made = new Map((p.build?.sprites || []).map(x => [x.name, x]))
-    const views = flat ? (shown || made.size ? p.art.sprites.map(x => slot(`sp:${x.name}`, 'view', x.name, made.get(x.name))).join('') : '') : shown ? cast.map(r => { const c = chars.get(r.name) || {}; return `<div class="pl-grp">${['front', 'side', 'back'].map((v, i) => slot(`vw:${r.name}:${v}`, 'view', i ? '' : r.name, c[v])).join('')}${modelSlot(r, c.model)}</div>` }).join('') : ''
-    const closeups = shown && p.shape?.closeups !== false ? cast.map(r => '<div class="pl-grp">' + slot(`cu:${r.name}:cutin`, 'cutin', r.name, chars.get(r.name)?.cutin) + slot(`cu:${r.name}:portrait`, 'portrait', '', chars.get(r.name)?.portrait) + '</div>').join('') : ''
+    const views = flat ? (shown || made.size ? p.art.sprites.map(x => slot(`sp:${x.name}`, 'view', x.name, made.get(x.name), '', p.build?.state === 'building' ? null : { build: true })).join('') : '') : shown ? cast.map(r => { const c = chars.get(r.name) || {}; return `<div class="pl-grp">${['front', 'side', 'back'].map((v, i) => slot(`vw:${r.name}:${v}`, 'view', i ? '' : r.name, c[v], '', p.gate?.locked && p.build?.state !== 'building' ? { paint: `vw:${r.name}:${v}` } : null)).join('')}${modelSlot(r, c.model)}</div>` }).join('') : ''
+    const closeups = shown && p.shape?.closeups !== false ? cast.map(r => '<div class="pl-grp">' + slot(`cu:${r.name}:cutin`, 'cutin', r.name, chars.get(r.name)?.cutin, '', { paint: `cu:${r.name}` }) + slot(`cu:${r.name}:portrait`, 'portrait', '', chars.get(r.name)?.portrait, '', { paint: `cu:${r.name}` }) + '</div>').join('') : ''
     // the starter (engine/starters.mjs): the engine, a genre template and the art to begin with, then the
     // systems the template carries, each a card with why it is suggested
     const sv = p.starterView
     const stCard = (k, name, c) => `<div class="ab pcard st${c.by === 'person' ? ' mine' : ''}" data-key="st:${k}" tabindex="0" role="button" aria-label="${esc(name)}"><b>${esc(name)}</b><span>${esc(c.name || 'None')}</span><i>${esc(c.why || '')}</i>${sel(`st:${k}`)}</div>`
     const starter = sv && !writing ? `<section class="pj-sec pl-starter" data-sec="starter"><span class="al">Starter</span><div class="abs">${stCard('engine', 'Engine', sv.engine)}${stCard('template', 'Template', sv.template)}${stCard('assets', 'Assets', sv.assets)}</div></section>
       ${sv.systems.length ? `<section class="pj-sec pl-systems" data-sec="systems"><span class="al">Systems</span><div class="abs">${sv.systems.map(x => `<div class="ab pcard st${x.on ? '' : ' off'}" data-key="sys:${esc(x.id)}" tabindex="0" role="button" aria-label="${esc(x.name)}"><b>${esc(x.on ? 'On' : 'Off')}</b><span>${esc(x.name)}</span><i>${esc(x.why)}</i>${sel(`sys:${x.id}`)}</div>`).join('')}</div></section>` : ''}` : ''
-    world.innerHTML = `<div class="col"><section class="pj-sec plan-cards" data-sec="cards"><span class="al">Plan</span><div class="abs">${cards}</div></section>${starter}
-      ${writing ? '' : `<section class="pj-sec pl-sheets" data-sec="sheets"><span class="al">Sketches</span><div class="abs">${sheets}</div></section>`}
+    // the next step, on the board as in the chat (engine/gamestep.mjs nextStep; the owner's board said nothing)
+    const next = planNextHtml(p, { noPainter: !!P.noPainter, writing, esc })
+    world.innerHTML = `<div class="col"><section class="pj-sec plan-cards" data-sec="cards"><span class="al">Plan</span>${next}<div class="abs">${cards}</div></section>${starter}
+      ${writing ? '' : `<section class="pj-sec pl-sheets" data-sec="sheets"><span class="al">Sketches</span><div class="abs">${sheets}</div></section>${planRefsHtml(p, { esc, base, sel })}`}
       ${views && !writing ? `<section class="pj-sec pl-build" data-sec="build"><span class="al">Build</span><div class="abs">${views}</div></section>` : ''}</div>
       ${writing ? '' : `<div class="col"><section class="pj-sec pl-mocks" data-sec="mocks"><span class="al">Mocks</span><div class="abs">${mocks}</div></section>
       ${p.shape?.backdrops === false ? '' : `<section class="pj-sec pl-world" data-sec="world"><span class="al">World</span><div class="abs">${worldSec}</div></section>`}
@@ -133,7 +146,7 @@ export function makePlan({ sw, C, root }) {
     applyCam()
     const firstKey = p.first && (p.art?.sprites?.length ? `sp:${p.first.name}` : `vw:${p.first.name}:front`)
     if (!P.draft && firstKey && P.checked !== `${p.id}:${p.first.src}` && !P.sel) { P.checked = `${p.id}:${p.first.src}`; P.sel = firstKey }
-    if (!P.framed && world.offsetWidth && !writing) { P.framed = true; frameAll(false) }
+    if (!P.framed && world.offsetWidth && !writing) { P.framed = true; frameAll(false); fitWatch.fitted() }
     renderInsp()
     // while the crew paint, look again every few seconds
     clearTimeout(P.poll)
@@ -167,7 +180,7 @@ export function makePlan({ sw, C, root }) {
   function renderInsp() {
     const p = P.plan
     const c = P.sel?.startsWith('card:') && p?.cards.find(x => `card:${x.id}` === P.sel)
-    const pic = !c && P.sel && p && !P.draft ? (/^(st|sys):/.test(P.sel) ? starterInsp(p, P.sel) : picInsp(p, P.sel)) : ''
+    const pic = !c && P.sel && p && !P.draft ? (/^(st|sys):/.test(P.sel) ? starterInsp(p, P.sel) : planRefInsp(p, P.sel, { esc, base, sel }) || picInsp(p, P.sel)) : ''
     // a draft is changed by saying so in the chat: no inspector until it is locked
     bd.inspector(!P.draft && !!(c || pic))
     if (insp.hidden) return
@@ -309,8 +322,11 @@ export function makePlan({ sw, C, root }) {
   })
 
   // ---------- the crew paint: one call each, the pictures land as they finish
+  // no image model signed in (server/plans.mjs 503): every empty picture and the next step say so, with Set up
+  const noPainter = err => planTileNoPainter(err) ? (P.noPainter = true) : false
   async function act(sub, body) {
-    try { P.plan = await post(url(sub), body); insp.innerHTML = ''; render() } catch (err) { toast(err.message); insp.innerHTML = ''; render() }
+    // a press always answers: the toast now, and with no image model the board keeps saying so after it goes
+    try { P.plan = await post(url(sub), body); if (planTilePaints.has(sub)) P.noPainter = false; insp.innerHTML = ''; render() } catch (err) { noPainter(err); toast(err.message); insp.innerHTML = ''; render() }
   }
   function paintIt(what, btn) {
     btn.disabled = true
@@ -379,7 +395,7 @@ export function makePlan({ sw, C, root }) {
     }
   }
   async function build() {
-    try { take(await post(url('build'))) } catch (err) { toast(err.message) }
+    try { take(await post(url('build'))) } catch (err) { if (noPainter(err)) render(); toast(err.message) }
   }
 
   // ---------- select (the stage's gestures are the board's)
@@ -390,6 +406,7 @@ export function makePlan({ sw, C, root }) {
     render()
   }
   world.addEventListener('click', e => {
+    if (planTileChip(e.target, { setup: () => window.SwarmSetup ? window.SwarmSetup.open('pictures') : toast('Set up pictures in Setup'), build: gate, lockStyle: () => act('style', { locked: true }), paint: paintIt })) return
     const a = e.target.closest('.ab')
     if (!a) return
     if (a.dataset.key === P.sel && a.classList.contains('sheet') && pickAt(a, e)) return
@@ -417,7 +434,8 @@ export function makePlan({ sw, C, root }) {
       const plan = await post('/api/plans', { idea, answers })
       return plan.id
     },
-    select,
+    // reload: read the plan again (the chat changed it: server/talk.mjs)
+    select, reload() { P.ready = load(); return P.ready },
     // a game talk (spec 27): the board is the plan as it stands, read-only, until the chat locks it
     talk() { Object.assign(P, { id: null, plan: null, sel: null, cell: null, framed: false, draft: true }); render() },
     draft(plan) { if (!P.draft || !plan) return; P.plan = plan; if (P.on) render() },

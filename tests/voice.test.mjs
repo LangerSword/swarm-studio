@@ -3,20 +3,20 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { voiceJobs, ttsRequest } from '../engine/voice.mjs'
 
-const heroes = JSON.parse(readFileSync(new URL('../games/ares/data/heroes.json', import.meta.url), 'utf8'))
+const heroes = JSON.parse(readFileSync(new URL('../gamemaker/heroes.json', import.meta.url), 'utf8'))
 
 test('every ARES heroine has a known voice and her lines become jobs', () => {
-  const jobs = voiceJobs(heroes, { root: 'games/ares' })
+  const jobs = voiceJobs(heroes, { root: 'gamemaker' })
   assert.ok(jobs.some(j => j.hero === 'messenger' && j.key === 'ult'))
   assert.ok(jobs.some(j => j.hero === 'runner' && j.key === 'bark-start'))
-  assert.ok(jobs.every(j => j.out.replaceAll('\\', '/').startsWith('games/ares/assets/voice/') && j.out.endsWith('.mp3')))
+  assert.ok(jobs.every(j => j.out.replaceAll('\\', '/').startsWith('gamemaker/assets/voice/') && j.out.endsWith('.mp3')))
   assert.equal(jobs.filter(j => j.hero === 'runner').length, voiceJobs(heroes, { hero: 'runner' }).length)
 })
 
 test('boss lines become jobs with an inline voice', () => {
-  const jobs = voiceJobs(heroes, { root: 'games/ares', hero: 'teknium' })
+  const jobs = voiceJobs(heroes, { root: 'gamemaker', hero: 'teknium' })
   assert.deepEqual(jobs.map(j => j.key).sort(), ['blade', 'chase', 'down', 'enter', 'glare', 'lance', 'laugh', 'phase'])
-  assert.ok(jobs.every(j => j.out.replaceAll('\\', '/') === `games/ares/assets/voice/teknium/${j.key}.mp3` && j.voice.provider === 'fish'))
+  assert.ok(jobs.every(j => j.out.replaceAll('\\', '/') === `gamemaker/assets/voice/teknium/${j.key}.mp3` && j.voice.provider === 'fish'))
 })
 
 test('moves without a line are not recorded', () => {

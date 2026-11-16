@@ -2,12 +2,13 @@
 // build's name, its Pages and the chosen page's Layers (a dot on a layer an agent is writing); along the bottom the
 // toolbar, where a tool lights up while an agent uses it; on the right the crew, the progress and the zoom, and with
 // nothing selected the build's variables, the design tokens the planner set up.
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, type ReactNode, type Ref } from 'react'
 import { Button } from '../../primitives/Button'
 import { Menu, MenuItem } from '../../primitives/Menu'
 import { Icon } from '../../primitives/Icon'
 import { Layers, type LayerGroup } from '../../shared/Layers'
 import { crew } from './crew'
+import './deck.css'
 import type { DeckModel, ToolId } from './model'
 
 // Layers (the shared tree, src/shared/Layers.tsx), as the breadboard draws the deck's: the nav and footer every page
@@ -84,33 +85,51 @@ const TOOLS: { id: ToolId, label: string, icon: string }[] = [
   { id: 'comment', label: 'Comment', icon: 'msg' }
 ]
 
-// Which tool each working agent holds. Display only in this slice: the person's own tools (Text, Comment) come
-// with the editing and the marks.
-export function Toolbar({ model }: { model: DeckModel }) {
+// The person's own tools (web/canvas/panels.js USER_TOOLS, web/canvas/marks.js): Move (pick and pan), Text (the
+// picked section's words, or the next section clicked) and Comment (the same, its comment). V, T and C press them.
+export const MINE = ['move', 'text', 'comment'] as const
+export type MyTool = typeof MINE[number]
+
+// The toolbar: the person's three tools, pressable, and every tool lit while an agent holds it (the rest are the
+// crew's alone, as in the current deck)
+export function Toolbar({ model, tool, onTool }: { model: DeckModel, tool: MyTool, onTool: (t: MyTool) => void }) {
+  const hint = tool === 'text' ? 'Click a section to change its words' : tool === 'comment' ? 'Click a section to comment on it' : ''
   return (
-    <ul aria-label="Tools" className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-[12px] border border-edge bg-deep p-1.5 shadow-[0_14px_40px_rgb(var(--shade-rgb)/.5)]">
-      {TOOLS.map(t => {
-        const who = model.agents.filter(a => a.layer && a.tool === t.id)
-        const names = who.map(a => a.name)
-        return (
-          <li key={t.id} aria-label={names.length ? `${t.label}: ${names.join(', ')}` : t.label}
-            className={`relative grid size-10 place-items-center rounded-[8px] ${who.length ? 'bg-panel-2 text-text' : 'text-muted'}`}>
-            <Icon name={t.icon} size={18} />
-            {who.length > 0 && (
-              <span aria-hidden className="absolute right-1 bottom-1 flex gap-0.5">
-                {who.slice(0, 3).map(a => <i key={a.id} className="size-1.5 rounded-full" style={{ background: crew().color(a.name) }} />)}
-              </span>
-            )}
-          </li>
-        )
-      })}
-    </ul>
+    <div className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 flex-col items-center gap-2">
+      <p role="status" className={`rounded-[8px] border border-edge bg-deep px-2.5 py-1 font-monospace text-[13px] ${hint ? '' : 'sr-only'}`}>{hint}</p>
+      <ul aria-label="Tools" className="flex items-center gap-1 rounded-[12px] border border-edge bg-deep p-1.5 shadow-[0_14px_40px_rgb(var(--shade-rgb)/.5)]">
+        {TOOLS.map(t => {
+          const who = model.agents.filter(a => a.layer && a.tool === t.id)
+          const names = who.map(a => a.name)
+          const label = names.length ? `${t.label}: ${names.join(', ')}` : t.label
+          const dots = who.length > 0 && (
+            <span aria-hidden className="absolute right-1 bottom-1 flex gap-0.5">
+              {who.slice(0, 3).map(a => <i key={a.id} className="size-1.5 rounded-full" style={{ background: crew().color(a.name) }} />)}
+            </span>
+          )
+          const mine = (MINE as readonly string[]).includes(t.id) ? t.id as MyTool : null
+          return (
+            <li key={t.id} aria-label={mine ? undefined : label} className="relative">
+              {mine
+                ? (
+                    <Button role="ghost" aria-label={label} aria-pressed={tool === mine} aria-keyshortcuts={mine[0].toUpperCase()} onPress={() => onTool(mine)}
+                      className={`relative size-10 min-w-10 px-0 ${tool === mine ? 'bg-panel-2! text-text outline-1 outline-frame-hi' : who.length ? 'bg-panel-2 text-text' : 'text-muted'}`}>
+                      <Icon name={t.icon} size={18} />{dots}
+                    </Button>
+                  )
+                : <span className={`relative grid size-10 place-items-center rounded-[8px] ${who.length ? 'bg-panel-2 text-text' : 'text-dim'}`}><Icon name={t.icon} size={18} />{dots}</span>}
+            </li>
+          )
+        })}
+      </ul>
+    </div>
   )
 }
 
 // the status pill's words (openspec/specs/design-deck/spec.md, "Watching the crew")
-export function progress(m: DeckModel): string {
+export function progress(m: DeckModel, unfinished = false): string {
   const n = m.agents.filter(a => a.layer).length
+  if (unfinished) return `Stopped before it finished · ${m.done} of ${m.planned} sections`
   const pages = (k: number) => `${k} page${k === 1 ? '' : 's'}`
   switch (m.state) {
     case 'empty': return 'Ready'
@@ -121,14 +140,29 @@ export function progress(m: DeckModel): string {
   }
 }
 
+// The build's status pill on the canvas (web/canvas.css .status, web/canvas/panels.js renderStatus): a dot that
+// pulses while the crew works, what is happening, the sections done of those planned, and a bar that fills
+export function StatusPill({ model, unfinished }: { model: DeckModel, unfinished: boolean }) {
+  const state = unfinished || model.state === 'stopped' || model.state === 'empty' ? 'idle' : model.state === 'done' ? 'done' : model.state === 'planning' ? 'planning' : 'working'
+  const pct = model.planned ? Math.round(100 * model.done / model.planned) : 0
+  return (
+    <div role="status" className="deck-status" data-state={state}>
+      <span aria-hidden className="st-dot" />
+      <span className="st-txt">{progress(model, unfinished)}</span>
+      <span aria-hidden className="st-bar"><i style={{ width: `${state === 'planning' ? 0 : pct}%` }} /></span>
+    </div>
+  )
+}
+
 // the top row (Figma's): who is here, Play, Replay and the zoom. Play is the deck's one primary action (rule 17).
 // Publish's label is its state (the breadboard's "Publish", "Publishing…", "Live"); Replay and Export, both acts on
 // the build, are in the ⋯ menu beside it
 // With a section picked, `design` (its Design tab) takes the variables' place, as Figma's right panel does
-export function RightPanel({ model, zoom, onFit, canPlay, onPlay, replay, onPublish, onExport, design, history }: {
+export function RightPanel({ model, zoom, onFit, canPlay, onPlay, replay, onPublish, onExport, design, history, publishRef }: {
   model: DeckModel, zoom: number, onFit: () => void, canPlay: boolean, onPlay: () => void,
   replay: { on: boolean, can: boolean, toggle: () => void }, onPublish: () => void, onExport: () => void,
-  design?: ReactNode, history: { canUndo: boolean, canRedo: boolean, undo: () => void, redo: () => void, undoLabel?: string, redoLabel?: string, error: string }
+  design?: ReactNode, history: { canUndo: boolean, canRedo: boolean, undo: () => void, redo: () => void, undoLabel?: string, redoLabel?: string, error: string },
+  publishRef?: Ref<HTMLButtonElement>
 }) {
   const pubLabel = model.publish.state === 'working' ? 'Publishing…' : model.publish.liveTarget && model.publish.state !== 'failed' ? 'Live' : 'Publish'
   const vars = Object.entries(model.theme?.vars ?? {})
@@ -147,14 +181,14 @@ export function RightPanel({ model, zoom, onFit, canPlay, onPlay, replay, onPubl
       </div>
       <div className="flex gap-2 border-b border-edge px-3 py-2">
         <Button role="primary" isDisabled={!canPlay} onPress={onPlay} className="flex-1"><Icon name="play" size={16} />Play</Button>
-        <Button role="secondary" isDisabled={!canPlay} onPress={onPublish}><Icon name="globe" size={16} />{pubLabel}</Button>
+        {/* Publish as the current Studio's (web/canvas.css .toggle): a glass pill whose fill and edge ease in on hover */}
+        <Button ref={publishRef} role="secondary" isDisabled={!canPlay} onPress={onPublish} className="deck-toggle"><Icon name="globe" size={16} />{pubLabel}</Button>
         <Menu label={<Icon name="more" size={18} />} name="Build" disabledKeys={[...(replay.can ? [] : ['replay']), ...(canPlay ? [] : ['export'])]}
           onAction={k => (k === 'replay' ? replay.toggle() : onExport())}>
           <MenuItem id="replay">{replay.on ? 'Stop replay' : 'Replay'}</MenuItem>
           <MenuItem id="export">Export</MenuItem>
         </Menu>
       </div>
-      <p role="status" className="border-b border-edge px-4 py-2.5 font-monospace text-[13px] text-muted">{progress(model)}</p>
       <div className="flex items-center gap-1 border-b border-edge px-3 py-1.5">
         <Button role="ghost" aria-label={history.undoLabel ? `Undo ${history.undoLabel}` : 'Undo'} isDisabled={!history.canUndo} onPress={history.undo}><Icon name="restore" size={16} /></Button>
         <Button role="ghost" aria-label={history.redoLabel ? `Redo ${history.redoLabel}` : 'Redo'} isDisabled={!history.canRedo} onPress={history.redo}><Icon name="restore" size={16} className="-scale-x-100" /></Button>

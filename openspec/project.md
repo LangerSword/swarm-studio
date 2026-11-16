@@ -27,6 +27,21 @@ Each scenario ends with a **Gate** line naming what tests it:
 A scenario the audit tests today may still fail on main: what fails is listed in `.ui-audit-known-violations.json`
 and in each breadboard's **Where the code differs**. The spec is the target; the known list is where the code is.
 
+Every scenario also runs as a Playwright test, in its own words (decision 0019; the `bdd` job, `tests/bdd/gen.mjs`,
+`tools/dev/bdd/steps/`), on `/` and, once its screen has moved, on `/next/`. A scenario with no test fails that job,
+unless it is listed as pending in `tests/bdd/pending.json` (with the issue that will bind it) or no test can check it.
+A scenario that is bound but one Studio doesn't meet yet is listed in `tests/bdd/gaps.json` for that Studio (`current`
+for `/`, `next` for `/next/`), with what differs and the words of the failure it passes. Only those failures pass,
+with a `gap` note in the report: any other difference fails, and a gap that no longer fails is reported as closed,
+to take off the list. The spec is the target; the gap list is where the code is.
+
+A scenario no test can check says why, on a line under its `Gate: manual`:
+
+```
+- Gate: `manual`
+- Manual: needs a real deploy to Vercel; tests never deploy
+```
+
 ## Shared requirements
 
 Every screen spec repeats these with its own values, so each file stands alone:

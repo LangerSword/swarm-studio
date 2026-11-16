@@ -18,19 +18,21 @@ const DECK_KIT_LAYOUTS = [['title', 'Title'], ['section', 'Section'], ['points',
 // a slide is drawn at 1920 × 1080 and shown at this size on the board
 const DECK_KIT_W = 240, DECK_KIT_K = DECK_KIT_W / 1920
 
+// The kit's cards are Plan board cards too (.ab.pcard, 210 x 118), so their rules say .ab.pcard.dk-* to take their own
+// size over that; the outline grows with its slides. They are filled as panels are (--deep; --surface is no token).
 function deckKitStyle() {
   if (document.getElementById('dk-style')) return
   const st = document.createElement('style')
   st.id = 'dk-style'
   st.textContent = `
-.dk-slide { width: ${DECK_KIT_W}px; padding: 0; background: none; border: 0; display: flex; flex-direction: column; gap: 6px; }
+.ab.pcard.dk-slide, .dk-slide { width: ${DECK_KIT_W}px; height: auto; padding: 0; background: none; border: 0; display: flex; flex-direction: column; justify-content: flex-start; gap: 6px; }
 .dk-shot { position: relative; width: ${DECK_KIT_W}px; height: ${DECK_KIT_W * 9 / 16}px; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); background: var(--surface-2); }
 .dk-shot iframe { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; border: 0; transform: scale(${DECK_KIT_K}); transform-origin: 0 0; pointer-events: none; }
 .dk-slide em { font: 500 12px var(--body); font-style: normal; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dk-outline { width: 320px; min-height: 120px; padding: 14px 16px; background: var(--surface); }
+.ab.pcard.dk-outline, .dk-outline { width: 320px; height: auto; min-height: 120px; padding: 14px 16px; display: block; overflow: hidden; background: var(--deep); }
 .dk-outline ol { margin: 0; padding-left: 22px; font: 13px/1.7 var(--body); color: var(--text); }
 .dk-outline li.key { font-weight: 600; }
-.dk-card { width: 190px; min-height: 96px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; background: var(--surface); }
+.ab.pcard.dk-card, .dk-card { width: 190px; height: auto; min-height: 96px; padding: 12px 14px; display: flex; flex-direction: column; justify-content: flex-start; gap: 6px; background: var(--deep); }
 .dk-card b { font: 600 15px var(--body); color: var(--text); }
 .dk-card span { font: 13px var(--body); color: var(--muted); }
 .dk-look.on .dk-shot { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -55,9 +57,10 @@ async function deckKitApi(ctx, path, body, method = 'POST') {
   if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`)
   return j
 }
-const deckKitKey = ctx => ctx.project || 'draft'
+// the project's id: the Studio passes the project ({ id, name, … }), an older caller its id (web/kit-video.js pidOf)
+const deckKitPid = ctx => (typeof ctx.project === 'string' ? ctx.project : ctx.project?.id) || '', deckKitKey = ctx => deckKitPid(ctx) || 'draft'
 const deckKitOf = ctx => deckKitState.get(deckKitKey(ctx)) || deckKitState.set(deckKitKey(ctx), { deck: null, looks: [], all: [], sel: null, shots: new Map(), saving: null, asked: new Set() }).get(deckKitKey(ctx))
-const deckKitWho = ctx => ({ project: ctx.project || undefined, chat: ctx.chat?.id || undefined })
+const deckKitWho = ctx => ({ project: deckKitPid(ctx) || undefined, chat: ctx.chat?.id || undefined })
 
 // a change to the deck: kept, drawn again, and saved to the project a moment later
 function deckKitSet(ctx, deck) {
@@ -66,7 +69,7 @@ function deckKitSet(ctx, deck) {
   ctx.refresh?.()
   clearTimeout(st.saving)
   st.saving = setTimeout(async () => {
-    try { if (ctx.project) await deckKitApi(ctx, `/api/kit/deck/${encodeURIComponent(ctx.project)}`, { deck: st.deck, looks: st.looks }) } catch (err) { ctx.board?.toast?.(err.message) }
+    try { if (deckKitPid(ctx)) await deckKitApi(ctx, `/api/kit/deck/${encodeURIComponent(deckKitPid(ctx))}`, { deck: st.deck, looks: st.looks }) } catch (err) { ctx.board?.toast?.(err.message) }
   }, 400)
 }
 
@@ -164,11 +167,11 @@ function deckKitWire(ctx, el, what, i) {
 
 // Export: written into the project from the person's press; Present opens the HTML on its own, where its keys work
 async function deckKitExport(ctx, format) {
-  if (!ctx.project) return ctx.board?.toast?.('Make the project first')
+  if (!deckKitPid(ctx)) return ctx.board?.toast?.('Make the project first')
   const st = deckKitOf(ctx)
   clearTimeout(st.saving)
-  await deckKitApi(ctx, `/api/kit/deck/${encodeURIComponent(ctx.project)}`, { deck: st.deck, looks: st.looks })
-  return deckKitApi(ctx, `/api/kit/deck/${encodeURIComponent(ctx.project)}/export`, { format: format === 'pdf' ? 'pdf' : 'html', ...deckKitWho(ctx) })
+  await deckKitApi(ctx, `/api/kit/deck/${encodeURIComponent(deckKitPid(ctx))}`, { deck: st.deck, looks: st.looks })
+  return deckKitApi(ctx, `/api/kit/deck/${encodeURIComponent(deckKitPid(ctx))}/export`, { format: format === 'pdf' ? 'pdf' : 'html', ...deckKitWho(ctx) })
 }
 // the exported file, fetched with the studio's token
 async function deckKitFile(ctx, format) {
@@ -222,8 +225,8 @@ export const deckKit = {
     const st = deckKitOf(ctx)
     if (!st.all.length) st.all = (await deckKitApi(ctx, '/api/kit/deck/looks').catch(() => ({ looks: [] }))).looks
     if (st.deck) return st
-    if (ctx.project) {
-      const saved = await deckKitApi(ctx, `/api/kit/deck/${encodeURIComponent(ctx.project)}`).catch(() => null)
+    if (deckKitPid(ctx)) {
+      const saved = await deckKitApi(ctx, `/api/kit/deck/${encodeURIComponent(deckKitPid(ctx))}`).catch(() => null)
       if (saved?.deck) { st.deck = saved.deck; st.looks = saved.looks?.length ? saved.looks : [saved.deck.look]; return st }
     }
     const idea = ctx.studio?.idea || ctx.chat?.turns?.find(t => t.who === 'person')?.text || ''
@@ -290,7 +293,7 @@ export const deckKit = {
   async build(spec, ctx) {
     const d = spec?.kits?.deck?.deck
     if (!d) throw new Error('lock the deck first')
-    if (!ctx.project) throw new Error('Make the project first')
+    if (!deckKitPid(ctx)) throw new Error('Make the project first')
     deckKitOf(ctx).deck = d
     const html = await deckKitExport(ctx, 'html')
     const pdf = await deckKitExport(ctx, 'pdf').catch(() => null)

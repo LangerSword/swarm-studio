@@ -1,6 +1,7 @@
 // @ts-check
 // web/canvas.js, split by area (web/canvas/README.md): starting a build, resizable panels, crews, the Publish button, pictures in the Design panel.
-import { BASE, BOOT, WALL, S, cosmosHooks, commandOps, els, store, Q, $, Crew, ARROW, TOOL, api } from './core.js'
+import { eventStream } from '../headerstream.js'
+import { BASE, BOOT, WALL, S, cosmosHooks, commandOps, els, store, Q, $, Crew, ARROW, TOOL, api, setBuild } from './core.js'
 import { hermesResume, botMsg, resumeRun, renderToolbar, setText, feed, setHermesResume } from './panels.js'
 import { hosted } from './hosted.js'
 import { fresh } from './base.js'
@@ -17,7 +18,7 @@ import { setAuto, pick, crewQuiet } from './deck.js'
 import { frameLoop, nextFrame } from './loop.js'
 import { game, workedJobs, benchPin, view, appv, appEls, setView, resetApp, deployApp } from './rooms.js'
 import { cw, wallNames, CW_TILES, radioOn, radio, heardIn } from './auto.js'
-import { pub, pubShow, pubButton, copyText, liveUrl, feedPop, publishMenu } from './publish.js'
+import { pub, pubShow, pubButton, pubSync, copyText, liveUrl, feedPop, publishMenu } from './publish.js'
 
 // ---------- start
 
@@ -39,44 +40,49 @@ export let es = null
 export function connect() {
   es?.close()
   fresh()
-  es = new EventSource(`${BASE}/events?k=${encodeURIComponent(BOOT.token || '')}`)
-  es.onmessage = m => {
-    try {
-      const e = JSON.parse(m.data)
-      // a wall tile only watches: the main canvas answers Hermes' commands
-      if (e.type === 'cmd') return WALL ? null : command(e)
-      // a sign-in belongs to no file
-      if (e.type === 'connector') return connectorEvent(e)
-      // model calls wait for Hermes (engine/hermesllm.mjs): the build goes on once it is open
-      if (e.type === 'hermes:waiting' || e.type === 'hermes:back') return hermesWait(e)
-      if (e.type === 'reset' || e.type === 'run:start') {
-        setLiveId(e.run)
-        // a talk before building keeps the canvas: a build started elsewhere waits in Projects
-        if (talk.on) return
-        // Only the build the person asked for, or the one already followed, takes the canvas. Any
-        // other (the server's current run replayed on a reconnect, a build from another window) is
-        // only news: Projects lists it, and the open build stays as it is.
-        // In the studio the navigation machine names the build (spec 34): a canvas holding nothing takes
-        // only that one, and the stream itself only tells the machine that a build has begun.
-        const nav = window.swarmCosmos?.nav
-        if (e.type === 'run:start') nav?.go({ type: 'streamed', run: e.run })
-        const followed = !viewing && (S.run === e.run || (!S.run && (!nav || e.run === nav.view.run)))
-        if (!followed && e.run !== claimed) {
-          if (!viewing && S.run) setViewing(S.run)
-          if (e.type === 'run:start') for (const fn of cosmosHooks) try { fn(e) } catch (err) { console.error(err) }
-          return
-        }
-        if (viewing) { setViewing(null); fresh(e.run) }
+  // the token in its header, never in the address (web/headerstream.js)
+  es = eventStream(`${BASE}/events`, { token: BOOT.token || '', onMessage: m => onEvent(m) })
+}
+/** @param {{ data: string }} m */
+function onEvent(m) {
+  try {
+    const e = JSON.parse(m.data)
+    // a wall tile only watches: the main canvas answers Hermes' commands
+    if (e.type === 'cmd') return WALL ? null : command(e)
+    // a sign-in belongs to no file
+    if (e.type === 'connector') return connectorEvent(e)
+    // model calls wait for Hermes (engine/hermesllm.mjs): the build goes on once it is open
+    if (e.type === 'hermes:waiting' || e.type === 'hermes:back') return hermesWait(e)
+    // the server's one state of a website build (engine/buildstate.mjs): kept by run, whichever build is open,
+    // and sent before the event that changed it, so an end event is said from it (core.js buildOf)
+    if (e.type === 'build:state') return setBuild(e.run, e.state, e.parts)
+    if (e.type === 'reset' || e.type === 'run:start') {
+      setLiveId(e.run)
+      // a talk before building keeps the canvas: a build started elsewhere waits in Projects
+      if (talk.on) return
+      // Only the build the person asked for, or the one already followed, takes the canvas. Any
+      // other (the server's current run replayed on a reconnect, a build from another window) is
+      // only news: Projects lists it, and the open build stays as it is.
+      // In the studio the navigation machine names the build (spec 34): a canvas holding nothing takes
+      // only that one, and the stream itself only tells the machine that a build has begun.
+      const nav = window.swarmCosmos?.nav
+      if (e.type === 'run:start') nav?.go({ type: 'streamed', run: e.run })
+      const followed = !viewing && (S.run === e.run || (!S.run && (!nav || e.run === nav.view.run)))
+      if (!followed && e.run !== claimed) {
+        if (!viewing && S.run) setViewing(S.run)
+        if (e.type === 'run:start') for (const fn of cosmosHooks) try { fn(e) } catch (err) { console.error(err) }
+        return
       }
-      // following the live build: an event of another build (a late picture of the build before,
-      // an edit made to a saved one in another window) is not this canvas's. A new build's start is:
-      // it takes the canvas over (an App's design step, a build started with hermes swarm)
-      if (!viewing && e.run && S.run && e.run !== S.run && e.type !== 'run:start' && e.type !== 'reset') return
-      // events for the open file (a review or edit while viewing it) apply too
-      if (!viewing || (e.run === viewing && e.type !== 'run:start')) on(e)
-    } catch (err) {
-      console.error(err)
+      if (viewing) { setViewing(null); fresh(e.run) }
     }
+    // following the live build: an event of another build (a late picture of the build before,
+    // an edit made to a saved one in another window) is not this canvas's. A new build's start is:
+    // it takes the canvas over (an App's design step, a build started with hermes swarm)
+    if (!viewing && e.run && S.run && e.run !== S.run && e.type !== 'run:start' && e.type !== 'reset') return
+    // events for the open file (a review or edit while viewing it) apply too
+    if (!viewing || (e.run === viewing && e.type !== 'run:start')) on(e)
+  } catch (err) {
+    console.error(err)
   }
 }
 
@@ -166,6 +172,8 @@ const radioLine = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
 radioLine.setAttribute('class', 'radio-line')
 radioLine.setAttribute('aria-hidden', 'true')
 radioLine.innerHTML = '<path/>'
+// an SVG element has no `hidden` property: the attribute is what hides it (and stops its dash animating unseen)
+radioLine.setAttribute('hidden', '')
 crewLayer.append(radioLine)
 
 // Which screen is busy, where the agents may point, and what they are each doing.
@@ -183,8 +191,18 @@ function crewJob() {
       : { key: `app-${cw.mode || 'code'}|${wallNames().map(n => n[0])}`, names: wallNames(), radio: true, host: appEls.view, spots: '.cw-tile:not(.cw-off)', n: CW_TILES, lines: [cw.mode === 'art' ? 'painting' : 'writing code'], tool: cw.mode === 'art' ? ['image', 'image', 'image', 'text'] : ['text', 'text', 'connect', 'frame'], pin: cwPin }
   }
   if (view === 'app' && appv.state === 'working' && appv.run === shownRun()) {
-    const done = appv.steps.filter(s => s.kind === 'write' || s.kind === 'gate' || s.kind === 'render').slice(-6).map(s => s.text.replace(/^(wrote|writing|write)\s+/i, '').slice(0, 34))
-    return { key: 'app', host: appEls.view, spots: '#app-steps .st:nth-last-child(-n+5), #app-preview, #app-stage', n: 4, lines: done.length ? done : ['setting up the project', 'reading the design', 'planning routes'], tool: ['text', 'frame', 'connect', 'rect'] }
+    // one line per agent, and never the same line twice: a build can report one step ten times in a
+    // row (the engine says "starting the app" every time it reloads it), and four agents each drawing
+    // that same sentence looked like four players doing one job — the person asked why (2026-11-16).
+    // The last few distinct steps, newest first, so the crew shows what actually differs.
+    const seen = new Set()
+    const done = appv.steps
+      .filter(s => s.kind === 'write' || s.kind === 'gate' || s.kind === 'render')
+      .map(s => s.text.replace(/^(wrote|writing|write)\s+/i, '').slice(0, 34))
+      .reverse()
+      .filter(t => (seen.has(t) ? false : (seen.add(t), true)))
+      .slice(0, 6)
+    return { key: `app|${done.join('|')}`, host: appEls.view, spots: '#app-steps .st:nth-last-child(-n+5), #app-preview, #app-stage', n: Math.min(4, Math.max(1, done.length)), lines: done.length ? done : ['setting up the project', 'reading the design', 'planning routes'], tool: ['text', 'frame', 'connect', 'rect'] }
   }
   if (video.busy && video.el) {
     const scenes = video.story.map((sc, i) => `scene ${i + 1}: ${sc.headline}`.slice(0, 34))
@@ -204,12 +222,18 @@ export function crewMembers(n) {
 function crewSpot(job, me) {
   const r = job.host.getBoundingClientRect()
   const spots = [...job.host.querySelectorAll(job.spots)].filter(e => e.offsetParent)
+  // A tag is the arrow, the name and the line being worked on, so it runs to ~250px: cursors kept 160px
+  // apart put their tags on top of each other, which read as one muddled label (the person, 2026-11-16).
+  // Apart enough for two tags to sit beside each other, and never the same point twice.
+  const GAP = 300
   let p
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 12; i++) {
     const t = spots.length && Math.random() < 0.6 ? pick(spots).getBoundingClientRect() : r
     if (!t.width || !t.height) return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
     p = { x: t.left + t.width * (0.1 + Math.random() * 0.8), y: t.top + t.height * (0.15 + Math.random() * 0.7) }
-    if (crew.members.every(m => m === me || Math.hypot(m.tx - p.x, m.ty - p.y) > 160)) break
+    const clear = crew.members.every(m => m === me || Math.hypot(m.tx - p.x, m.ty - p.y) > GAP)
+    // a host too small to hold them 300px apart: the closest of the tries beats stacking them together
+    if (clear) return p
   }
   return p
 }
@@ -240,7 +264,7 @@ function crewTick(now) {
     }
   }
   // @ts-ignore
-  if (!job) { radioLine.hidden = true; return }
+  if (!job) { radioLine.setAttribute('hidden', ''); return }
   let lineTo = null
   for (const [i, m] of crew.members.entries()) {
     // pinned: the cursor rides its file's caret while the code types out
@@ -275,14 +299,22 @@ function crewTick(now) {
     m.y += (m.ty - m.y) * 0.08
     m.el.classList.toggle('moving', Math.abs(m.tx - m.x) + Math.abs(m.ty - m.y) > 6)
     m.el.style.transform = `translate(${m.x.toFixed(1)}px, ${m.y.toFixed(1)}px)`
+    // A tag hangs to the right of its arrow ("Helper 1 play testing" is ~230px): near the right edge it
+    // ran out of the wall it belongs to and crossed into the tile beside it, over another agent's window
+    // (the person, 2026-11-16). Flipped, it hangs to the left and stays over its own cursor.
+    if (now > (m.flipAt || 0)) {
+      m.flipAt = now + 250
+      const w = m.el.querySelector('.tag')?.getBoundingClientRect().width || 0
+      m.el.classList.toggle('flip', m.x + 16 + w > window.innerWidth - 8)
+    }
     m.el.classList.toggle('press', now > m.pressAt && now < m.pressAt + 160)
   }
   // Hermia's dotted line, from her strip to the helper she is giving an order to
   const from = lineTo && document.querySelector('#app-hermia:not([hidden]):not(.min) .ah-head .cw-radio-av')?.getBoundingClientRect()
   // @ts-ignore
-  radioLine.hidden = !from?.width
+  radioLine.toggleAttribute('hidden', !from?.width)
   // @ts-ignore
-  if (!radioLine.hidden) {
+  if (!radioLine.hasAttribute('hidden')) {
     const x1 = from.left + from.width / 2, y1 = from.bottom, x2 = lineTo.x + 6, y2 = lineTo.y + 4
     // @ts-ignore
     radioLine.firstChild.setAttribute('d', `M${x1.toFixed(1)} ${y1.toFixed(1)}C${x1.toFixed(1)} ${(y1 + 80).toFixed(1)} ${x2.toFixed(1)} ${(y2 - 80).toFixed(1)} ${x2.toFixed(1)} ${y2.toFixed(1)}`)
@@ -302,6 +334,7 @@ els.publishBtn.onclick = async e => {
   pubMenu.hidden = false
   els.publishBtn.classList.add('on')
   closeable(pubMenu, closePub, { extra: [els.publishBtn] })
+  pubSync()
   const opt = pubMenu.querySelector('[data-pub="app"]'), why = opt.querySelector('.pub-why')
   const run = shownRun()
   opt.disabled = true

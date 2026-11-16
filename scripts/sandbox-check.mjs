@@ -84,7 +84,7 @@ try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 820 } })
   page.on('pageerror', e => console.log('  page error:', e.message))
   await page.goto(`${BASE}/`)
-  await page.waitForSelector('.home .card[aria-label="Sandbox Tea"]', { timeout: 15000 })
+  await page.waitForSelector('.home .card[data-name="Sandbox Tea"]', { timeout: 15000 })
 
   console.log('clean(), by the DOM')
   const cleaned = await page.evaluate(async html => (await import('/clean.js')).clean(html), '```html\n' + ATTACKS + '\n```')
@@ -94,7 +94,7 @@ try {
   ok(/<h1>|<a id="js">go<\/a>|<button id="fb">send<\/button>/.test(cleaned) && !cleaned.includes('```'), 'the content itself is kept, and the code fence goes')
 
   console.log('page frames')
-  await page.click('.home .card[aria-label="Sandbox Tea"]')
+  await page.click('.home .card[data-name="Sandbox Tea"]')
   await page.waitForFunction(r => window.swarm.S?.run === r && window.swarm.S.frames.length === 1 && window.swarm.S.frames[0].ready, RUN, { timeout: 15000 }).catch(() => {})
   await wait(1500)
   const frames = await page.evaluate(() => window.swarm.S.frames.map(f => ({ sandbox: f.iframe.getAttribute('sandbox'), doc: f.iframe.contentDocument === null })))
@@ -117,10 +117,10 @@ try {
 
   console.log('/site/ and /video/…/live/')
   for (const [path, what] of [[`/site/${RUN}/`, 'a local site'], [`/video/${RUN}/live/index.html`, 'a video composition']]) {
-    const res = await fetch(`${BASE}${path}?k=${TOKEN}`)
+    const res = await fetch(`${BASE}${path}`)
     ok(res.headers.get('content-security-policy') === 'sandbox allow-scripts', `${what} is served with content-security-policy: sandbox allow-scripts (${res.headers.get('content-security-policy')})`)
     const p2 = await browser.newPage()
-    await p2.goto(`${BASE}${path}?k=${TOKEN}`)
+    await p2.goto(`${BASE}${path}`)
     await wait(400)
     ok((await p2.title()) === 'origin:null;storage:no', `a script in ${what} sees an opaque origin and no storage (${await p2.title()})`)
     await p2.close()

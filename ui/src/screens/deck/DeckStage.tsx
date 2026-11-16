@@ -3,10 +3,10 @@
 // every page (PATTERNS.md, "The Design deck follows Figma"). While Follow is on the camera goes to the agent at work;
 // a drag or the wheel turns it off and a double-click turns it back on (openspec/specs/design-deck/spec.md). The
 // pages only show here: they take no pointer.
-import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
 import { BoardHostContext } from '../../board/host'
 import { iframeHost } from '../../board/iframeHost'
-import { crew } from './crew'
+import { CrewCursors } from './CrewCursors'
 import { FRAME_W, GAP, PageFrame, frameX, type FrameGeo } from './PageFrame'
 import { layersOf, type DeckAgent, type DeckModel } from './model'
 
@@ -18,6 +18,38 @@ export interface StageHandle {
 type Cam = { x: number, y: number, k: number }
 const LABEL = 28
 const MIN_K = 0.04, MAX_K = 2
+
+// the box around every section the crew is writing (web/canvas/deck.js bboxActive); none at work: every page
+function activeBox(m: DeckModel, geo: Record<string, FrameGeo>) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+  const add = (ax: number, ay: number, bx: number, by: number) => { x0 = Math.min(x0, ax); y0 = Math.min(y0, ay); x1 = Math.max(x1, bx); y1 = Math.max(y1, by) }
+  for (const a of m.agents) {
+    const b = a.layer ? sectionBox(m, geo, a.layer) : null
+    if (b) add(b.x, b.y, b.x + b.w, b.y + Math.max(b.h, 300))
+  }
+  if (x0 === Infinity) for (const p of m.pages) add(frameX(p), LABEL - 120, frameX(p) + FRAME_W, LABEL + (geo[p.id]?.height || 700))
+  return x0 === Infinity ? null : { x0, y0: y0 - 160, x1, y1: y1 + 80 }
+}
+
+// where the reviewer looks on a page under review (web/canvas/auto.js rvSpot): a section, a little way in
+function reviewSpot(m: DeckModel, geo: Record<string, FrameGeo>, id: string, n: number) {
+  const page = m.pages.find(p => p.id === id)
+  if (!page) return null
+  const keys = Object.keys(geo[id]?.slots ?? {})
+  if (!keys.length) return { x: frameX(page) + 640, y: LABEL + 300 }
+  const [left, top, width, height] = geo[id].slots[keys[n % keys.length]].box
+  return { x: frameX(page) + left + width * (0.25 + ((n * 37) % 50) / 100), y: LABEL + top + Math.min(height, 600) * 0.45 }
+}
+
+// a section's box in the world's coordinates, on the first page that shows it
+function sectionBox(m: DeckModel, geo: Record<string, FrameGeo>, key: string) {
+  const l = m.layers[key]
+  const page = l && (l.page === '*' ? m.pages[0] : m.pages.find(p => p.id === l.page))
+  const g = page && geo[page.id]?.slots[key]
+  if (!page || !g) return null
+  const [x, y, w, h] = g.box
+  return { x: frameX(page) + x, y: LABEL + y, w, h: Math.max(h, l.height) }
+}
 
 // where an agent's cursor goes, in the world's coordinates (web/canvas/deck.js agentTarget)
 function target(m: DeckModel, geo: Record<string, FrameGeo>, a: DeckAgent): { x: number, y: number } | null {
@@ -32,9 +64,6 @@ function target(m: DeckModel, geo: Record<string, FrameGeo>, a: DeckAgent): { x:
   return { x: x0 + g.last[0], y: y0 + g.last[1] - 6 }
 }
 
-// the agent the camera follows: one writing, else one just starting
-const followed = (m: DeckModel) => m.agents.find(a => a.layer && m.layers[a.layer]?.status === 'streaming') ?? m.agents.find(a => a.layer)
-
 // a section the person picked, on the page it was picked on (the nav and footer are on every page)
 export interface Picked { key: string, page: string }
 
@@ -45,7 +74,41 @@ export function DeckStage({ ref, model, onZoom, follow = false, onFollow, select
   pickExtra?: ReactNode
 }) {
   const stage = useRef<HTMLDivElement>(null)
-  const [cam, setCam] = useState<Cam>({ x: 40, y: 40, k: 0.16 })
+  // where the camera starts (web/canvas/core.js cam): Follow glides from here to the crew
+  const [cam, setCam] = useState<Cam>({ x: 40, y: 140, k: 0.16 })
+  // The camera on screen: while Follow moves it, it eases a little each frame toward `cam` (web/canvas/loop.js), else
+  // it is `cam` at once. Written straight to the world element, so React draws nothing per frame; the crew's cursors
+  // read the same, so they stay on their sections while it moves.
+  const world = useRef<HTMLDivElement>(null)
+  const shown = useRef<Cam>({ ...cam })
+  const want = useRef({ cam, follow })
+  want.current = { cam, follow }
+  // not easing (no Follow, reduced motion): the camera is written at once, also where no frame runs (a hidden tab)
+  useLayoutEffect(() => {
+    if (follow && !matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    Object.assign(shown.current, cam)
+    if (world.current) world.current.style.transform = `translate(${cam.x.toFixed(1)}px, ${cam.y.toFixed(1)}px) scale(${cam.k.toFixed(4)})`
+  }, [cam, follow])
+  // the glide runs only while following: a board that is not followed draws no frame of its own (board gauge)
+  useEffect(() => {
+    if (!follow || matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    let raf = 0, last = 0
+    const tick = () => {
+      const { cam: to, follow: ease } = want.current, s = shown.current
+      if (ease) {
+        // the same glide at any frame rate: 0.06 a frame at 60 fps, raised to the frames that passed
+        const t0 = performance.now(), f = 1 - Math.pow(1 - 0.06, Math.min(100, t0 - (last || t0 - 16.7)) / 16.7)
+        last = t0
+        s.x += (to.x - s.x) * f; s.y += (to.y - s.y) * f; s.k += (to.k - s.k) * f
+        if (Math.abs(to.x - s.x) + Math.abs(to.y - s.y) < 0.5 && Math.abs(to.k - s.k) < 1e-4) Object.assign(s, to)
+      } else Object.assign(s, to)
+      const t = `translate(${s.x.toFixed(1)}px, ${s.y.toFixed(1)}px) scale(${s.k.toFixed(4)})`
+      if (world.current && world.current.style.transform !== t) world.current.style.transform = t
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [follow])
   const [geo, setGeo] = useState<Record<string, FrameGeo>>({})
   const [panning, setPanning] = useState(false)
   const onGeo = useCallback((page: string, g: FrameGeo) => setGeo(all => ({ ...all, [page]: g })), [])
@@ -55,6 +118,8 @@ export function DeckStage({ ref, model, onZoom, follow = false, onFollow, select
   const worldW = model.pages.length ? model.pages.length * FRAME_W + (model.pages.length - 1) * GAP : FRAME_W
   const worldH = LABEL + Math.max(700, ...heights)
 
+  // the person (or a page asked for) has moved the camera: the automatic fits leave it
+  const moved = useRef(false)
   // fit a box of the world into the stage, never past 1:1
   const frame = useCallback((x: number, w: number, h: number) => {
     const s = stage.current
@@ -64,30 +129,43 @@ export function DeckStage({ ref, model, onZoom, follow = false, onFollow, select
     setCam({ k, x: 24 + Math.max(0, (vw - w * k) / 2) - x * k, y: 24 })
   }, [])
   const fit = useCallback(() => frame(0, worldW, worldH), [frame, worldW, worldH])
+  // a page asked for (Layers, the Overview's Open) keeps the camera: the fits below no longer take it back
   const focusPage = useCallback((id: string) => {
     const p = model.pages.find(x => x.id === id)
-    if (p) frame(frameX(p), FRAME_W, LABEL + 900)
+    if (p) { moved.current = true; frame(frameX(p), FRAME_W, LABEL + 900) }
   }, [frame, model.pages])
   useImperativeHandle(ref, () => ({ fit, focusPage }), [fit, focusPage])
 
-  // Follow: the page the agent is writing, at a width that reads, its cursor a third of the way down
+  // Follow (web/canvas/loop.js, deck.js bboxActive and fit): every 700 ms the camera takes in every section the crew
+  // is writing (each at least 300 tall, 160 of headroom above and 80 below), at least 1500 × 900 of the world and at
+  // most half scale, centred; it glides there a little each frame
+  const fitAt = useRef(0)
   useEffect(() => {
-    const s = stage.current, a = follow ? followed(model) : undefined
-    const t = a && target(model, geo, a)
-    if (!s || !t || !s.clientWidth) return
-    const vw = s.clientWidth, vh = s.clientHeight
-    const k = Math.min(1, Math.max(MIN_K, (vw - 48) / FRAME_W))
-    const next = { k, x: Math.round(vw / 2 - t.x * k), y: Math.round(vh / 3 - t.y * k) }
-    setCam(c => (Math.abs(c.x - next.x) + Math.abs(c.y - next.y) + Math.abs(c.k - next.k) * 1000 < 2 ? c : next))
+    const s = stage.current
+    if (!follow || !s || !s.clientWidth) return
+    const wait = fitAt.current - performance.now()
+    const run = () => {
+      fitAt.current = performance.now() + 700
+      const b = activeBox(model, geo)
+      if (!b) return
+      const vw = s.clientWidth, vh = s.clientHeight - 90
+      const w = Math.max(b.x1 - b.x0, 1500), h = Math.max(b.y1 - b.y0, 900)
+      const k = Math.max(0.06, Math.min(0.5, Math.min(vw / (w * 1.08), vh / (h * 1.08))))
+      const next = { k, x: vw / 2 - (b.x0 + b.x1) / 2 * k, y: vh / 2 + 10 - (b.y0 + b.y1) / 2 * k }
+      setCam(c => (Math.abs(c.x - next.x) + Math.abs(c.y - next.y) + Math.abs(c.k - next.k) * 1000 < 1 ? c : next))
+    }
+    if (wait <= 0) { run(); return }
+    const t = setTimeout(run, wait)
+    return () => clearTimeout(t)
   }, [follow, model, geo])
 
   // the first look fits every page; a page added later is fitted in until the person moves the camera
-  const moved = useRef(false)
-  useEffect(() => { if (!moved.current) fit() }, [fit, model.pages.length])
+  // (while Follow is on, it is Follow that frames the crew)
+  useEffect(() => { if (!moved.current && !follow) fit() }, [fit, model.pages.length, follow])
   useEffect(() => {
     const s = stage.current
     if (!s) return
-    const o = new ResizeObserver(() => { if (!moved.current) fit() })
+    const o = new ResizeObserver(() => { if (!moved.current && !want.current.follow) fit() })
     o.observe(s)
     return () => o.disconnect()
   }, [fit])
@@ -205,42 +283,30 @@ export function DeckStage({ ref, model, onZoom, follow = false, onFollow, select
     for (const id of ids) host.requestLive(id, 'agent')
     return () => { for (const id of ids) host.releaseLive(id, 'agent') }
   }, [host, agentPages])
-  const working = model.agents.filter(a => a.layer)
 
   return (
     <BoardHostContext value={host}>
     <div ref={stage} role="region" aria-label="Canvas" onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onDoubleClick={() => onFollow?.(true)}
       className={`relative min-h-0 min-w-0 flex-1 touch-none overflow-hidden bg-void outline-none [background-image:radial-gradient(var(--line)_1px,transparent_1px)] [background-size:24px_24px] ${panning ? 'cursor-grabbing' : 'cursor-default'}`}>
-      <div className={`absolute top-0 left-0 origin-top-left ${follow ? 'motion-safe:transition-transform motion-safe:duration-500 motion-safe:ease-out' : ''}`} style={{ transform: `translate(${cam.x}px, ${cam.y}px) scale(${cam.k})`, width: worldW }}>
+      <div ref={world} className="absolute top-0 left-0 origin-top-left" style={{ width: worldW }}>
         {model.pages.map(p => (
           <div key={p.id} className="absolute top-0" style={{ left: frameX(p), width: FRAME_W }}>
             <div className="flex h-7 items-baseline gap-3 truncate font-label text-[18px] font-semibold uppercase tracking-[.08em] text-muted">
               <span className="text-text">Page {p.index + 1} · {p.title}</span><small className="font-monospace normal-case">/{p.id}</small>
             </div>
-            <PageFrame page={p} layers={pageLayers[p.id]} agents={model.agents} theme={model.theme} onGeo={onGeo} />
+            <PageFrame page={p} layers={pageLayers[p.id]} agents={model.agents} theme={model.theme} onGeo={onGeo} scanning={model.reviewing.includes(p.id)} />
           </div>
         ))}
       </div>
       {pick && pickExtra && <div data-ui className="absolute z-20 flex justify-end" style={{ left: Math.max(8, pick.left + pick.width - 328), top: Math.max(8, pick.top + 8), width: 320 }}>{pickExtra}</div>}
+      <CrewCursors model={model} cam={shown} stage={stage} target={a => target(model, geo, a)} box={k => sectionBox(model, geo, k)} spot={(p, n) => reviewSpot(model, geo, p, n)} />
       <div aria-hidden className="pointer-events-none absolute inset-0">
         {pick && <div data-picked className="absolute border-[1.5px] border-text" style={pick} />}
         {flags.map(f => (
-          <span key={f.key} className="absolute flex max-w-64 -translate-y-full items-center gap-1 truncate rounded-t-[6px] bg-hot px-1.5 py-0.5 font-label text-[11px] font-semibold uppercase tracking-[.06em] text-paper" style={{ left: f.left, top: f.top }}>
+          <span key={f.key} className="deck-flag absolute flex max-w-64 -translate-y-full items-center gap-1 truncate rounded-t-[6px] bg-hot px-1.5 py-0.5 font-label text-[11px] font-semibold uppercase tracking-[.06em] text-paper" style={{ left: f.left, top: f.top }}>
             Critic · {f.problem}
           </span>
         ))}
-        {working.map(a => {
-          const t = target(model, geo, a)
-          if (!t) return null
-          const c = crew().color(a.name)
-          return (
-            <div key={a.id} data-agent={a.name} className="absolute top-0 left-0 motion-safe:transition-transform motion-safe:duration-500 motion-safe:ease-out"
-              style={{ transform: `translate(${Math.round(cam.x + t.x * cam.k)}px, ${Math.round(cam.y + t.y * cam.k)}px)` }}>
-              <svg viewBox="0 0 10 10" className="block size-3.5"><path d="M.6.6L9.2 4 5 5 4 9.2z" fill={c} stroke="#0b0b0c" strokeWidth="1" strokeLinejoin="round" /></svg>
-              <span className="ml-3 inline-flex items-center gap-1 rounded-full px-1.5 py-px font-label text-[11px] font-semibold uppercase tracking-[.06em]" style={{ background: c, color: crew().ink(c) }}>{a.name}</span>
-            </div>
-          )
-        })}
       </div>
     </div>
     </BoardHostContext>

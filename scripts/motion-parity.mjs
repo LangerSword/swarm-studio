@@ -14,7 +14,8 @@
 //
 //   node scripts/motion-parity.mjs run <dir> [--root <tree>] [--only a,b] [--px 24]   record both apps, compare
 //   node scripts/motion-parity.mjs compare <dir> [--px 24] [--update]                 compare what run recorded
-//     A difference already known is in docs/ux/motion/parity-known.json, labelled "intended (PR #N)" or "drift"
+//     A difference already known is in docs/ux/motion/parity-known.json, labelled "intended (decision NNNN)",
+//     "later (#issue)" or "drift"
 //     with a why; a new one fails. --update writes what was found there (new ones as "drift", to be labelled).
 //   node scripts/motion-parity.mjs clips <dir> [--root <tree>] [--only a,b]           side-by-side videos
 //   (PLAYWRIGHT_DIR and CHROMIUM_PATH as for open-check; clips needs ffmpeg on PATH to put the two side by side)
@@ -182,7 +183,9 @@ async function record(out, { root, app, reduced, scenes }) {
       await ctx.clock.pauseAt(new Date(FROZEN.getTime() + 1000))
       const page = await ctx.newPage()
       let pending = 0
-      const counts = r => r.resourceType() !== 'eventsource'
+      // (read with fetch since the token moved to its header, web/headerstream.js: told by its address, as is the
+      // autoplay picture stream)
+      const counts = r => r.resourceType() !== 'eventsource' && !/\/events$|\/autoplay\/stream$/.test(new URL(r.url()).pathname)
       page.on('request', r => { if (counts(r)) pending++ })
       page.on('requestfinished', r => { if (counts(r)) pending-- })
       page.on('requestfailed', r => { if (counts(r)) pending-- })
@@ -219,7 +222,8 @@ async function record(out, { root, app, reduced, scenes }) {
     }
   } finally {
     await browser.close()
-    s.stop()
+    // on Windows the throwaway Studio's folder can still be held for a moment: that never loses the recording
+    try { s.stop() } catch (err) { console.error(`· the throwaway Studio's folder stays behind: ${err.code || err.message}`) }
     writeFileSync(join(out, 'trace.json'), JSON.stringify(trace, null, 1))
   }
   return trace
@@ -242,24 +246,31 @@ function diff(name, [c1, c2, n1, n2]) {
   const far = {}
   const steps = Math.min(...[c1, c2, n1, n2].map(r => r.steps.length))
   for (let i = 0; i < steps; i++) {
-    const at = r => Object.fromEntries(r.steps[i].cursors.map(c => [c.id, c]))
+    // what a person sees: a cursor outside the 1280 x 800 view (a docked one below the fold, say) is not on screen
+    const at = r => Object.fromEntries(r.steps[i].cursors.filter(c => c.x > -24 && c.y > -24 && c.x < 1280 && c.y < 800).map(c => [c.id, c]))
     const [A1, A2, B1, B2] = [c1, c2, n1, n2].map(at)
     const ids = either(both(Object.keys(A1), Object.keys(A2)), both(Object.keys(B1), Object.keys(B2)))
     for (const who of ids) {
+      // the crew's cursors from the first step on: at step 0 the current deck draws each one at the canvas's corner
+      // for a frame before it places it, while the next UI is still reading the build, so neither has them where
+      // they work yet. Hermia is on screen from the start in both, so she is compared there too
+      if (i === 0 && who.split(' ')[0] !== 'Hermia') continue
       let d = Infinity
       for (const A of [A1, A2]) for (const B of [B1, B2]) if (A[who] && B[who]) d = Math.min(d, Math.hypot(A[who].x - B[who].x, A[who].y - B[who].y))
       if (d > PX && (!far[who] || d > far[who].d)) far[who] = { d, t: c1.steps[i].t, a: A1[who] || A2[who], b: B1[who] || B2[who] }
     }
   }
   for (const [who, f] of Object.entries(far)) {
-    out.push(!f.a ? { key: `${name} cursor ${who}: only in /next/`, detail: `first at ${f.t} ms, ${f.b.x},${f.b.y}` }
-      : !f.b ? { key: `${name} cursor ${who}: only in /`, detail: `at ${f.t} ms, ${f.a.x},${f.a.y}` }
-      : { key: `${name} cursor ${who}: apart`, detail: `${Math.round(f.d)} px at ${f.t} ms (/ ${f.a.x},${f.a.y}; /next/ ${f.b.x},${f.b.y})` })
+    // one key per cursor: which form it takes (only in one app, or apart) depends on which step the widest
+    // difference falls on, and that moves from run to run, so the form is in the detail
+    out.push({ key: `${name} cursor ${who}: differs`, detail: !f.a ? `only in /next/, first at ${f.t} ms, ${f.b.x},${f.b.y}`
+      : !f.b ? `only in /, at ${f.t} ms, ${f.a.x},${f.a.y}`
+      : `apart, ${Math.round(f.d)} px at ${f.t} ms (/ ${f.a.x},${f.a.y}; /next/ ${f.b.x},${f.b.y})` })
   }
   return out
 }
 
-// differences already known, each labelled "intended (PR #N)" or "drift" with a why, like the audit gates'
+// differences already known, each labelled "intended (decision NNNN)", "later (#issue)" or "drift" with a why, like the audit gates'
 // known list: a new one fails, a known one that no longer happens is printed to delete
 const KNOWN = join(ROOT, 'docs/ux/motion/parity-known.json')
 const known = () => existsSync(KNOWN) ? JSON.parse(readFileSync(KNOWN, 'utf8')) : []
@@ -350,7 +361,8 @@ async function clips(out, root) {
     }
   } finally {
     await browser.close()
-    s.stop()
+    // on Windows the throwaway Studio's folder can still be held for a moment: that never loses the recording
+    try { s.stop() } catch (err) { console.error(`· the throwaway Studio's folder stays behind: ${err.code || err.message}`) }
     rmSync(tmp, { recursive: true, force: true })
   }
 }

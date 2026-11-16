@@ -118,7 +118,8 @@ export function addFrame(p) {
   el.className = 'frame'
   const x = p.index * (FRAME_W + GAP)
   el.style.left = `${x}px`
-  el.innerHTML = `<div class="frame-label"></div><iframe sandbox="allow-scripts"></iframe>`
+  // until its first section comes, the page is a skeleton marked busy (#392): the crew's cursors (or Hermia's) work on it
+  el.innerHTML = `<div class="frame-label"></div><iframe sandbox="allow-scripts"></iframe><div class="frame-wait" role="status" aria-busy="true" aria-label="This page, on its way"><i></i><i></i><i></i></div>`
   el.querySelector('.frame-label').textContent = `Page ${p.index + 1} · ${p.title}`
   el.querySelector('.frame-label').insertAdjacentHTML('beforeend', `<small>/${p.id}</small>`)
   const iframe = el.querySelector('iframe')
@@ -173,6 +174,7 @@ function ensureSlot(f, l) {
   const where = l.page === '*' && l.id === 'nav' ? 'start' : l.page === '*' && l.id === 'footer' ? 'end' : 'before-footer'
   post(f, { type: 'slot', key: l.key, where })
   f.slots.set(l.key, { ver: -1, status: null, t: 0 })
+  f.el.querySelector('.frame-wait')?.remove()
 }
 
 export function applyTheme(f) {
@@ -556,7 +558,7 @@ export function bboxActive() {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
   const add = (ax, ay, bx, by) => { x0 = Math.min(x0, ax); y0 = Math.min(y0, ay); x1 = Math.max(x1, bx); y1 = Math.max(y1, by) }
   for (const a of S.agents.values()) {
-    if (!a.layer) continue
+    if (!a.layer || S.stalled) continue
     const s = slotFor(S.layers.get(a.layer))
     if (!s) continue
     const b = s.box

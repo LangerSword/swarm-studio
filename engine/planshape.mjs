@@ -149,6 +149,16 @@ export function shapeOf({ idea = '', given = {}, answers = {}, title = '', note 
   }
 }
 
+// the Story card's premise: the planner's own line when it wrote one, else a line made from the plan. Never the
+// person's first message: that stays on plan.idea (the owner's board showed "thinking of a cool godot 4 g…")
+export function premiseOf(shape, { genre = '', cast = '' } = {}, hint = null) {
+  const said = clean(hint?.premise, 200)
+  if (said) return said
+  // lower case, but an acronym stays ("Action RPG" is an action RPG)
+  const kind = (clean(genre, 40) || String(shape?.label || 'game')).replace(/\b[A-Z][a-z]+\b/g, w => w.toLowerCase())
+  return `An original ${kind}${cast ? ` with ${cast}` : ''}${shape?.setting ? `, set in ${shape.setting}` : ''}`
+}
+
 // ---------- the cards of each family (the action RPG's are in engine/plan.mjs, unchanged)
 // ctx: { a: answers with defaults, given, idea, shape, hint, n }
 const pick = (hint, key, fallback, n) => {
@@ -327,7 +337,7 @@ export function familyCards(ctx) {
       return {
         cards: [
           ['cast', 'Characters', { count: String(roster.length), rule: a.cast, roster }],
-          ['story', 'Story', { premise: clean(ctx.idea, 400), acts: shape.size === 'tiny' ? '1' : '3', ending: 'Two endings, from your choices' }],
+          ['story', 'Story', { premise: premiseOf(shape, { genre: 'story game' }, hint), acts: shape.size === 'tiny' ? '1' : '3', ending: 'Two endings, from your choices' }],
           ['choices', 'Choices', { how: 'A few choices per scene; some change who trusts you', save: 'Saves at each scene' }],
           ['world', 'Scenes', { setting: shape.setting || '', camera: shape.view, scenes: String(s.stages * 2) }],
           ['look', 'Look', lookCard(a)],
@@ -371,6 +381,7 @@ const SHAPE_ASK = `You read a game idea and the creator's answers and say what k
 {"family": one of ${JSON.stringify(FAMILY_IDS)}, "title": the game's name if the idea gives one, else a short fitting one,
  "size": one of ${JSON.stringify(SIZES)}, "subject": what the player's side is (one word, singular, e.g. "ant"),
  "setting": where it happens in a few words, "view": the camera in a few words,
+ "premise": the story in one short sentence of your own (never the idea repeated back),
  "cast": [{"name","role","look"}] the playable side (units for a strategy game, characters otherwise; none for puzzle or card games),
  "lists": {"buildings":[], "resources":[], "tiles":[], "enemies":[], "pieces":[], "things":[]} only those that fit the family}
 Honour every answer: "no shooting" means no guns anywhere; "tiny" means a few of everything. Never add what the idea does not need.`
@@ -388,7 +399,7 @@ export function readShape(text) {
   return {
     family: FAMILY_IDS.includes(j.family) ? j.family : '',
     title: clean(j.title, 60), size: SIZES.includes(j.size) ? j.size : '',
-    subject: clean(j.subject, 30).toLowerCase().replace(/[^a-z -]/g, ''), setting: clean(j.setting, 160), view: clean(j.view, 120),
+    subject: clean(j.subject, 30).toLowerCase().replace(/[^a-z -]/g, ''), setting: clean(j.setting, 160), view: clean(j.view, 120), premise: clean(j.premise, 200),
     cast: Array.isArray(j.cast) ? j.cast.slice(0, 8).map(r => ({ name: clean(r?.name, 40), role: clean(r?.role, 40), look: clean(r?.look, 200) })).filter(r => r.name) : [],
     lists: Object.fromEntries(['buildings', 'resources', 'tiles', 'enemies', 'pieces', 'things'].map(k => [k, arr(j.lists?.[k])]).filter(([, v]) => v.length))
   }

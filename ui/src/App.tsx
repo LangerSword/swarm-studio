@@ -5,6 +5,7 @@ import { useNav, useNavMachine } from './nav/NavProvider'
 import { PetProvider } from './pet/Pet'
 import { ToastProvider } from './primitives/Toast'
 import { NotMovedYet } from './screens/NotMovedYet'
+import { classicHref } from './shell/classic'
 import { SCREENS } from './screens'
 import { TopBar } from './shell/TopBar'
 import { TrailProvider } from './shell/Trail'
@@ -27,13 +28,19 @@ export function App() {
     addEventListener('keydown', onKey)
     return () => { removeEventListener('keydown', mark, true); removeEventListener('keydown', onKey) }
   }, [view.room, go, can])
+  // a screen the next UI has not moved (the Game room, the Film studio, a new project's deck) opens in the classic
+  // Studio at the same address, rather than a stand-in (decision 0024)
+  const moved = !!SCREENS[view.room]
+  useEffect(() => { if (!moved) location.replace(classicHref()) }, [moved, view.room])
   const Screen = SCREENS[view.room] ?? NotMovedYet
   return (
     <PetProvider nav={nav}>
       <TrailProvider>
         <ToastProvider>
           <div className="flex min-h-dvh flex-col bg-bg text-text">
-            <TopBar />
+            {/* Projects fills the window, as the current Studio's does (web/home.css .home): its sidebar has the logo, and
+                its account menu holds Setup and Settings, so it has no top bar */}
+            {view.room !== 'home' && <TopBar />}
             <main className="flex min-h-0 flex-1 flex-col"><Screen /></main>
           </div>
         </ToastProvider>

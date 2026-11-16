@@ -101,7 +101,7 @@ try {
   // a move the navigation machine does not have is logged as nav: no …
   page.on('console', m => { if (m.text().startsWith('nav:')) console.log(`  ${m.text()}`) })
   await page.goto(`${BASE}/`)
-  await page.waitForSelector('.home .card[aria-label="Alpha Tea"]', { timeout: 15000 })
+  await page.waitForSelector('.home .card[data-name="Alpha Tea"]', { timeout: 15000 })
 
   const state = () => page.evaluate(() => ({
     run: window.swarm.S?.run || null, viewing: window.swarm.viewing,
@@ -120,7 +120,7 @@ try {
     // Projects comes back on the versions it showed last (drawn a moment later): up to every project
     await wait(400)
     if (await page.locator('.home .hm-back').isVisible()) await page.click('.home .hm-back')
-    await page.waitForSelector('.home .card[aria-label="Bravo Bikes"]', { timeout: 10000 })
+    await page.waitForSelector('.home .card[data-name="Bravo Bikes"]', { timeout: 10000 })
   }
   const shows = async (run, name, what) => {
     const s = await state()
@@ -131,7 +131,7 @@ try {
   }
 
   console.log('open A, play, home, open B')
-  await page.click('.home .card[aria-label="Alpha Tea"]')
+  await page.click('.home .card[data-name="Alpha Tea"]')
   // before its picture, a page is a block per planned section: never a title card or a thin strip
   // (its pages, once the board has come: until then the stage holds three loading cards, .wait-in)
   await page.waitForSelector('.pj-stage[aria-label="Overview"] .ab.page:not(.wait-in)', { timeout: 5000 }).catch(() => {})
@@ -151,15 +151,15 @@ try {
   ok((await state()).player, 'Play opens the player on Alpha')
   await home()
   ok(!(await state()).player, 'Projects closes the player')
-  await page.click('.home .card[aria-label="Bravo Bikes"]') // two versions: the stack opens
-  await page.waitForSelector('.home .card[aria-label="Version 2"]', { timeout: 5000 })
-  await page.click('.home .card[aria-label="Version 2"]')
+  await page.click('.home .card[data-name="Bravo Bikes"]') // two versions: the stack opens
+  await page.waitForSelector('.home .card[data-name="Version 2"]', { timeout: 5000 })
+  await page.click('.home .card[data-name="Version 2"]')
   await settle(B2)
   await shows(B2, 'Bravo Bikes', 'Bravo opened')
 
   // opened again, the pages paint from the saved files
   await home()
-  await page.click('.home .card[aria-label="Alpha Tea"]')
+  await page.click('.home .card[data-name="Alpha Tea"]')
   // (Alpha's pages: right after the click the stage can still hold Bravo's, with Bravo's saved pictures)
   await page.waitForFunction(run => { const ims = [...document.querySelectorAll('.pj-stage .ab.page img')]; return ims.length >= 2 && ims.every(im => !im.getAttribute('src').includes('/snaps/') || im.getAttribute('src').includes(`/snaps/${run}/`)) }, A1, { timeout: 5000 }).catch(() => {})
   const srcs = await page.evaluate(() => [...document.querySelectorAll('.pj-stage .ab.page img')].map(im => im.getAttribute('src')))
@@ -169,18 +169,18 @@ try {
   ok(sizes.length === 2 && sizes.every(x => x === 'sf'), `each page has its small picture first and its full one after (${sizes.join(', ')})`)
   await settle(A1)
   await home()
-  await page.click('.home .card[aria-label="Bravo Bikes"]')
-  await page.waitForSelector('.home .card[aria-label="Version 2"]', { timeout: 5000 })
-  await page.click('.home .card[aria-label="Version 2"]')
+  await page.click('.home .card[data-name="Bravo Bikes"]')
+  await page.waitForSelector('.home .card[data-name="Version 2"]', { timeout: 5000 })
+  await page.click('.home .card[data-name="Version 2"]')
   await settle(B2)
 
   console.log('the same through a version tile')
   await page.click('#play-btn')
   await page.waitForSelector('#player:not([hidden])', { timeout: 5000 }).catch(() => {})
   await home()
-  await page.click('.home .card[aria-label="Bravo Bikes"]')
-  await page.waitForSelector('.home .card[aria-label="Version 1"]', { timeout: 5000 })
-  await page.click('.home .card[aria-label="Version 1"]')
+  await page.click('.home .card[data-name="Bravo Bikes"]')
+  await page.waitForSelector('.home .card[data-name="Version 1"]', { timeout: 5000 })
+  await page.click('.home .card[data-name="Version 1"]')
   await settle(B1)
   await shows(B1, 'Bravo Bikes', 'Version 1 opened')
 
@@ -211,7 +211,7 @@ try {
   await page.keyboard.press('p')
   await wait(300)
   ok(!(await state()).player, 'p on Projects opens no player behind it')
-  await page.click('.home .card[aria-label="Alpha Tea"]')
+  await page.click('.home .card[data-name="Alpha Tea"]')
   await settle(A1)
   await shows(A1, 'Alpha Tea', 'Alpha opened after p')
 
@@ -223,7 +223,7 @@ try {
   ok(hp.room === 'overview' && hp.version === B2 && hp.player === 'prototype' && hp.shown && !hp.home && hp.pages.length && hp.pages.every(t => t.includes('Bravo')), `a Hermes play at Projects opens Bravo and plays it, not behind Projects (${hp.room}, ${hp.player}, ${hp.pages.join(', ')})`)
   await page.click('#pl-close')
   await home()
-  await page.click('.home .card[aria-label="Alpha Tea"]')
+  await page.click('.home .card[data-name="Alpha Tea"]')
   await settle(A1)
 
   console.log('Play and Watch a visitor')
@@ -256,7 +256,7 @@ try {
 
   console.log('the pill and the back button match the screen in every room')
   await home()
-  await page.click('.home .card[aria-label="Alpha Tea"]')
+  await page.click('.home .card[data-name="Alpha Tea"]')
   await settle(A1)
   const screen = () => page.evaluate(() => ({
     room: window.swarmCosmos.nav.view.room, mode: window.swarmCosmos.mode, version: window.swarmCosmos.nav.view.version,
@@ -291,7 +291,7 @@ try {
   console.log('Back, Forward and a reload')
   const pickRoom = async mode => { await page.click('.mode-btn'); await page.click(`.mode-menu [data-mode="${mode}"]`); await wait(700) }
   const where = async () => ({ ...(await screen()), address: await page.evaluate(() => location.search), run: await page.evaluate(() => window.swarm.S?.run || null) })
-  await page.click('.home .card[aria-label="Alpha Tea"]')
+  await page.click('.home .card[data-name="Alpha Tea"]')
   await settle(A1)
   let at = await where()
   ok(at.address === `?project=${at.address.match(/project=([^&]*)/)?.[1]}&version=${A1}` && at.room === 'overview', `opening a project writes it to the address (${at.address})`)
@@ -341,9 +341,9 @@ try {
   ok(at.room === 'overview' && at.version === A1 && at.crumb === 'Alpha Tea', `Forward is Alpha's Overview again (${at.room}, ${at.crumb})`)
   // a reload in each room shows exactly that room, on that build
   await home()
-  await page.click('.home .card[aria-label="Bravo Bikes"]')
-  await page.waitForSelector('.home .card[aria-label="Version 2"]', { timeout: 5000 })
-  await page.click('.home .card[aria-label="Version 2"]')
+  await page.click('.home .card[data-name="Bravo Bikes"]')
+  await page.waitForSelector('.home .card[data-name="Version 2"]', { timeout: 5000 })
+  await page.click('.home .card[data-name="Version 2"]')
   await settle(B2)
   at = await where()
   ok(at.room === 'overview' && at.version === B2, `Bravo opens on its Overview (${at.room}, ${at.version === B2 ? 'Bravo' : at.version})`)
@@ -384,7 +384,7 @@ try {
   await page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur() })
   await page.keyboard.press('Escape'); await wait(400)
   await home()
-  await page.click('.home .card[aria-label="Alpha Tea"]')
+  await page.click('.home .card[data-name="Alpha Tea"]')
   await settle(A1)
   await wait(2500)
   await shows(A1, 'Alpha Tea', 'Alpha opened while the new build goes on')

@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { keyFile, keyFilesIn, pushSource, remoteHead, joinHistory, repoName, readTarget, sourceLinks, rememberLink, changedUnder, GITHUB } from '../engine/sourcehub.mjs'
+import { keyFile, keyFilesIn, listRepos, pushSource, remoteHead, joinHistory, repoName, readTarget, sourceLinks, rememberLink, changedUnder, GITHUB } from '../engine/sourcehub.mjs'
 import { appJobs } from '../engine/appjob.mjs'
 import { bringInRoutes } from '../server/bringin.mjs'
 import { sourceRoutes } from '../server/sourcehub.mjs'
@@ -25,20 +25,32 @@ function github({ login = 'me' } = {}) {
   const hub = { url: at, page: GITHUB.page, file: true }
   const make = (slug, { isPrivate = true, desc = '' } = {}) => { mkdirSync(at(slug), { recursive: true }); g(at(slug), 'init', '-q', '--bare'); g(at(slug), 'symbolic-ref', 'HEAD', 'refs/heads/main'); priv.set(slug, [isPrivate, desc]) }
   const changed = { files: null }
+  const refuse = new Set()
+  // hold() keeps a push job at its look-up of the repository until the function it returns is called: the job is then
+  // still working when the test asks again, whatever the machine's speed (a job's own git work is real, and fast).
+  // The state's own questions (who is signed in) are not held
+  let gate = null
+  const hold = () => { let open; gate = new Promise(r => { open = r }); return () => { gate = null; open() } }
   const gh = async args => {
     calls.push(args)
+    if (gate && args[0] === 'repo' && args[1] === 'view') await gate
     if (args[0] === 'api' && args[1] === 'user') return login ? { ok: true, out: `${login}\n`, err: '' } : { ok: false, out: '', err: 'not logged in' }
     const cmp = args[0] === 'api' && args[1].match(/^repos\/(.+)\/compare\//)
     if (cmp) return changed.files ? { ok: true, out: JSON.stringify([changed.files.length, ...changed.files]), err: '' } : { ok: false, out: '', err: 'HTTP 404' }
-    const one = args[0] === 'api' && args[1].match(/^repos\/([^/]+\/[^/]+)$/)
-    if (one) return priv.has(one[1]) ? { ok: true, out: JSON.stringify(priv.get(one[1])), err: '' } : { ok: false, out: '', err: 'gh: Not Found (HTTP 404)' }
+    if (args[0] === 'repo' && args[1] === 'view') return priv.has(args[2]) ? { ok: true, out: JSON.stringify({ isPrivate: priv.get(args[2])[0], description: priv.get(args[2])[1] }), err: '' } : { ok: false, out: '', err: `GraphQL: Could not resolve to a Repository with the name '${args[2]}'. (repository)` }
+    if (args[0] === 'repo' && args[1] === 'list') {
+      if (refuse.has(args[2])) return { ok: false, out: '', err: `HTTP 403: ${args[2]} needs single sign-on` }
+      const mine = [...priv.keys()].filter(k => k.startsWith(`${args[2]}/`))
+      const empty = slug => { try { g(at(slug), 'rev-parse', '--verify', '-q', 'refs/heads/main'); return false } catch { return true } }
+      return { ok: true, out: JSON.stringify(mine.map((k, i) => ({ nameWithOwner: k, isPrivate: priv.get(k)[0], isEmpty: empty(k), updatedAt: new Date(Date.UTC(2026, 0, 1 + i)).toISOString() }))), err: '' }
+    }
     if (args[0] === 'repo' && args[1] === 'create') { make(args[2], { isPrivate: args.includes('--private'), desc: args[args.indexOf('--description') + 1] }); return { ok: true, out: '', err: '' } }
     return { ok: false, out: '', err: `unexpected gh ${args.join(' ')}` }
   }
   // someone else's commit on the repository
   const commit = (slug, files, msg = 'from elsewhere') => { const c = tmp(); g(c, 'clone', '-q', at(slug), '.'); change(c, files, msg); g(c, 'push', '-q', 'origin', 'HEAD:refs/heads/main'); const sha = g(c, 'rev-parse', 'HEAD'); rmSync(c, { recursive: true, force: true }); return sha }
   const head = slug => g(at(slug), 'rev-parse', 'refs/heads/main')
-  return { root, hub, gh, calls, make, commit, head, at, priv, changed }
+  return { root, hub, gh, calls, make, commit, head, at, priv, changed, hold, refuse }
 }
 
 test('a key file is known by its name, an example is not', () => {
@@ -171,7 +183,7 @@ test('a project remembers its repository, and forgets the old facts when it chan
 })
 
 // ---------- the routes, with a projects store, the app jobs and the intake route standing in
-function studio(G) {
+function studio(G, { connectors = null } = {}) {
   const home = tmp(), runsDir = join(home, 'runs'), dataDir = join(home, 'data'), logs = new Map(), known = {}
   mkdirSync(runsDir)
   const record = (id, e) => { (logs.get(id) || logs.set(id, []).get(id)).push(e); return true }
@@ -188,7 +200,7 @@ function studio(G) {
   const bring = bringInRoutes({ runsDir, projects, home, record, readEvents, fetch, join: (dir, slug) => joinHistory(dir, slug, G.hub),
     apps: async () => ({ bring: (id, o) => { logs.set(id, readFileSync(join(runsDir, id, 'events.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l))); return real(id, o) } }) })
   let clock = 1000
-  const route = sourceRoutes({ runsDir, dataDir, projects, readEvents, record, bringIn: bring.bringIn, hub: G.hub, gh: G.gh, now: () => (clock += 1000) })
+  const route = sourceRoutes({ runsDir, dataDir, projects, readEvents, record, bringIn: bring.bringIn, hub: G.hub, gh: G.gh, now: () => (clock += 1000), home, hermesHome: join(home, '.hermes'), connectors })
   // a run the Studio built: its app/ with a history
   const built = (pid, name, run, files, kind = 'app') => {
     known[pid] ||= { name, runs: [] }; known[pid].runs.push(run)
@@ -197,7 +209,7 @@ function studio(G) {
     return app
   }
   const done = async (pid, piece = 'app') => { await route.jobs.get(`${pid}:${piece}`).done; return route.state(pid, { piece }) }
-  return { route, built, done, known, logs, runsDir, dataDir, jobs, appOf: run => join(runsDir, run, 'app') }
+  return { route, built, done, known, logs, runsDir, dataDir, jobs, home, appOf: run => join(runsDir, run, 'app') }
 }
 
 test('the door: not linked, pushed, changes not pushed, new commits, pulled as the next version, pushed again', async () => {
@@ -261,10 +273,12 @@ test('the door: link by name, a second job waits, the crew at work blocks a push
     await assert.rejects(S.route.act('p1', { action: 'push', repo: 'https://gitlab.com/a/b' }), /github\.com/)
     await assert.rejects(S.route.act('p1', { action: 'bring', repo: 'me/x', kind: 'game' }), /already has its source/)
     G.make('team/ares')
+    const release = G.hold()
     let st = await S.route.act('p1', { action: 'push', repo: 'team/ares' })
     assert.equal(st.piece, 'game'); assert.equal(st.job.state, 'working')
-    // asked again while it works: the same job, not a second push
+    // asked again while it works (held at its look-up of the repository): the same job, not a second push
     assert.equal((await S.route.act('p1', { action: 'push', repo: 'team/other' })).job.state, 'working')
+    release()
     st = await S.done('p1', 'game')
     assert.equal(st.link.repo, 'team/ares'); assert.equal(st.job.message, 'Pushed to team/ares')
     assert.equal(sourceLinks(S.dataDir)['p1:game'].made, false)
@@ -354,4 +368,218 @@ test('GET and POST /api/projects/<id>/github answer as JSON, and a refusal carri
     r = await call('GET', '/api/projects/p1/github')
     assert.deepEqual({ repo: r.body.link.repo, private: r.body.link.private, url: r.body.link.url }, { repo: 'me/shop-source', private: false, url: 'https://github.com/me/shop-source' })
   } finally { S.jobs.close() }
+})
+
+test('the repositories to link are the account\'s and the organizations\', newest first; an owner GitHub will not list is said', async () => {
+  const G = github()
+  G.make('me/old-site'); G.make('acme/shop', { isPrivate: false }); G.make('me/newest'); G.make('other/not-mine')
+  G.commit('me/old-site', { 'a.txt': 'a' })
+  const got = await listRepos(['me', 'acme', 'me', 'bad name', 'locked'], G.gh)
+  assert.deepEqual(got.repos.map(r => r.repo), ['me/newest', 'acme/shop', 'me/old-site'])
+  assert.deepEqual(got.repos.map(r => [r.private, r.empty]), [[true, true], [false, true], [true, false]])
+  assert.deepEqual(got.errors, [])
+  G.refuse.add('acme')
+  const half = await listRepos(['me', 'acme'], G.gh)
+  assert.deepEqual(half.repos.map(r => r.repo), ['me/newest', 'me/old-site'])
+  assert.match(half.errors[0], /^acme: .*single sign-on/)
+  // once per owner: the same owner twice is asked once, and a name that is not one is never asked
+  assert.equal(G.calls.filter(c => c[0] === 'repo' && c[1] === 'list' && c[2] === 'me').length, 2)
+  assert.ok(!G.calls.some(c => c[2] === 'bad name'))
+})
+
+test('Unlink forgets where a piece goes; the repository on GitHub and the project\'s files stay as they were', async () => {
+  const G = github(), S = studio(G)
+  S.built('p1', 'Shop', '2020-r1', { 'index.html': 'x' })
+  try {
+    await assert.rejects(S.route.act('p1', { action: 'unlink' }), e => e.status === 409 && /not linked/.test(e.message))
+    await S.route.act('p1', { action: 'push' }); let st = await S.done('p1')
+    assert.equal(st.link.repo, 'me/shop'); assert.equal(st.link.branch, 'main')
+    const before = G.head('me/shop')
+    st = await S.route.act('p1', { action: 'unlink' })
+    assert.equal(st.link, null); assert.equal(st.job, null)
+    assert.equal(sourceLinks(S.dataDir)['p1:app'], undefined)
+    assert.equal(G.head('me/shop'), before)
+    assert.equal(readFileSync(join(S.appOf('2020-r1'), 'index.html'), 'utf8'), 'x')
+    // linked again by name: the same repository, already this project's, so the push is an ordinary one
+    await S.route.act('p1', { action: 'push', repo: 'me/shop' }); st = await S.done('p1')
+    assert.equal(st.job.state, 'done', st.job.message); assert.equal(st.link.repo, 'me/shop')
+  } finally { S.jobs.close() }
+})
+
+test('GET /api/github/repos lists the person\'s repositories, and says how to sign in when no one is', async () => {
+  const call = (S, path) => new Promise(ok => {
+    const res = { writeHead(code) { this.code = code; return this }, end(text) { ok({ code: this.code, body: JSON.parse(text) }) } }
+    S.route({ method: 'GET', on: () => {} }, res, new URL(`http://x${path}`))
+  })
+  const G = github(), S = studio(G)
+  G.make('me/one')
+  try {
+    const r = await call(S, '/api/github/repos')
+    assert.equal(r.code, 200); assert.equal(r.body.login, 'me'); assert.deepEqual(r.body.repos.map(x => x.repo), ['me/one'])
+  } finally { S.jobs.close() }
+  const N = github({ login: '' }), T = studio(N)
+  try {
+    const r = await call(T, '/api/github/repos')
+    assert.equal(r.code, 424); assert.match(r.body.error, /gh auth login/)
+  } finally { T.jobs.close() }
+})
+
+test('a repository with other work: refused with what it holds, nothing changed; then a new branch of its own and a pull request page', async () => {
+  const G = github(), dir = project({ 'index.html': 'mine' })
+  G.make('team/site'); G.commit('team/site', { 'README.md': 'theirs', 'docs/a.md': 'a' })
+  const theirs = G.head('team/site')
+  // asked plainly first: what it holds, and the two ways; nothing is pushed
+  const no = await pushSource({ dir, title: 'Cedar Cafe', want: { repo: 'team/site' }, hub: G.hub, gh: G.gh }).catch(e => e)
+  assert.equal(no.status, 409); assert.match(no.message, /already holds other work on main \(2 files\)\. Nothing was changed/)
+  assert.deepEqual({ ...no.other, bytes: undefined }, { repo: 'team/site', branch: 'main', files: 2, bytes: undefined, bring: null })
+  assert.equal(G.head('team/site'), theirs)
+  assert.equal(g(dir, 'log', '--format=%s'), 'init', "the project's own history is as it was")
+  // a new branch: theirs stays as it is
+  const out = await pushSource({ dir, title: 'Cedar Cafe', want: { repo: 'team/site', mode: 'branch' }, hub: G.hub, gh: G.gh })
+  assert.deepEqual({ branch: out.branch, base: out.base, made: out.made }, { branch: 'swarm/cedar-cafe', base: 'main', made: false })
+  assert.equal(out.pr, 'https://github.com/team/site/compare/main...swarm%2Fcedar-cafe?expand=1')
+  assert.equal(G.head('team/site'), theirs, 'main is not touched')
+  assert.equal(g(G.at('team/site'), 'rev-parse', 'refs/heads/swarm/cedar-cafe'), g(dir, 'rev-parse', 'HEAD'))
+  // linked to its branch, the next push goes on to that branch, an ordinary one
+  change(dir, { 'index.html': 'mine, again' })
+  const link = { repo: 'team/site', branch: out.branch, base: out.base }
+  const next = await pushSource({ dir, title: 'Cedar Cafe', link, hub: G.hub, gh: G.gh })
+  assert.equal(next.branch, 'swarm/cedar-cafe'); assert.equal(next.same, false)
+  assert.equal(g(G.at('team/site'), 'rev-parse', 'refs/heads/swarm/cedar-cafe'), g(dir, 'rev-parse', 'HEAD'))
+  assert.equal(G.head('team/site'), theirs)
+  // a second project of the same name gets a branch the repository does not have yet
+  const two = await pushSource({ dir: project({ 'index.html': 'other' }), title: 'Cedar Cafe', want: { repo: 'team/site', mode: 'branch' }, hub: G.hub, gh: G.gh })
+  assert.equal(two.branch, 'swarm/cedar-cafe-2')
+  // someone else's commit on the branch is pulled first, never overwritten
+  const c = tmp(); g(c, 'clone', '-q', '-b', 'swarm/cedar-cafe', G.at('team/site'), '.'); change(c, { 'x.txt': 'x' }); g(c, 'push', '-q', 'origin', 'HEAD')
+  change(dir, { 'index.html': 'mine, third' })
+  await assert.rejects(pushSource({ dir, title: 'Cedar Cafe', link, hub: G.hub, gh: G.gh }), e => e.pull === true && /on swarm\/cedar-cafe/.test(e.message))
+})
+
+test("a repository with other work: its files come in first under the Bring-in rules, this project's kept where both have one, and it is pushed on top", async () => {
+  const G = github(), dir = project({ 'index.html': 'mine', 'app.js': 'run()' })
+  G.make('team/site'); G.commit('team/site', { 'README.md': 'theirs', 'index.html': 'theirs', 'img/logo.svg': '<svg/>' })
+  const theirs = G.head('team/site')
+  const out = await pushSource({ dir, title: 'Cedar Cafe', want: { repo: 'team/site', mode: 'merge' }, hub: G.hub, gh: G.gh })
+  assert.equal(out.branch, 'main'); assert.equal(out.base, null); assert.equal(out.pr, null); assert.equal(out.same, false)
+  // their files are in the project now; where both have one, the project's is kept
+  assert.equal(readFileSync(join(dir, 'README.md'), 'utf8'), 'theirs')
+  assert.equal(readFileSync(join(dir, 'img/logo.svg'), 'utf8'), '<svg/>')
+  assert.equal(readFileSync(join(dir, 'index.html'), 'utf8'), 'mine')
+  // pushed on top: their newest commit is one of the new one's parents, so nothing of theirs was rewritten
+  assert.equal(G.head('team/site'), g(dir, 'rev-parse', 'HEAD'))
+  assert.ok(g(dir, 'log', '--format=%P', '-1').split(' ').includes(theirs))
+  assert.match(g(dir, 'log', '--format=%s', '-1'), /Brought in team\/site \(main\)/)
+  // and the next push is an ordinary one to the same repository
+  change(dir, { 'index.html': 'mine, again' })
+  const next = await pushSource({ dir, title: 'Cedar Cafe', link: { repo: 'team/site', branch: 'main' }, hub: G.hub, gh: G.gh })
+  assert.equal(next.same, false); assert.equal(G.head('team/site'), g(dir, 'rev-parse', 'HEAD'))
+})
+
+test('files that may not come in (a key file, a link) leave the project and the repository as they were; a new branch is still offered', async () => {
+  const G = github()
+  G.make('team/keys'); G.commit('team/keys', { 'README.md': 'x', 'config/.env': 'TOKEN=1' })
+  const dir = project({ 'index.html': 'mine' })
+  const before = g(dir, 'rev-parse', 'HEAD'), theirs = G.head('team/keys')
+  const no = await pushSource({ dir, title: 'Shop', want: { repo: 'team/keys' }, hub: G.hub, gh: G.gh }).catch(e => e)
+  assert.match(no.other.bring, /look like keys \(config\/\.env\)/)
+  assert.match(no.message, /Push this project to a new branch there\.$/, 'bringing its files in is not offered')
+  await assert.rejects(pushSource({ dir, title: 'Shop', want: { repo: 'team/keys', mode: 'merge' }, hub: G.hub, gh: G.gh }), /files can't come in: it holds files that look like keys/)
+  assert.equal(g(dir, 'rev-parse', 'HEAD'), before); assert.ok(!existsSync(join(dir, 'README.md'))); assert.equal(G.head('team/keys'), theirs)
+  // a link to another place
+  G.make('team/linky')
+  // a commit holding a link, made from its parts (no link is made on this disk)
+  const at = G.at('team/linky')
+  const x = (args, input) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: at, encoding: 'utf8', input }).trim()
+  const blob = x(['hash-object', '-w', '--stdin'], '../../somewhere')
+  const tree = x(['mktree'], `120000 blob ${blob}	outside
+`)
+  x(['update-ref', 'refs/heads/main', x(['commit-tree', tree, '-m', 'a link'])])
+  const linky = await pushSource({ dir, title: 'Shop', want: { repo: 'team/linky' }, hub: G.hub, gh: G.gh }).catch(e => e)
+  assert.match(linky.other.bring, /links to other places \(outside\)/)
+})
+
+test('the door: a folder on this computer, a checkout on a branch of its own or a plain folder, written, refused and read back', async () => {
+  const G = github(), S = studio(G)
+  const app = S.built('p1', 'Cedar Cafe', '2020-r1', { 'index.html': 'v1' })
+  const repo = join(S.home, 'code', 'cafe'); put(repo, { 'README.md': 'theirs' }); g(repo, 'init', '-q'); g(repo, 'add', '-A'); g(repo, 'commit', '-qm', 'theirs')
+  try {
+    // never the Studio's own folders, Hermes's home or outside the home folder
+    mkdirSync(join(S.home, '.hermes'), { recursive: true })
+    for (const bad of [S.dataDir, join(S.home, '.hermes'), tmp()]) await assert.rejects(S.route.act('p1', { action: 'push', folder: bad, sub: 'x' }))
+    // a checkout: a branch of its own, nothing pushed
+    await S.route.act('p1', { action: 'push', folder: '~/code/cafe' }); let st = await S.done('p1')
+    assert.equal(st.job.state, 'done', st.job.message); assert.match(st.job.message, /Written to the branch swarm\/cedar-cafe in .*Nothing was pushed anywhere/)
+    assert.deepEqual({ mode: st.link.mode, branch: st.link.branch, repo: st.link.repo, url: st.link.url }, { mode: 'checkout', branch: 'swarm/cedar-cafe', repo: null, url: null })
+    assert.equal(g(repo, 'rev-parse', 'refs/heads/swarm/cedar-cafe'), g(app, 'rev-parse', 'HEAD'))
+    assert.equal(g(repo, 'symbolic-ref', '--short', 'HEAD'), 'main')
+    // linked to a folder, GitHub is not offered until it is unlinked
+    await assert.rejects(S.route.act('p1', { action: 'push', repo: 'me/x' }), /Unlink it first, to put it on GitHub/)
+    // Pull from a checkout reads its working tree, only with the project's branch out there
+    await S.route.act('p1', { action: 'pull' }); st = await S.done('p1')
+    assert.equal(st.job.state, 'failed'); assert.match(st.job.message, /Check out swarm\/cedar-cafe in/)
+    st = await S.route.act('p1', { action: 'unlink' }); assert.equal(st.link, null)
+    // a plain folder: the files in a subfolder; a file not written by the project is asked about first
+    put(join(S.home, 'sites'), { 'cafe/index.html': 'by hand' })
+    await S.route.act('p1', { action: 'push', folder: join(S.home, 'sites'), sub: 'cafe' }); st = await S.done('p1')
+    assert.equal(st.job.state, 'failed'); assert.match(st.job.message, /1 file .* was not written by this project, or changed since: index\.html\. Nothing was written/)
+    assert.deepEqual(st.job.changes.theirs, ['index.html'])
+    assert.equal(readFileSync(join(S.home, 'sites', 'cafe', 'index.html'), 'utf8'), 'by hand')
+    await S.route.act('p1', { action: 'push', folder: join(S.home, 'sites'), sub: 'cafe', confirm: true }); st = await S.done('p1')
+    assert.equal(st.job.state, 'done', st.job.message); assert.match(st.job.message, /1 replaced/)
+    assert.equal(readFileSync(join(S.home, 'sites', 'cafe', 'index.html'), 'utf8'), 'v1')
+    assert.equal(st.link.where, join(S.home, 'sites', 'cafe'))
+    // a later write goes to the same subfolder; nothing new is said so
+    await S.route.act('p1', { action: 'push' }); st = await S.done('p1')
+    assert.match(st.job.message, /Nothing new to write/)
+    // read back: an edit there becomes the project's next version
+    await S.route.act('p1', { action: 'pull' }); st = await S.done('p1')
+    assert.match(st.job.message, /Nothing new in/)
+    put(join(S.home, 'sites'), { 'cafe/index.html': 'edited there' })
+    await S.route.act('p1', { action: 'pull' }); st = await S.done('p1')
+    assert.equal(st.job.state, 'done', st.job.message); assert.match(st.job.message, /Pulled from .*cafe: it is the project's newest version/)
+    assert.equal(readFileSync(join(S.runsDir, st.job.run, 'app', 'index.html'), 'utf8'), 'edited there')
+    assert.ok(!existsSync(join(S.runsDir, st.job.run, 'app', '.swarm-studio.json')), "the record of what it wrote is not brought in")
+  } finally { S.jobs.close() }
+})
+
+test('the door, from the chat: a typed path is the folder the files go in; a folder in a checkout is that checkout\'s', async () => {
+  const G = github(), S = studio(G)
+  S.built('p1', 'Cedar Cafe', '2020-r1', { 'index.html': 'v1' })
+  mkdirSync(join(S.home, 'code'))
+  const repo = join(S.home, 'code', 'repo'); put(repo, { 'a.txt': 'a' }); g(repo, 'init', '-q'); g(repo, 'add', '-A'); g(repo, 'commit', '-qm', 'a')
+  mkdirSync(join(repo, 'web'))
+  try {
+    await assert.rejects(S.route.act('p1', { action: 'push', folder: join(repo, 'web'), sub: 'site' }), /inside the git checkout .*name the checkout itself/)
+    await S.route.act('p1', { action: 'push', folder: '~/code/site' }); const st = await S.done('p1')
+    assert.equal(st.job.state, 'done', st.job.message)
+    assert.equal(readFileSync(join(S.home, 'code', 'site', 'index.html'), 'utf8'), 'v1')
+    assert.deepEqual({ folder: st.link.folder, sub: st.link.sub, mode: st.link.mode }, { folder: join(S.home, 'code'), sub: 'site', mode: 'folder' })
+  } finally { S.jobs.close() }
+})
+
+test("the repositories come through GitHub's own MCP server when it is added to Hermes and granted; otherwise through gh", async () => {
+  const call = (S, path) => new Promise(ok => {
+    const res = { writeHead(code) { this.code = code; return this }, end(text) { ok({ code: this.code, body: JSON.parse(text) }) } }
+    S.route({ method: 'GET', on: () => {} }, res, new URL(`http://x${path}`))
+  })
+  const G = github()
+  G.make('me/by-gh')
+  const asked = []
+  const granted = { status: async () => ({ installed: true, allowed: true }), call: async (server, tool, args) => { asked.push([server, tool, args.query]); return { total_count: 1, items: [{ full_name: 'me/by-connector', private: false, size: 3, pushed_at: '2026-11-01T00:00:00Z' }] } } }
+  const S = studio(G, { connectors: granted })
+  try {
+    const r = await call(S, '/api/github/repos')
+    assert.equal(r.body.by, 'connector'); assert.deepEqual(r.body.repos.map(x => x.repo), ['me/by-connector'])
+    assert.deepEqual(asked, [['github', 'search_repositories', 'user:me fork:true']])
+  } finally { S.jobs.close() }
+  // added but not granted to Swarm Studio, or answering nothing it can read: gh, as before
+  for (const c of [{ status: async () => ({ installed: true, allowed: false }), call: async () => { throw new Error('not allowed') } },
+    { status: async () => ({ installed: true, allowed: true }), call: async () => 'a note, not a list' }, null]) {
+    const T = studio(G, { connectors: c })
+    try {
+      const r = await call(T, '/api/github/repos')
+      assert.equal(r.body.by, 'gh'); assert.deepEqual(r.body.repos.map(x => x.repo), ['me/by-gh'])
+    } finally { T.jobs.close() }
+  }
 })

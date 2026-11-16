@@ -20,10 +20,12 @@ export const GODOT_SKILLS = ['gamedev/godot-gdscript', 'gamedev/godot-nodes-scen
 export const isGodotFirst = dir => existsSync(join(portDir(dir, 'godot'), '.godotfirst'))
 export const webBuild = dir => join(portDir(dir, 'godot'), 'build', 'web')
 
-// Godot-first when the spec (or the owner's answer) names Godot and a binary is found
-export function godotFirst(spec, env = process.env) {
+// Godot-first when the spec (or the owner's answer) names Godot and a binary is found. `find` is where the
+// binary is looked for (engine/port.mjs godotBin); a test hands in its own, so its answer does not depend on
+// whether the machine running it happens to have Godot installed.
+export function godotFirst(spec, env = process.env, find = godotBin) {
   const s = String(spec?.target ?? spec?.answers?.target ?? spec?.engine ?? spec?.starter?.engine ?? '').toLowerCase()
-  return s.includes('godot') && !!godotBin(env)
+  return s.includes('godot') && !!find(env)
 }
 
 const PROJECT = name => `; Engine configuration file.
@@ -179,6 +181,8 @@ Finish with the project opening in Godot with no errors and the game playable fr
 const run = (bin, args, ms) => new Promise(ok => execFile(bin, args, { timeout: ms, maxBuffer: 1 << 23, windowsHide: true }, (err, out, errOut) => ok({ code: err?.code ?? 0, text: `${out}\n${errOut}` })))
 
 // Export the project to Web (build/web/index.html). → { ok, dir, error? }
+// Godot's own words when the templates are missing, which is the one export failure a person can fix
+const NO_TEMPLATE = /No export template found at the expected path|Cannot export project with preset .* due to configuration errors/i
 export async function exportWeb(dir, bin = godotBin()) {
   if (!bin) return { ok: false, error: 'no Godot on this machine' }
   const root = portDir(dir, 'godot'), out = join(root, 'build', 'web')
@@ -188,7 +192,11 @@ export async function exportWeb(dir, bin = godotBin()) {
   const r = await run(bin, ['--headless', '--path', root, '--export-release', 'Web', 'build/web/index.html'], 300000)
   const ok = existsSync(join(out, 'index.html')) && existsSync(join(out, 'index.pck'))
   if (ok) unpersist(join(out, 'index.html'))
-  return ok ? { ok, dir: out } : { ok, dir: out, error: godotErrors(r.text)[0] || r.text.trim().split('\n').slice(-3).join(' ').slice(0, 300) }
+  if (ok) return { ok, dir: out }
+  // the one failure with a name and an action: Godot's export templates are a separate download (engine/godotinstall.mjs
+  // installTemplates), so the person is told that instead of Godot's own "No export template found at the expected path"
+  if (NO_TEMPLATE.test(r.text)) return { ok: false, dir: out, missingTemplates: true, error: "Godot's Web export templates are not installed, so it cannot export this game" }
+  return { ok: false, dir: out, error: godotErrors(r.text)[0] || r.text.trim().split('\n').slice(-3).join(' ').slice(0, 300) }
 }
 
 // The export keeps user:// in IndexedDB, which throws in a sandboxed frame (origin null):
@@ -212,7 +220,8 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '
 // A static server for the export, with CORS (the Studio shows games in a sandboxed frame,
 // origin null, and the engine fetches its .pck and .wasm). → { url, close }
 // spa: an address with no file of its own is the app's index.html (a built app's client-side routes)
-export function serveStatic(root, port, { spa = false } = {}) {
+// html: what an HTML page becomes on its way out (a built app's pages get the App room's picker: engine/apppick.mjs)
+export function serveStatic(root, port, { spa = false, html = null } = {}) {
   const srv = createServer((req, res) => {
     const path = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname)).replace(/^([/\\])+/, '')
     let file = join(root, path || 'index.html')
@@ -221,7 +230,7 @@ export function serveStatic(root, port, { spa = false } = {}) {
     try { if (file.startsWith(root) && statSync(file).isDirectory()) file = join(file, 'index.html') } catch {}
     if (!file.startsWith(root) || !existsSync(file)) { res.writeHead(404, { 'access-control-allow-origin': '*' }); return res.end('not found') }
     res.writeHead(200, { 'content-type': TYPES[extname(file)] || 'application/octet-stream', 'access-control-allow-origin': '*', 'cache-control': 'no-store' })
-    res.end(readFileSync(file))
+    res.end(html && extname(file) === '.html' ? html(readFileSync(file, 'utf8')) : readFileSync(file))
   })
   return new Promise((ok, fail) => {
     srv.once('error', fail)

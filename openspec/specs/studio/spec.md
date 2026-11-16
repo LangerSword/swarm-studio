@@ -40,6 +40,7 @@ and Hermia's cursor SHALL work on it (spec 41). Three takes SHALL show three wai
 - **THEN** the Three takes section shows three waiting cards, then three take cards, and the board brings that
   section into view
 - Gate: `manual`
+- Manual: the three takes are made by the models; the test Studio has no model
 
 ### Requirement: Step path
 
@@ -92,11 +93,13 @@ Build SHALL be the top bar's one primary button, and nothing SHALL build until i
 - **WHEN** the person presses Build on a website project
 - **THEN** the crew starts and the Design deck opens with Follow on
 - Gate: `manual`
+- Manual: the crew starting needs the planner and builders' models; the test Studio has no model
 
 #### Scenario: Build does not move
 - **WHEN** a build is starting
 - **THEN** Build is disabled in place, at the same size (RULES rule 29)
 - Gate: `manual`
+- Manual: needs a build starting, which needs a model; the test Studio has none
 
 ### Requirement: The chat leads a website's Studio
 
@@ -116,21 +119,25 @@ SHALL go to the planner as before. There SHALL be no row of reply buttons (decis
 - **WHEN** the chat has asked which pages and the person types "Home, Work, Contact"
 - **THEN** the Plan shows Home, Work and Contact, and the chat asks about pictures
 - Gate: `manual`
+- Manual: the chat's next question is the planner's answer to the pages typed, and the test Studio has no model (its planner answers HTTP 500)
 
 #### Scenario: You choose
 - **WHEN** the chat has asked which pages and the person types "you choose"
 - **THEN** no page is added, the Pages fact reads Crew decides, and the build's brief carries no Pages line
 - Gate: `manual`
+- Manual: the chat's next question is the planner's answer to the pages typed, and the test Studio has no model (its planner answers HTTP 500)
 
 #### Scenario: Pictures typed
 - **WHEN** the chat has asked about pictures and the person types "stock photos"
 - **THEN** the Pictures fact reads Stock photos, Setup's Pictures pick is Stock photos, and a build that was waiting starts
 - Gate: `manual`
+- Manual: the chat's next question is the planner's answer to the pages typed, and the test Studio has no model (its planner answers HTTP 500)
 
 #### Scenario: Skip all, just build
 - **WHEN** the person types "skip all, just build" while either question is open
 - **THEN** the chat says `Building it now:` with what it picked in one line, and the crew starts
 - Gate: `manual`
+- Manual: the crew starting needs the planner and builders' models; the test Studio has no model
 
 ### Requirement: Accessible and console-clean
 
@@ -154,4 +161,16 @@ sheet.
 #### Scenario: Layers as a sheet
 - **WHEN** the person presses Layers at 390 wide
 - **THEN** the Layers sheet opens, and ×, Esc or a click outside closes it
+- Gate: `manual`
+
+### Requirement: The chat is the helper
+
+Asked for something a tool does, the planner SHALL use the tool, and the chat SHALL show what it found under
+Hermia's answer as at most three cards, each with its picture or title and where it came from. A card that can be
+used SHALL have a button; pressing it SHALL do what the card says (decision 0025 e, spec 48). The test Studio's
+planner is scripted for this one request, so the scenario runs without a model.
+
+#### Scenario: A tool's cards to pick from
+- **WHEN** the person asks the chat "find me a pixel sword" and the asset library has swords
+- **THEN** at most three cards show under Hermia's answer, each with its title and where it came from, and Keep this on one puts that picture in the project's References
 - Gate: `manual`

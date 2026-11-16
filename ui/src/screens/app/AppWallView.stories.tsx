@@ -34,3 +34,33 @@ export const Built: Story = { args: { model: built } }
 export const NoPlan: Story = { args: { model: { ...building, map: null } } }
 export const PipAnswers: Story = { args: { said: { at: 2, who: 'Pip', text: "I'm on the booking form: the date picker next." } } }
 export const HermiaAnswers: Story = { args: { said: { at: -1, who: 'Hermia', text: 'Three turns so far; the admin page is next.' } } }
+// the crew's radio (#529): Hermia's order to Pip, fresh (her dotted line to his cursor), what each helper is on, and
+// Bo's reply as his window's bubble
+const now = Date.now()
+export const HermiaGivesAnOrder: Story = {
+  args: {
+    docked: true,
+    radio: {
+      run: 'r-gym',
+      lead: { text: 'Write the booking form next: date, class, a confirm step.', to: 'Pip', kind: 'think', t: now },
+      reason: { text: 'the booking page needs the class list first', t: now },
+      acts: { Ada: { text: 'reading the map', t: now }, Pip: { text: 'writing src/pages/BookAClass.tsx', t: now } },
+      says: { Bo: { text: 'Live app is up on the dev server.', t: now } }
+    }
+  }
+}
+// each change a version (#542, #550, #554): the last change with its before and after, and the versions to go back to
+const t0 = Date.UTC(2026, 10, 13, 16, 0)
+export const WithVersions: Story = {
+  args: {
+    onBack: () => {},
+    model: {
+      ...built,
+      versions: [
+        { rev: 'v3', t: t0 + 3 * 600000, what: 'Make the booking button green', now: true, changed: ['src/pages/BookAClass.tsx'], screen: '/book', photo },
+        { rev: 'v2', t: t0 + 2 * 600000, what: 'Add an admin page for the week', now: false, changed: ['src/pages/Admin.tsx', 'src/App.tsx'], screen: '/admin', photo },
+        { rev: 'v1', t: t0, what: 'First build', now: false, photo }
+      ]
+    }
+  }
+}

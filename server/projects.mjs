@@ -56,7 +56,15 @@ export function kindsOf(card) {
 }
 
 // what a build is and how far it got, in words, from its real events (never a guess):
-// kind Website, App, Game or Video; status Draft, Building, Designed, App built, App failed or Live with its host
+// kind Website, App, Game or Video; status Draft, Building, Designed, App built, App failed or Live with its host.
+// A website that is live and whose newest build is running or not whole keeps both: its build's word as the
+// status, and `live: true` beside the host (the card reads "Website · Failed · Live · host").
+// A website's words come from its one build state (engine/buildstate.mjs, on the card as buildState): Designed
+// only when every section is built, else Partly built, Failed (nothing built) or Stopped (by the person, for
+// a cause, or with no end). The state's own name goes out as `site`, and `empty` when no section stands.
+const SITE_WORD = { done: 'Designed', unchanged: 'Designed', partly: 'Partly built', failed: 'Failed', stopped: 'Stopped', halted: 'Stopped', replaced: 'Stopped', unsure: 'Stopped' }
+// the states of a website build that is over and not whole: the card says so even when a version is live
+const NOT_WHOLE = new Set(['partly', 'failed', 'stopped', 'halted', 'replaced', 'unsure'])
 const hostOf = url => { try { return new URL(url).host } catch { return null } }
 // how far a game build is, from its step lines: painting its art (n of N), then stage x of y
 export function gameProgress(steps = []) {
@@ -75,14 +83,35 @@ export function gameProgress(steps = []) {
 }
 export function stateOf(card, cards = [card]) {
   const game = card.kind === 'game' || card.game
-  const kind = game ? 'Game' : card.build || card.app ? 'App' : card.pages > 0 || card.planned > 0 ? 'Website' : card.video ? 'Video' : 'Website'
+  // what it is comes from the build's own facts at its start (engine/kindstate.mjs `kind`, on the card as
+  // parts): an app is an App before anything of it is built, a film run is a Video
+  const kind = game ? 'Game' : card.build || card.app || card.parts?.kind === 'app' ? 'App' : card.parts?.kind === 'film' ? 'Video' : card.pages > 0 || card.planned > 0 ? 'Website' : card.video ? 'Video' : 'Website'
   const made = game ? 'Game' : 'App'
+  // a website build's own state: an app's design is one too, until its app is built. A game, a film on its
+  // own or a project brought in has none
+  const site = (kind === 'Website' || (kind === 'App' && !card.build && !card.app)) && !card.intake ? card.buildState || null : null
+  const word = site ? SITE_WORD[site.state] || null : null
   // live once any version went out: its newest published address
   const out = [...cards].reverse().map(c => c.deployed || Object.values(c.sites || {})[0]).find(Boolean)
-  // a build still writing steps in the last ten minutes is running, here or on another Studio server
+  // the app's or the game's one state, and a film run's (engine/kindstate.mjs): designed, building, waiting
+  // (a game asking after a slice: your turn), built, failed, stopped. A card made without its parts (a script, a
+  // test) is read as before: a game still writing steps in the last ten minutes is running, here or elsewhere
   const busy = game && card.build === 'working' && Date.now() - (card.updated || 0) < 600000
-  const g = game ? card.work?.progress || (busy ? card.gameAt : null) : null
-  const status = out ? 'Live'
+  const part = card.parts ? (card.parts.game || card.parts.app)?.state || null
+    : busy ? 'building' : game && (card.build === 'working' || card.build === 'stopped') ? 'stopped' : card.build === 'failed' ? 'failed' : card.build === 'built' ? 'built' : null
+  // a film's state: a film run's own (kind Video), and a website's or an app's film too — a build with a failed
+  // film beside it said nothing about it on the Projects card (#647). Only the words below decide what it means,
+  // so a site whose film is whole still reads its website state.
+  const film = card.parts?.film?.state || null
+  const g = game ? card.work?.progress || (part === 'building' ? card.gameAt : null) : null
+  // a website's own build comes first when it is running or not whole: the card reads Building, Partly built,
+  // Failed or Stopped, and stays live at its address (`live`, said after it: "Website · Failed · Live · host").
+  // Before, Live was tested first and a failed or running newest build read only "Live" (publish.md PU2).
+  // (running: the site's own work, its layout, pictures or review; a film made on a whole site leaves it Live)
+  const running = !!site && (card.live || card.work?.what === 'site')
+  const own = site ? (running ? 'Building' : NOT_WHOLE.has(site.state) ? word : null) : null
+  const status = own ? own
+    : out ? 'Live'
     : g?.art ? `Painting art · ${g.art[0]} of ${g.art[1]}`
     : g?.stage ? `Building · stage ${g.stage[0]} of ${g.stage[1]}`
     // a project being brought in (docs/specs/45-intake.md) is not being built
@@ -90,14 +119,25 @@ export function stateOf(card, cards = [card]) {
     : card.intake === 'coming' ? (card.work || busy || card.build === 'working' ? 'Coming in' : 'Did not come in')
     : card.intake === 'in' && card.build === 'built' ? 'Brought in'
     : card.live || card.work ? 'Building'
-    // a game build that was stopped (or whose server went away) keeps app:start as its last word
-    : busy ? 'Building'
-    : game && (card.build === 'working' || card.build === 'stopped') ? 'Stopped'
-    : card.build === 'failed' ? `${made} failed`
-    : card.build === 'built' || (card.app && !card.build) ? `${made} built`
+    : part === 'building' || film === 'making' ? 'Building'
+    // a big game that stopped after a slice and asks: the room's own word for it (web/replaytalk.js appPill)
+    : part === 'waiting' ? 'Your turn'
+    // a build that was stopped (or whose Studio went away) keeps app:start as its last word: an app's too
+    : part === 'stopped' || film === 'stopped' ? 'Stopped'
+    : part === 'failed' ? `${made} failed`
+    : part === 'built' || (card.app && !card.build) ? `${made} built`
+    // a film run's own failure is its whole word ("Video · Failed"); a website's or an app's keeps its own word
+    // and adds the film's failure beside it (`filmAside` below)
+    : kind === 'Video' && film === 'failed' ? 'Failed'
+    : word ? word
     : card.layers > 0 || card.video ? 'Designed'
     : 'Draft'
-  return { kind, status, host: out ? hostOf(out) : null }
+  // A website or an app whose own film failed says so beside its own word: "Website · Designed · Film failed".
+  // The film is a second thing the build made, so the card keeps both rather than replacing one with the other
+  // (#647: the card said nothing about the film). A film run (kind Video) already reads "Video · Failed" above.
+  const filmAside = kind !== 'Video' && film === 'failed' && status !== 'Failed' ? ' · Film failed' : ''
+  // empty only at rest, under the site's own word: a card that reads Live or Building is not an empty version
+  return { kind, status: status + filmAside, host: out ? hostOf(out) : null, ...(out && status !== 'Live' ? { live: true } : {}), ...(site ? { site: site.state, ...(status === word && site.done + site.kept === 0 ? { empty: true } : {}) } : {}) }
 }
 
 // removeDir: how a folder is deleted for good (a test hands in one that fails like a held file on Windows)

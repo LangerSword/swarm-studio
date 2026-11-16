@@ -13,8 +13,11 @@ drives it, what the person connects, the limits, and the sources for every claim
 - If the page doesn't cover it, say "not documented, unchecked", check the engine's own code or docs, and add
   what you found to the page with its source.
 - Never build something an engine already does. Swarm hands the engine the brief; it doesn't redo its work.
-- CI (`engine-docs`) fails a PR that changes an engine's glue code (the files on its page's `Glue:` line)
-  unless the PR updates that page or names it in the description ("Read docs/engines/dyad.md").
+- CI (`engine-docs`) fails a PR that changes an engine's glue code (what its page's `Glue:` line names)
+  unless the PR updates that page or names it in the description ("Read docs/engines/dyad.md"). A file several
+  engines share names a part (`server/server.mjs#meshy`): the lines between `// engine: meshy` and
+  `// end engine: meshy`, in as many blocks as it needs. Only a change whose lines fall inside a part owes its
+  page. Code you add for an engine to a shared file goes inside that engine's part, or in a new block of it.
 - A Claude Code hook (`.claude/settings.json`, `scripts/engine-docs-hook.mjs`) adds "read docs/engines/…"
   to any message that names an engine.
 
@@ -34,6 +37,8 @@ The real constraints that come with a dependency:
 - **Size and licence.** Mind the install size and the licence.
 - **Nothing new downloaded at build time.** A build may not fetch a new runtime download.
 
+When main's Mac check is red: `checks-macos` runs on a pull request only when it touches what can behave differently on a Mac (the list in `.github/workflows/checks.yml`, job `changes`), and always on every push to `main` and `release/**`. A red `checks-macos` on `main` is a Mac-only break the pull request didn't run: find the merge that brought it (the run's commit), open a fix PR that touches one of the listed files (so its own Mac check runs), and don't merge other PRs that touch those files until `main` is green again.
+
 Checks before a PR: `bash scripts/check.sh`; for code in `web/`, also `npm ci --prefix tools/dev` once, then
 `npm run --prefix tools/dev typecheck` (files that start with `// @ts-check`; a new web file starts with it) and
 `npm run --prefix tools/dev deps` (no new cycles beyond `.dependency-cruiser-known-violations.json`; an area
@@ -49,7 +54,7 @@ Never add to the known lists (`.dependency-cruiser-orphans-known.json`, the
 `ignoreIssues` in `ui/knip.jsonc`) to pass: they hold what was there when the check arrived and only get shorter.
 The Studio's theme variables are design tokens: change `tokens/*.tokens.json`, run `npm run --prefix tools/dev tokens`
 and commit `web/tokens.css` and `ui/src/theme.css` with them; never edit either by hand (`tokens:check` fails a stale one).
-The Studio is moving to React in `ui/`, served at `/next/` ([decision 0013](docs/decisions/0013-react-ui-coexists.md)).
+The Studio is moving to React in `ui/`, served at `/` and `/next/`, with the classic Studio at `/classic/` ([decisions 0013](docs/decisions/0013-react-ui-coexists.md), [0024](docs/decisions/0024-the-next-ui-is-the-studio.md)); test suites keep classic at `/`.
 For code in `ui/`: `npm ci --prefix ui`, then `npm run --prefix tools/dev typecheck:ui`, `deps:ui` and `ui:check`
 (`npm run --prefix ui build` makes `ui/dist/` for `/next/`; never commit it: CI builds it and only a release carries it,
 [decision 0018](docs/decisions/0018-next-ui-build-on-release.md)). [ui/README.md](ui/README.md) is how a screen moves.

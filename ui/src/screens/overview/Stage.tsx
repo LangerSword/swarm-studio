@@ -6,7 +6,12 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffec
 import { Artboard, WaitingPages } from './Artboard'
 import { COLUMNS, SECTION_NAME, type Board, type Groups, type Item } from './model'
 
-export interface StageHandle { frameAll(animate?: boolean): void, zoomTo(key: string): void, reveal(key: string): void }
+export interface StageHandle {
+  frameAll(animate?: boolean): void, zoomTo(key: string): void, reveal(key: string): void
+  // when the camera last moved (performance.now()), and whether an artboard is on screen: a page is photographed only
+  // in view, with the camera at rest (Snapper.tsx)
+  movedAt(): number, inView(key: string): boolean
+}
 interface Cam { x: number, y: number, k: number }
 
 const narrow = () => matchMedia('(max-width: 760px)').matches
@@ -21,13 +26,16 @@ export const Stage = forwardRef<StageHandle, {
   const world = useRef<HTMLDivElement>(null)
   const cam = useRef<Cam>({ x: 0, y: 0, k: 1 })
   const framed = useRef(false)
+  const moved = useRef({ at: 0, t: '' })
   const [sharp, setSharp] = useState(false)
 
   const apply = useCallback((ease = false) => {
     const w = world.current
     if (!w) return
     w.classList.toggle('ease', ease)
-    w.style.transform = `translate(${cam.current.x}px, ${cam.current.y}px) scale(${cam.current.k})`
+    const t = `translate(${cam.current.x}px, ${cam.current.y}px) scale(${cam.current.k})`
+    if (t !== moved.current.t) moved.current = { at: performance.now(), t }
+    w.style.transform = t
     // zoomed in past a page's small picture, its full one
     setSharp(cam.current.k > 1.6)
     if (ease) setTimeout(() => w.classList.remove('ease'), 300)
@@ -77,6 +85,13 @@ export const Stage = forwardRef<StageHandle, {
         cam.current.x += sr.left + vw / 2 - (r.left + r.width / 2); cam.current.y += sr.top + (sr.height - 90) / 2 - (r.top + r.height / 2)
         apply(true)
       }
+    },
+    movedAt: () => moved.current.at,
+    inView: key => {
+      const el = abOf(key), s = stage.current
+      if (!el || !s) return false
+      const r = el.getBoundingClientRect(), v = s.getBoundingClientRect()
+      return r.width > 0 && r.right > v.left && r.left < v.right && r.bottom > v.top && r.top < v.bottom
     }
   }), [fit, bounds, apply])
 
@@ -162,7 +177,9 @@ export const Stage = forwardRef<StageHandle, {
     </section>
   )
   return (
-    <div ref={stage} className="ov-stage" aria-label="Overview" aria-busy={waiting || undefined}
+    // only the waiting pages say they are on their way (WaitingPages), as in the current Studio: Hermia works on the
+    // first of them, not on the whole stage
+    <div ref={stage} className="ov-stage" aria-label="Overview"
       onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={e => { touches.current.delete(e.pointerId); pinch.current = null; drag.current = null }}>
       <div ref={world} className="ov-world"
         onClick={e => { const k = key(e); if (k && e.detail < 2) onSelect(k) }}

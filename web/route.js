@@ -20,6 +20,11 @@ const LOOK = /\b(colou?rs?|palette|colou?r scheme|brand(ing)?|theme|fonts?|typef
 const NOT_LOOK = /\b(add|adding|new|another|remove|delete|page|pages|section|sections|layout|picture|pictures|image|images|photo|photos|logo|rewrite|copy|words|text|headline|button|buttons|menu|nav|footer|hero)\b/i
 export const lookAsk = text => { const t = String(text || ''); return LOOK.test(t) && !NOT_LOOK.test(t) }
 
+// An app project's Overview (issue #542): words typed in its chat change the app, in its App room, the same as
+// that room's chat; only a selected page still takes a change to its design (/fix).
+/** @param {{ app?: boolean } | null | undefined} board  @param {string | undefined} selected the selected item's kind */
+export const toApp = (board, selected) => !!board?.app && selected !== 'page'
+
 export function routeMessage({ text = '', run = null, site = true, selected = false, hosted = false } = {}) {
   const t = String(text).trim()
   if (!t) return 'none'

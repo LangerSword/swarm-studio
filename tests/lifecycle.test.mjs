@@ -261,7 +261,7 @@ test('the server exits by itself after its idle time with nothing open, and not 
   const ctl = new AbortController()
   try {
     // a pane: the canvas's event stream
-    const sse = fetch(`${open.base}/events?k=t`, { signal: ctl.signal }).then(r => r.body?.getReader().read()).catch(() => {})
+    const sse = fetch(`${open.base}/events`, { headers: { 'x-swarm-token': 't' }, signal: ctl.signal }).then(r => r.body?.getReader().read()).catch(() => {})
     const code = await Promise.race([open.exited, wait(5000).then(() => 'still running')])
     assert.equal(code, 'still running', 'a pane keeps it')
     ctl.abort()

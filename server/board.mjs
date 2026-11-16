@@ -1,14 +1,23 @@
 // A project's canvas: everything one build made, grouped the way the Files panel shows it.
 // Shared by the local server and the hosted studio.
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import * as art from '../engine/artdirect.mjs'
+import { kindState } from '../engine/kindstate.mjs'
 
 const snapAt = (runsDir, id) => { try { return `/img/${id}/snap.jpg?v=${Math.round(statSync(join(runsDir, id, 'img', 'snap.jpg')).mtimeMs)}` } catch { return null } }
 
 // `thumb` gives a picture's ThumbHash from its address once the image service has it (engine/images.mjs), so each
 // tile can show a blurred preview before the picture comes; without one, none is sent
-export function runBoard(id, events, runsDir, live = false, thumb = () => null) {
+// refs-used.json, written when a project's build starts (server.mjs): [{ id, name, kind, what }]; null for a build
+// outside a project, or one made before builds kept it (then nobody knows)
+function refsUsedOf(runsDir, id) {
+  try { const j = JSON.parse(readFileSync(join(runsDir, id, 'refs-used.json'), 'utf8')); return Array.isArray(j) ? j.slice(0, 40) : null } catch { return null }
+}
+
+// `facts`: what the server knows beside the events (engine/kindstate.mjs kindState): the run's piece, its app job
+// at work, its film job, which processes live. Without them the parts are read from the events alone.
+export function runBoard(id, events, runsDir, live = false, thumb = () => null, facts = {}) {
   const start = events.find(e => e.type === 'run:start') || {}
   const pages = events.filter(e => e.type === 'page').map(p => ({ id: p.id, title: p.title }))
   const titleOf = pid => pages.find(p => p.id === pid)?.title || ''
@@ -36,6 +45,13 @@ export function runBoard(id, events, runsDir, live = false, thumb = () => null) 
     }
     if (e.type === 'layer:done' && e.page) for (const l of plan.get(e.page) || []) if (l.id === e.layer) l.done = true
   }
+  // every part of the build with its one state (engine/kindstate.mjs): what it is, its website build (`build`,
+  // engine/buildstate.mjs; null once an app or a game was built), its app or game, its film. Each section the
+  // website build lists as failed is marked: the Overview says a page's sections failed instead of drawing them
+  // as still coming. An app is an app from its start, built or not: its artboard says which.
+  const parts = kindState(events, { live, ...facts })
+  const build = parts.site
+  for (const f of build?.failed || []) for (const l of plan.get(f.page) || []) if (l.id === f.layer) l.failed = true
   for (const p of pages) p.plan = plan.get(p.id) || []
   const video = events.findLast(e => e.type === 'video:done')
   // tall: the 9:16 phone cut of the same film, when the run made one
@@ -43,7 +59,7 @@ export function runBoard(id, events, runsDir, live = false, thumb = () => null) 
   const films = video ? [{ name: 'Promo', src: `/video/${id}/promo.mp4`, tall, poster: existsSync(join(runsDir, id, 'video', 'p1.webp')) ? `/video/${id}/live/p1.webp` : null, seconds: Number(video.seconds) || null }] : []
   const spec = events.findLast(e => e.type === 'game:spec')?.spec
   const isGame = start.kind === 'game' || !!spec
-  const app = events.some(e => e.type === 'app:ready' || e.type === 'app:done')
+  const app = (parts.kind === 'app' && !start.intake) || events.some(e => e.type === 'app:ready' || e.type === 'app:done')
   const th = events.findLast(e => e.type === 'theme')
   // pictures being made: each slot's latest word (queued, sent back, failed, or the picture itself);
   // the count ("3 of 8") is this batch: the slots asked for within five minutes of the oldest one still waiting
@@ -91,13 +107,15 @@ export function runBoard(id, events, runsDir, live = false, thumb = () => null) 
   return {
     id, title: start.title || pages[0]?.title || '', kind: start.kind || 'site', live: live,
     brief: String(start.brief || '').split('\n\nThe owner uploaded these pictures.')[0].split('\n\nFor this version: ')[0].slice(0, 4000),
-    pages, art: pics, films, style,
+    pages, art: pics, films, style, build, parts,
     theme: th?.vars ? { colors: ['--background', '--primary', '--accent', '--foreground'].map(k => th.vars[k]).filter(Boolean), fonts: th.fonts || null } : null,
     // a game's cover: its own picture, else its title screen from the play test
-    game: isGame ? { title: (typeof spec === 'object' && spec?.title) || start.title || 'Game', pitch: (typeof spec === 'object' && String(spec?.pitch || '').slice(0, 200)) || '', cover: pics[0]?.src || snapAt(runsDir, id) } : null,
+    game: isGame ? { title: (typeof spec === 'object' && spec?.title) || start.title || 'Game', pitch: (typeof spec === 'object' && String(spec?.pitch || '').slice(0, 200)) || '', cover: pics[0]?.src || snapAt(runsDir, id), part: parts.game } : null,
     app: app && !isGame, code: existsSync(join(runsDir, id, 'app')),
     painting, paintCount: { done: batch.filter(s => s.state === 'done').length, total: batch.length },
     review,
+    // the project's references that went into this build's brief, as they were when it started (issue #543)
+    refsUsed: refsUsedOf(runsDir, id),
     // something is still happening on the canvas: the canvas checks back often
     busy: live || waiting.length > 0 || !!review?.active
   }

@@ -5,6 +5,7 @@
 // web/canvas/talk.js). The chat owns its turns, the open question, the brief being edited, the chat's id, its tab,
 // the chips in the message box and the two pickers. The screen owns what was built: the crew's lines, the Log, where
 // each layer is on screen, and what Build, a slash command or a plan does next.
+import type { ReactNode } from 'react'
 
 export type ChatKind = 'site' | 'app' | 'game' | 'film' | 'video'
 
@@ -25,7 +26,24 @@ export interface ChatLine {
   layers?: string[]
   // Hermia is working on it (the dots)
   working?: boolean
+  // a game plan's next step (server/talk.mjs): its buttons sit in the turn; waiting: something is painting; sheet:
+  // the sketch sheet that waits on the person's picks, drawn in the turn to click
+  step?: boolean
+  waiting?: boolean
+  sheet?: SheetPick
+  // something to act on in Hermia's turn, drawn under her words (a build's research stop: ResearchStop)
+  card?: ReactNode
+  // what a tool Hermia used found (decision 0025 e): its cards, and the saved turn they are on (for a press)
+  cards?: ChatCard[]
+  cardsTurn?: string
 }
+
+// a helper tool's card (engine/helpers.mjs cardsView): where it came from always; pick: its button's words when it
+// can be pressed; picked: when it was
+export interface ChatCard { id: string, title: string, source: string, img?: string, note?: string, pick?: string, picked?: number }
+
+// a sketch sheet in the chat: its picture, its grid and the cells picked so far (0-based)
+export interface SheetPick { id: string, src: string | null, grid: [number, number], picks: number[] }
 
 // A chip in the message box: a layer dragged in (it gets a wire to the layer), or a reference (a picture, clip or
 // sound dropped or pasted; no wire)
@@ -44,7 +62,7 @@ export interface ChatTalk {
   // reopen this chat: its turns come back, and a game's open question with its options
   chat?: string | null
   // the turns to show first (an old chat opened from Projects)
-  said?: { who: 'you' | 'hermia', text: string }[]
+  said?: { who: 'you' | 'hermia', text: string, cards?: ChatCard[], turn?: string }[]
   // the person's first words, sent at once
   text?: string
   // a brief ready to read, edit and Build, with what Build makes (a showcase, or the Make box's prompt);
@@ -52,6 +70,8 @@ export interface ChatTalk {
   brief?: string
   what?: string
   sheet?: boolean
+  // the brief's first button's word, in place of Build (the Design deck's "Try again" after a failed first build, #541)
+  go?: string
   // a new project with nothing built yet: the canvas is empty (the screen clears it)
   blank?: boolean
 }
@@ -96,6 +116,9 @@ export interface ChatProps {
   // where a layer is on screen, for its wire: { left, top, width, height }, or null when it is not drawn
   layerRect?: (key: string) => DOMRectReadOnly | { left: number, top: number, width: number, height: number } | null
   api?: ChatApi
+  // what Send does here when it does not build (the App room's box asks the crew or changes the app, issue #542):
+  // the box's placeholder, the line while the chat is empty, and the button's word
+  box?: { placeholder: string, empty: string, action: string }
 
   // ---------- what the chat tells the screen
   // Send while no talk is on: a build (or, when it starts with /, a command), with the pickers' values and the

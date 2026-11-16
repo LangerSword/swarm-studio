@@ -2,8 +2,9 @@
 // web/canvas.js, split by area (web/canvas/README.md): the panels: theme, layer tree, agents, status, toolbar, and the chat feed with its messages.
 import { layerDrag } from '../layerlink.js'
 import { layerTree, layerSheet } from '../layers.js'
-import { statusWords, REPLAY_WORD } from '../replaytalk.js'
-import { S, els, TOOL, TOOLS, Crew, HERMIA, api, WALL } from './core.js'
+import { statusWords, REPLAY_WORD, buildStrip, endWords } from '../replaytalk.js'
+import { isRaw } from '../stopreason.js'
+import { S, els, TOOL, TOOLS, Crew, HERMIA, api, WALL, buildOf } from './core.js'
 import { slotFor, setAuto, fit, post, focusPage, toolFlash } from './deck.js'
 import { design, showDtab, esc } from './design.js'
 import { USER_TOOLS, cmt, txt } from './marks.js'
@@ -134,12 +135,16 @@ export function renderAgents() {
 // The strip at the top left of the canvas: what is happening, and how far along it is.
 export function renderStatus(working, done) {
   if (!els.status.firstElementChild) els.status.innerHTML = '<span class="st-dot"></span><span class="st-txt"></span><span class="st-num"></span><span class="st-bar"><i></i></span><button type="button" class="st-stop" aria-label="Stop replay" hidden>Stop</button>'
-  const total = S.layers.size, pct = total ? done / total : 0
-  const state = !total ? (S.run && !S.tEnd ? 'planning' : 'idle') : done >= total ? 'done' : working ? 'working' : 'paused'
+  // a website build reads the server's one state of it (core.js buildOf, web/replaytalk.js buildStrip): the
+  // strip never counts sections to guess whether the build ended. With none (an app, a game, the hosted
+  // studio) it counts as before.
+  const replay = rec.on, b = replay ? null : buildOf(), strip = b ? buildStrip(b, { working, pages: S.frames.length }) : null
+  const total = S.layers.size, pct = strip ? strip.pct : total ? done / total : 0
+  const state = strip ? strip.state : !total ? (S.run && !S.tEnd ? 'planning' : 'idle') : done >= total ? 'done' : working ? 'working' : 'paused'
   if (els.status.dataset.state !== state) els.status.dataset.state = state
   // a replay's strip reads Replay and how far along it is, never "3 agents building" (web/replaytalk.js); Stop ends it
   // (a Wall tile has the words and no Stop: the Wall is not pressed)
-  const replay = rec.on, words = statusWords({ replay, at: rec.at, state, working, pages: S.frames.length, done, total })
+  const words = strip || statusWords({ replay, at: rec.at, state, working, pages: S.frames.length, done, total })
   if (els.status.dataset.replay !== String(replay)) { els.status.dataset.replay = String(replay); /** @type {HTMLElement} */ (els.status.children[4]).hidden = !replay || WALL }
   setText(els.status.children[1], words.text)
   setText(els.status.children[2], words.num)
@@ -237,7 +242,37 @@ export const STOPPED = { pictures: 'pictures', review: 'review', fixes: 'fixes',
 export const STOP_PILL = { person: 'stopped', replaced: 'stopped', hermes: 'stopped: no Hermes', model: 'stopped: model', timeout: 'stopped: timed out' }
 export let hermesResume = null
 export function setHermesResume(v) { return (hermesResume = v) }
+// What the chat says of a website build that ended or stopped with something left, from the server's one state
+// of it (web/replaytalk.js endWords): what is kept, how many sections failed, why, the one thing to do, and
+// the one button the state names (`next`): Resume, or Try again. Said as it happens and when the build is
+// opened again, so a failed, partly built, halted or cut-off build always has its way on.
+/** @param {import('../replaytalk.js').BuildState} b */
+export function leftMsg(b) {
+  window.swarmCosmos?.chat?.(true)
+  // the progress line is over: the build is not going on
+  S.progress?.remove()
+  S.progress = null
+  const why = b.reason && b.reason.code !== 'person' ? b.reason : null
+  const item = botMsg(endWords(b))
+  if (why?.action) item.querySelector('.txt').append(document.createElement('br'), actionLine(why.action))
+  // the strip says it in the same moment as the chat (the frame loop may be resting)
+  renderStatus(0, [...S.layers.values()].filter(l => l.status === 'done').length)
+  // a replay only plays: nothing that acts on the build is offered in a line it adds
+  if (rec.event || hosted || !b.next) return item
+  const run = S.run
+  // Hermes closed mid-build: Resume happens by itself once a Hermes attaches (hermes:back)
+  if (why?.code === 'hermes' && b.next === 'resume') hermesResume = run
+  const acts = document.createElement('div')
+  acts.className = 'chips'
+  acts.innerHTML = `<button class="primary">${b.next === 'resume' ? 'Resume' : 'Try again'}</button>`
+  // @ts-ignore
+  acts.firstChild.onclick = () => { acts.remove(); b.next === 'resume' ? resumeRun(run) : againRun(run) }
+  item.append(acts)
+  return item
+}
 export function stoppedMsg(e) {
+  const b = buildOf()
+  if (b) return void leftMsg(b)
   const built = [...S.layers.values()].filter(l => l.status === 'done').length, total = S.layers.size
   const why = e.reason && e.reason.code !== 'person' ? e.reason : null
   window.swarmCosmos?.chat?.(true)
@@ -264,8 +299,34 @@ export function stoppedMsg(e) {
       if (!h) return botMsg('Hermes is connected. Send the message again to build.')
       hermesSays(h)
     }
+  } else if (why && !total) {
+    // stopped before any page was planned (the model failed, it timed out): the same build again (#541)
+    acts.innerHTML = '<button class="primary">Try again</button>'
+    // @ts-ignore
+    acts.firstChild.onclick = () => { acts.remove(); againRun(run) }
   } else return
   item.append(acts)
+}
+// the same build again, in the same project, from the run's own words. The server starts it only where the
+// build's state names Try again, and asks nothing more: it is the build the person already said yes to
+// (POST /api/runs/<id>/again). The hosted studio has no such route: its builds go as they did.
+export async function againRun(run) {
+  if (!hosted) {
+    const res = await api(`/api/runs/${encodeURIComponent(run)}/again`, { method: 'POST' }).catch(() => null)
+    const j = res ? await res.json().catch(() => ({})) : {}
+    if (res?.status === 503 && j.hermes) return hermesSays(j)
+    if (!res?.ok) return feed(null, `Couldn't start it again: ${j.error || res?.status || 'no server'}`, 'err')
+    return showRun(j.run, { started: true })
+  }
+  const events = await api(`/api/runs/${encodeURIComponent(run)}/events`).then(r => (r.ok ? r.json() : [])).catch(() => [])
+  const brief = events.find(e => e.type === 'run:start')?.brief
+  if (!brief) return feed(null, "Couldn't find what this build was asked to make.", 'err')
+  const project = window.swarmCosmos?.project || undefined
+  const res = await api('/api/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ brief, ...(project ? { project } : {}) }) }).catch(() => null)
+  const j = res ? await res.json().catch(() => ({})) : {}
+  if (res?.status === 503 && j.hermes) return hermesSays(j)
+  if (!res?.ok) return feed(null, `Couldn't start it again: ${j.error || res?.status || 'no server'}`, 'err')
+  showRun(j.run, { started: true })
 }
 export async function resumeRun(run) {
   if (hermesResume === run) hermesResume = null
@@ -295,7 +356,9 @@ export async function hermesReady() {
   return { message: j.health.message, action: j.health.action, code: j.health.code }
 }
 // one calm line in the chat with the one thing to do, and a way to look again
-export function hermesSays(h) {
+// then: what was being sent when Hermes was found away (a talk's message): once Hermes is there it is sent again
+/** @param {any} h  @param {(() => void) | null} [then] */
+export function hermesSays(h, then = null) {
   window.swarmCosmos?.chat?.(true)
   const item = botMsg(h.message)
   if (h.action) item.querySelector('.txt').append(document.createElement('br'), actionLine(h.action))
@@ -307,18 +370,59 @@ export function hermesSays(h) {
   acts.firstChild.onclick = async () => {
     const again = await hermesReady()
     acts.remove()
-    if (!again) return botMsg('Hermes is connected. Send the message again to build.')
-    hermesSays(again)
+    if (!again) return then ? then() : botMsg('Hermes is connected. Send the message again to build.')
+    hermesSays(again, then)
   }
   item.append(acts)
   return item
 }
+// A turn that failed is not Hermia speaking: the reason in plain words (web/stopreason.js: the one table of them),
+// the one thing to do, and the one button that does it. again: sends the same message again (Try again; for
+// Hermes away, Check again sends it once Hermes is there). A reason that is missing, or still raw, is never shown.
+/** @param {any} reason  @param {{ again?: (() => void) | null, lead?: string }} [o] */
+export function failSay(reason, { again = null, lead = '' } = {}) {
+  const r = reason && typeof reason.message === 'string' && reason.message && !isRaw(reason.message) ? reason : { code: 'studio', message: 'No answer came back.', action: '' }
+  if (r.code === 'hermes') return hermesSays(r, again)
+  window.swarmCosmos?.chat?.(true)
+  const item = document.createElement('div')
+  item.className = 'item err fail-turn'
+  item.innerHTML = '<span class="txt"></span>'
+  item.querySelector('.txt').textContent = [lead, r.message].filter(Boolean).join(' ')
+  if (r.action && !isRaw(r.action)) item.querySelector('.txt').append(document.createElement('br'), actionLine(r.action))
+  push(els.feed, item)
+  // a replay only plays: nothing that acts is offered in a line it adds
+  if (rec.event) return item
+  const acts = document.createElement('div')
+  acts.className = 'chips'
+  if (r.code === 'setup') {
+    acts.innerHTML = '<button class="primary">Models</button>'
+    // @ts-ignore
+    acts.firstChild.onclick = () => window.SwarmSetup?.open('models')
+  } else if (again && r.code !== 'nothing') {
+    acts.innerHTML = '<button class="primary">Try again</button>'
+    // @ts-ignore
+    acts.firstChild.onclick = () => { acts.remove(); again() }
+  } else return item
+  item.append(acts)
+  return item
+}
+// A raw line (a provider's text, a failed section's message) is the Log's, whoever it is from: never the chat's
+/** @param {any} a  @param {string} text */
+export function logErr(a, text) {
+  const item = feed(a, text, 'sys')
+  item.classList.add('err')
+  return item
+}
 
+// a reply on its way with no words yet ('…') is a skeleton of her lines, marked busy: Hermia's cursor shows she is
+// working while it waits (web/pet.js PET_NEAR, #392); it is removed when the reply comes
 export function botMsg(text, working = false) {
   const item = document.createElement('div')
+  const replying = working && text === '…'
   item.className = `item bot${working ? ' working' : ''}`
-  item.innerHTML = `<b>${HERMIA}Hermia<small>planner</small></b><span class="txt"></span>`
-  item.querySelector('.txt').textContent = text
+  item.innerHTML = `<b>${HERMIA}Hermia<small>planner</small></b><span class="txt"></span>${replying ? '<span class="sk-lines" aria-hidden="true"><i></i><i></i></span>' : ''}`
+  if (replying) item.setAttribute('aria-busy', 'true')
+  else item.querySelector('.txt').textContent = text
   push(els.feed, item)
   return item
 }
@@ -335,9 +439,26 @@ function extendSummary(e, secs) {
   return `${did || 'Nothing was added'} in ${secs}s${e.failed ? ` (${e.failed} failed)` : ''}. ${names.length ? `The navigation links the new pages; the ${kept}.` : `The ${kept}.`}`
 }
 
+// the hosted studio's own words for a build it refused or ended (its limits): written for the person
+/** @param {string} message */
+export const hostedErr = message => { if (hosted && message && !isRaw(message)) feed(null, message, 'err') }
+// the words each build was asked with, so a change that added nothing can be sent again as it was
+const askedOf = new Map()
+/** @param {string} run  @param {string} words */
+export const noteAsked = (run, words) => { askedOf.set(run, String(words || '')) }
 export function summarize(e) {
   S.progress?.remove()
   S.progress = null
+  // a build that ended with sections failed or left is not "built": the chat says what stands, what failed and
+  // why, with Resume, and never offers the prototype as if it were finished
+  const b = buildOf()
+  if (b && (b.state === 'partly' || b.state === 'failed')) return void leftMsg(b)
+  // a next version that added nothing for a reason (the model did not answer, the words named nothing to add):
+  // what happened and the one thing to do, never the prototype's buttons as if something had been made
+  if (b && b.state === 'unchanged' && b.reason) {
+    const run = S.run, words = askedOf.get(run) || ''
+    return void failSay(b.reason, { lead: 'Nothing was added.', again: words && !hosted ? () => { els.brief.value = words; els.form.requestSubmit() } : null })
+  }
   const secs = (e.ms / 1000).toFixed(1)
   const item = botMsg(e.extend ? extendSummary(e, secs) : `Built ${e.pages} pages and ${e.done} sections in ${secs}s with ${S.agents.size} agents${e.failed ? ` (${e.failed} failed)` : ''}. Open a page, or play the prototype.`)
   if (!S.frames.length) return

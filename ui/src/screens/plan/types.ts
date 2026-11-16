@@ -36,6 +36,9 @@ export interface Price {
   first: { credits: number }, rest?: { credits: number }
 }
 
+// a picture the owner dropped on the board: the game's art references (engine/planrefs.mjs)
+export interface ArtRef { id: string, name: string, src: string, asIs?: boolean, removed?: number | null }
+
 export interface Plan {
   id: string
   title: string
@@ -52,4 +55,5 @@ export interface Plan {
   price?: Price
   first?: { name: string, src?: string } | null
   summary?: string
+  refs?: ArtRef[]
 }

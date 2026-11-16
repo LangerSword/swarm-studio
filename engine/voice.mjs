@@ -1,7 +1,7 @@
 // Character voices: the lines a game's characters call out (spell names, sword
 // skills, barks), recorded once from a config file into mp3s the game plays.
 //
-// The config (for ARES: games/ares/data/heroes.json) names voices once under
+// The config (the guided game maker's: gamemaker/heroes.json) names voices once under
 // `voices` and gives each hero a `voice`, `barks` and `moves`; any move or bark
 // with a `line` gets recorded. Providers:
 //   fish        Fish Audio TTS (POST /v1/tts, reference_id = voice, header model)
@@ -11,7 +11,7 @@
 // the Octo vault (OCTO_VAULT_GRANT, the key named by the voice's `vault`), called
 // through the vault proxy so the real key never leaves the vault.
 //
-//   node engine/voice.mjs games/ares/data/heroes.json [--hero runner] [--force] [--dry]
+//   node engine/voice.mjs gamemaker/heroes.json [--hero runner] [--force] [--dry]
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'

@@ -11,10 +11,9 @@ COPY packs ./packs
 COPY skills ./skills
 COPY gameskills ./gameskills
 COPY plugin.yaml ./
-# the ARES web game, served at /studio/app/ares/ (web, plus the assets and data it loads)
-COPY games/ares/web ./games/ares/web
-COPY games/ares/assets ./games/ares/assets
-COPY games/ares/data ./games/ares/data
+# ARES (the hand-coded demo game, once served at /studio/app/ares/) is not in this image any more: it
+# moved to its own repo (Pukujan/ares, 2026-11-16) so the plugin and this image stop carrying 164 MB of
+# one demo. Its demo is at https://pukujan.github.io/ares/web/.
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=8080 \

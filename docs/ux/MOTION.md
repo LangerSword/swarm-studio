@@ -37,6 +37,7 @@ run of the replay: the pictures differed because the pages themselves were in di
 - **Real-clock work is waited for.** Taking a resting page's picture runs on the real clock, not the page's. The
   check now waits for it before it moves the clock again (`window.swarm.photographing`), as it already waits for
   requests and fonts, so a page becomes a picture at the same step in every run. `motion-parity` waits the same way.
+- **The scroll reveal is logged by its class change.** `engine/motion.mjs` adds `m-t`, then `m-in` two frames later, and the transition between them is real-clock work: whether the browser drew a frame between the two, and whether the transition was still running when its start was heard, made a heading's reveal (`frame ~opacity h1.m-t`) seen in one recording and not the next (play, "ran before, not after" and the other way, on pull requests that did not touch it). The recording now leaves the reveal's own transitions out and logs one line per revealed element when it gets `m-in`: `reveal 750ms h1`, its duration and its tag and classes. Eight recordings of the Play scene read the same.
 - **The rest step.** Past its time a scene's clock runs on, 500 ms at a time, while the deck's camera is still
   gliding (`.world.moving`) or the picture is not yet the one of the step before, for at most 5 s more
   (`REST_MS`). The picture kept is the first one at rest. A scene that has not come to rest by then says so in the
@@ -76,9 +77,17 @@ check how it looks. A screen whose `/next/` still shows its name and "Open in th
 moved yet. As in the motion check, each app is recorded twice, and a difference counts only when both runs
 agree. Nothing is retried.
 
-Known differences are in [motion/parity-known.json](motion/parity-known.json). Each one is labelled
-`intended (PR #N)`, a slice that leaves it for later on purpose, or `drift`, which is to be fixed, and each
-has a why. A new difference fails the job. A known one that no longer happens is printed so its entry can be
+Known differences are in [motion/parity-known.json](motion/parity-known.json). Each has a why and one of three
+labels:
+
+- `intended (decision NNNN)`: the owner decided the next UI differs here, and the label cites where. That's a
+  decision record, a spec (`spec 44`, `spec design-deck`) or a written pattern (`PATTERNS: …`). For example,
+  decision 0015 docks the chat along the bottom, which moves the Studio's board left.
+- `later (#issue)`: `/next/` hasn't built this yet. It's open work, and the issue says what done looks like.
+- `drift`: it should match and doesn't. It's to be fixed.
+
+A slice that hasn't built something yet is `later`, never `intended`: only a decision makes a difference
+intended. A new difference fails the job. A known one that no longer happens is printed so its entry can be
 deleted. To write the list again: `node scripts/motion-parity.mjs run <dir> --update`, then label the new
 entries.
 

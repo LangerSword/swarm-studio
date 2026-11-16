@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto'
 import { createServer as httpServer, request } from 'node:http'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
-import { join, normalize } from 'node:path'
+import { join, normalize, sep } from 'node:path'
 import { snapshot, dyadApp, seedProject } from './export.mjs'
 import { seoFromEvents, shareApp } from './seo.mjs'
 import { deployName, isScreenName, projectName } from './naming.mjs'
@@ -25,6 +25,7 @@ import { gameSlug, isBig, artList, sheetList, stagesFor, bigStagePrompt, sliceAs
 import { takeAsks, askedBefore, keepAsked, askBrief, ASKS_PER_STAGE } from './artask.mjs'
 import { TARGETS, portTarget, portPrompt, checkPort, copyPortModels, checkGodot } from './port.mjs'
 import { intakeOf } from './bringin.mjs'
+import { withPicker } from './apppick.mjs'
 import { godotFirst, isGodotFirst, seedGodot, syncGodotArt, godotArtBrief, godotStagePrompt, exportWeb, serveStatic, webBuild } from './godotfirst.mjs'
 
 const KEEP = `This project already holds a finished design made in Swarm Studio: every section is a component in src/components/swarm/, every page is in src/pages/, and the theme lives in the CSS variables in src/globals.css. The look is decided. Keep that markup, those Tailwind classes and those variables. Change a section only where it needs real behaviour, and then keep its look. New pages and components use the same variables and shadcn/ui components so they match. Don't read every section first: the page list below says what each page holds; open only the files you are about to change.`
@@ -76,6 +77,26 @@ ${BACKEND}
 Finish with a working build: the typecheck and build must pass.`
 }
 
+// a run made as a game (Make › Game; its brief's kind, or the game builder's spec), before any app job ran for it
+export const isGameRun = (events = []) => events.some(e => (e.type === 'run:start' && e.kind === 'game') || e.type === 'game:spec')
+
+// Why start() refuses a build before it touches anything, from the run's own events and what is asked; null when
+// it takes it. The one state of an app or a game (engine/kindstate.mjs) names a way forward only where this is null.
+// hasApp: a build finished (so this is a change). A project brought in (docs/specs/45-intake.md) is never built
+// over: a first build would write the Studio's starter into its folder. One of plain files has no build for the
+// engine to check (dyad/src/aba/headless_cli.ts runGates: no package.json is "not an ABA app", a failed turn), so
+// the crew cannot change it yet. A change to one runs the project's own build and then its dev server: code from
+// outside, so only after the person's yes to running it (intake:run).
+export function startRefusal(events = [], { hasApp = false, fresh = false, ask = '', prompt = '', kind = 'site' } = {}) {
+  const brought = intakeOf(events), said = String(ask || '').trim()
+  if (brought && !brought.done) return 'This project did not come in. Bring it in again from Projects.'
+  if (brought?.fixed) return 'This project was brought in as plain files. The crew cannot change those yet: it plays here, and its code is in Code.'
+  if (brought && (fresh || !said)) return 'This project was brought in: say what to change.'
+  if (brought?.shape === 'vite' && !brought.ran) return 'This project came from outside and has not run here yet. Say "install and run it" first, then what to change.'
+  if (hasApp && !fresh) return said ? null : 'say what to change'
+  if (kind === 'game') return prompt ? null : 'a game needs its spec'
+  return events.some(e => e.type === 'layer:done' && e.html) ? null : 'nothing built yet'
+}
 const BUSY = /out of quota|rate.?limit|cooling down|capacity|busy|429|overloaded|no available provider|exhausted/i
 const APP_FALLBACKS = ['cb/deepseek-v4.1-flash', 'deepseek-v4.1-flash', 'gemini-3.8-flash', 'claude-haiku-5.5']
 
@@ -112,9 +133,22 @@ export const hasServer = dir => ['nitro.config.ts', 'nitro.config.js', 'server']
 
 // A built app's server behind a front on the app's own port that adds CORS: Hermes shows the Studio in a
 // sandboxed frame (origin null), and the app's module scripts need it to load there (the dev server's --cors)
-export function corsFront(port, to) {
+export function corsFront(port, to, { html = null } = {}) {
   const srv = httpServer((req, res) => {
-    const up = request({ host: '127.0.0.1', port: to, path: req.url, method: req.method, headers: { ...req.headers, host: `127.0.0.1:${to}` } }, r => {
+    // an HTML page is asked for unencoded, so it can be read and changed on its way out
+    const headers = { ...req.headers, host: `127.0.0.1:${to}`, ...(html ? { 'accept-encoding': 'identity' } : {}) }
+    const up = request({ host: '127.0.0.1', port: to, path: req.url, method: req.method, headers }, r => {
+      if (html && /text\/html/i.test(String(r.headers['content-type'] || '')) && !r.headers['content-encoding']) {
+        const parts = []
+        r.on('data', c => parts.push(c))
+        r.on('end', () => {
+          const body = Buffer.from(html(Buffer.concat(parts).toString('utf8')))
+          const { 'content-length': _, ...rest } = r.headers
+          res.writeHead(r.statusCode || 200, { ...rest, 'content-length': body.length, 'access-control-allow-origin': '*' })
+          res.end(body)
+        })
+        return
+      }
       res.writeHead(r.statusCode || 502, { ...r.headers, 'access-control-allow-origin': '*' })
       r.pipe(res)
     })
@@ -159,6 +193,37 @@ const sh = (cmd, args, cwd, ms = 300000) => new Promise(ok => execFile(cmd, args
 export const playFacts = play => ({ ...(play?.clip ? { clip: play.clip } : {}), ...(play?.started === false ? { started: false } : {}), ...(play && !play.ok && play.line ? { line: play.line } : {}), ...(play?.tries ? { tries: play.tries } : {}), ...(play?.skipped ? { skipped: String(play.skipped).slice(0, 160) } : {}) })
 // The play test of the slice a build last waited on (its last app:paused), for going on or fixing after a restart
 // (a Stop or a failure after it does not clear it: the error is still in the game)
+// An app's versions (issue #542): its first build and each change after it, newest first, each with the commit its
+// files are at. A change's end names its commit (app:done rev); an app built before that is matched to the last
+// commit made by then (`commits`: { hash, t }, newest first, from its own git). Going back is a version too, so it
+// can be undone the same way. `now` is the commit the app is at.
+export function appVersions(events, commits = [], now = '') {
+  const out = []
+  let ask = null
+  for (const e of events) {
+    if (e.type === 'app:start') ask = e.fresh || !out.length ? null : String(e.ask || '').trim()
+    else if (e.type === 'app:done' && !e.intake) {
+      const rev = e.rev || commits.find(c => c.t <= (e.t || 0) + 2000)?.hash || ''
+      if (rev) out.push({ rev, t: e.t || 0, what: out.length ? ask || 'A change' : 'First build', files: e.result?.files || 0 })
+    } else if (e.type === 'app:back' && e.to) out.push({ rev: e.to, t: e.t || 0, what: `Back to: ${e.label || 'an earlier version'}`, back: e.rev })
+  }
+  const short = r => String(r || '').slice(0, 7)
+  return out.reverse().map(v => ({ ...v, now: !!now && short(v.rev) === short(now) }))
+}
+
+// The screen a change is on (issue #542): the route whose component lives in a file the change touched, read from
+// the app's router (dyad's scaffold uses React Router: <Route path="/tasks" element={<Tasks />} />). `routes` is
+// the router file's text; `changed`, the change's files. The page first, then a component, then null (the app's
+// own first screen).
+export function screenOf(routes, changed = []) {
+  const byName = new Map()
+  for (const m of String(routes || '').matchAll(/<Route\b[^>]*?\bpath=["'`]([^"'`*]+)["'`][^>]*?\belement=\{\s*<(\w+)/g)) if (!byName.has(m[2])) byName.set(m[2], m[1])
+  for (const m of String(routes || '').matchAll(/<Route\b[^>]*?\belement=\{\s*<(\w+)[^}]*\}[^>]*?\bpath=["'`]([^"'`*]+)["'`]/g)) if (!byName.has(m[1])) byName.set(m[1], m[2])
+  const names = changed.map(f => String(f).replace(/\\/g, '/')).sort((a, b) => Number(/\/pages?\//i.test(b)) - Number(/\/pages?\//i.test(a))).map(f => f.split('/').pop().replace(/\.[jt]sx?$/, ''))
+  for (const n of names) if (byName.has(n)) return byName.get(n)
+  return null
+}
+
 export const lastPlay = events => { const p = events.findLast(e => ['app:paused', 'app:done'].includes(e.type)); return p?.type === 'app:paused' ? p.result?.stages?.at(-1)?.playtest || null : null }
 // A play test that still fails, as the first thing the next slice is told
 export const playCarry = play => (play && !play.ok && !play.skipped && (play.carry || play.problem) ? `the play test of the slice before this one still fails${play.tries ? ` after ${play.tries} fix attempt${play.tries === 1 ? '' : 's'}` : ''}. Fix it before building anything new, and build nothing on top of it until the game starts and plays. What the play test found:\n\n${String(play.carry || play.problem).slice(0, 6000)}\n\n(End of the play test's findings.)` : '')
@@ -258,7 +323,9 @@ export function appJobs({ runsDir, record, broadcast, readEvents, provider, mode
     // the last build's outcome: app:ready and app:deployed only say a server started or a deploy went out
     const last = events.findLast(e => ['app:start', 'app:done', 'app:failed', 'app:paused'].includes(e.type))
     const steps = events.filter(e => e.type === 'app:step').slice(-200).map(e => e.step)
-    if (!last) return { state: 'idle', engineReady: engineReady() }
+    // nothing built yet: a game's run still says it is a game, so the Game room shows a game's start, not an
+    // app's "Turn this design into a working app" (game-mode walk, 2026-11-15)
+    if (!last) return { state: 'idle', engineReady: engineReady(), ...(isGameRun(events) ? { kind: 'game' } : {}) }
     const kindOf = () => events.find(e => e.type === 'app:start')?.kind || 'site'
     // a build another Studio drives (same runs folder): its log still moves, so it is working,
     // with the dev server it reported; this Studio only watches it
@@ -300,18 +367,16 @@ export function appJobs({ runsDir, record, broadcast, readEvents, provider, mode
     // starter into its folder. One of plain files has no build for the engine to check (dyad/src/aba/headless_cli.ts
     // runGates: no package.json is "not an ABA app", a failed turn), so the crew cannot change it yet.
     const brought = intakeOf(events)
-    if (brought && !brought.done) throw new Error('This project did not come in. Bring it in again from Projects.')
-    if (brought?.fixed) throw new Error('This project was brought in as plain files. The crew cannot change those yet: it plays here, and its code is in Code.')
-    if (brought && (input.fresh || !String(input.ask || '').trim())) throw new Error('This project was brought in: say what to change.')
-    // a change runs the project's own build and then its dev server: code from outside, so only after the person's
-    // yes to running it (intake:run, the Install and run press or "install and run it" in the chat)
-    if (brought?.shape === 'vite' && !brought.ran) throw new Error('This project came from outside and has not run here yet. Say "install and run it" first, then what to change.')
     const kind = input.kind || j?.kind || events.find(e => e.type === 'app:start')?.kind || (events.some(e => e.type === 'run:start' && e.kind === 'game') ? 'game' : 'site')
     // a first build that failed left only the starter: build again from the start
     const fresh = !built(id, events) || input.fresh
+    const ask = String(input.ask || '').trim().slice(0, 16000)
+    // what is refused before anything is touched (startRefusal, above): a project brought in that may not be
+    // built over or has not run yet, a game with no spec, an app with no built section, a change with no words
+    const refused = startRefusal(events, { hasApp: !fresh, fresh: !!input.fresh, ask, prompt: input.prompt, kind })
+    if (refused) throw new Error(refused)
     // the Studio's Try again sends fresh: true, so only restart: true starts a big game over
     const resumeAt = kind === 'game' && fresh && input.restart !== true ? bigResumeAt(events, dir) : 0
-    const ask = String(input.ask || '').trim().slice(0, 16000)
     let prompt
     if (fresh) {
       // a new app starts a new engine chat: the old one's history (and its
@@ -319,7 +384,6 @@ export function appJobs({ runsDir, record, broadcast, readEvents, provider, mode
       const meta = join(runsDir, id, '.engine')
       if (existsSync(meta)) for (const d of readdirSync(meta)) if (d.startsWith('data-')) rmSync(join(meta, d), { recursive: true, force: true })
       if (kind === 'game') {
-        if (!input.prompt) throw new Error('a game needs its spec')
         // a big game stopped partway keeps its finished stages: Try again goes on from the next one
         if (!resumeAt) {
           // the game made before is moved aside, not deleted: one copy is kept (app-before/) so a wrong start over loses nothing
@@ -337,7 +401,6 @@ export function appJobs({ runsDir, record, broadcast, readEvents, provider, mode
         prompt = sitePrompt(snap, ask, input.plan && typeof input.plan === 'object' ? input.plan : null, input.rewards === false ? [] : games)
       }
     } else {
-      if (!ask) throw new Error('say what to change')
       // brought in: the Studio's own rules for its apps (keep the converted design, add a Nitro server) do not apply
       prompt = brought ? `This project was made outside this tool and brought in as it is. Read its files before changing anything, and keep its structure, tools and style.\n\nDo this: ${ask}\n\nFinish with a working build: \`npm run build\` must pass.` : `${kind === 'game' ? 'This is a browser game made from a spec in GAME_SPEC.md. Keep what works.' : KEEP}\n\nDo this: ${ask}\n\n${kind === 'game' ? '' : `${BACKEND}\n\n`}Finish with a working build: the typecheck and build must pass.`
     }
@@ -429,7 +492,9 @@ export function appJobs({ runsDir, record, broadcast, readEvents, provider, mode
       if (target && !(target === 'godot' && isGodotFirst(dir))) j.result.port = await buildPort(dir, target, spec || events.findLast(e => e.type === 'game:spec')?.spec || {}, engineCall, step)
       Object.assign(j, { state: 'done', stage: 'ready' })
       await j.radio?.stop()
-      send(id, 'app:done', { result: j.result, url: j.url, ms: Date.now() - j.t })
+      // the app as this change left it, committed: a version the person can come back to (issue #542)
+      const rev = kind === 'game' ? '' : snap(dir, `Swarm: after "${String(input.ask || 'the first build').slice(0, 80)}"`)
+      send(id, 'app:done', { result: j.result, url: j.url, ms: Date.now() - j.t, ...(rev ? { rev } : {}) })
       // building stopped: the app is served built from here on, on the same address (spec 44)
       if (!j.gsrv) serveBuilt(id, j, step).catch(err => step({ kind: 'serve', text: `the app stays on its dev server: ${String(err.message || err).slice(0, 200)}`, ok: false }))
     })().catch(err => {
@@ -846,11 +911,12 @@ export function appJobs({ runsDir, record, broadcast, readEvents, provider, mode
       const inner = await freePort()
       const p = startProc(process.execPath, [out], { cwd: dir, stdout: 'pipe', stderr: 'pipe', env: { PORT: String(inner), HOST: '127.0.0.1', NITRO_PORT: String(inner), NITRO_HOST: '127.0.0.1', NODE_ENV: 'production', ...appEnvFor(id, j) } })
       await answers(id, j, p, `http://127.0.0.1:${inner}/`, 'built')
-      j.front = await corsFront(j.port, inner)
+      j.front = await corsFront(j.port, inner, { html: j.kind === 'game' ? null : withPicker })
       j.url = j.front.url
     } else {
       // files from this process: no process to stop, so not one of the maxApps
-      j.files = await serveStatic(join(dir, 'dist'), j.port, { spa: true })
+      // its pages with the App room's picker (issue #542), on their way out only
+      j.files = await serveStatic(join(dir, 'dist'), j.port, { spa: true, html: j.kind === 'game' ? null : withPicker })
       Object.assign(j, { mode: 'files', url: j.files.url })
     }
     send(id, 'app:ready', { url: j.url, built: true })
@@ -864,13 +930,17 @@ export function appJobs({ runsDir, record, broadcast, readEvents, provider, mode
   async function photo(id, j) {
     const pw = await loadPlaywright()
     if (!pw || !j.url) return
+    // the version the app is at, and the screen its change is on (issue #542): that screen is the one photographed,
+    // and the photo is kept as the version's own, so the next change can show it as "before"
+    const v = versions(id).versions.find(x => x.now)
     const browser = await launch(pw.chromium)
     try {
       const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
-      await page.goto(j.url, { waitUntil: 'load', timeout: 20000 })
+      await page.goto(new URL(v?.screen || '/', j.url).href, { waitUntil: 'load', timeout: 20000 })
       await page.waitForTimeout(800)
       mkdirSync(join(runsDir, id, 'img'), { recursive: true })
       await page.screenshot({ path: join(runsDir, id, 'img', 'app.jpg'), type: 'jpeg', quality: 80 })
+      if (v?.rev) copyFileSync(join(runsDir, id, 'img', 'app.jpg'), join(runsDir, id, 'img', `app-${v.rev.slice(0, 7)}.jpg`))
       j.photo = `/img/${id}/app.jpg?v=${Date.now()}`
       send(id, 'app:photo', { src: j.photo })
     } finally { await browser.close().catch(() => {}) }
@@ -1005,10 +1075,64 @@ export function appJobs({ runsDir, record, broadcast, readEvents, provider, mode
     const dir = dirOf(id)
     if (!path) return { files: appFiles(dir), log: gitLog(dir) }
     const f = normalize(join(dir, path))
-    if (!f.startsWith(dir + '/') || /node_modules|\.git[/\\]/.test(f) || !existsSync(f) || statSync(f).size > 200000) throw new Error('no such file')
+    if (!f.startsWith(normalize(dir) + sep) || /node_modules|\.git[/\\]/.test(f) || !existsSync(f) || statSync(f).size > 200000) throw new Error('no such file')
     return { path, text: readFileSync(f, 'utf8') }
   }
   // each engine turn is a commit in the app's own git
+  // everything not yet committed in the app (Swarm's own fixes after the engine's turns), committed now; the
+  // commit the app is at. Empty when the app has no git (a project brought in as plain files).
+  const snap = (dir, msg) => {
+    const g = (...a) => execFileSync('git', ['-c', 'core.autocrlf=false', ...a], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+    try {
+      g('add', '-A', '--', '.', ':(exclude).swarm-built.json')
+      if (g('diff', '--cached', '--name-only')) g('-c', 'user.name=Swarm Studio', '-c', 'user.email=swarm@localhost', 'commit', '-qm', msg)
+      return g('rev-parse', 'HEAD')
+    } catch { return '' }
+  }
+  const commitsOf = dir => { try { return execFileSync('git', ['log', '--format=%H|%ct', '-n', '200'], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim().split('\n').filter(Boolean).map(l => { const [hash, t] = l.split('|'); return { hash, t: Number(t) * 1000 } }) } catch { return [] } }
+  const headOf = dir => commitsOf(dir)[0]?.hash || ''
+
+  // a change's files, against the version before it: the engine's notes and lock files are not the change
+  const changedBetween = (dir, from, to) => { try { return execFileSync('git', ['diff', '--name-only', from, to], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).split('\n').map(f => f.trim()).filter(f => f && !/(^|\/)(RUN_META\.json|pnpm-lock\.yaml|package-lock\.json|\.gitignore|\.swarm-built\.json)$/.test(f)) } catch { return [] } }
+  const routesOf = dir => { for (const f of ['src/App.tsx', 'src/App.jsx', 'src/main.tsx', 'src/routes.tsx']) try { const t = readFileSync(join(dir, f), 'utf8'); if (/<Route\b/.test(t)) return t } catch {} return '' }
+  // a version's own photo, kept beside the newest one (photo below)
+  const photoOf = (id, rev) => { const f = `app-${String(rev).slice(0, 7)}.jpg`; try { return `/img/${id}/${f}?v=${Math.round(statSync(join(runsDir, id, 'img', f)).mtimeMs)}` } catch { return null } }
+
+  function versions(id) {
+    const dir = dirOf(id), list = appVersions(readEvents(id) || [], commitsOf(dir), headOf(dir)), routes = routesOf(dir)
+    return {
+      versions: list.map((v, i) => {
+        const before = list[i + 1], changed = before && i < 12 ? changedBetween(dir, before.rev, v.rev) : []
+        return { ...v, changed: changed.slice(0, 20), screen: screenOf(routes, changed), photo: photoOf(id, v.rev) }
+      }),
+      working: jobs.get(id)?.state === 'working'
+    }
+  }
+
+  // Back to a version (issue #542): the app's files as they were then, as one more commit, so the versions after it
+  // stay and going back can itself be undone. Then served again, built from those files.
+  async function back(id, rev) {
+    const j = jobs.get(id)
+    if (j?.state === 'working') throw new Error('the crew is changing the app; go back once it has finished')
+    const dir = dirOf(id), all = versions(id).versions
+    const v = all.find(x => x.rev === rev || (String(rev || '').length >= 7 && x.rev.startsWith(rev)))
+    if (!v) throw new Error('no such version of this app')
+    if (v.now) return { ...state(id), versions: all }
+    const g = (...a) => execFileSync('git', ['-c', 'core.autocrlf=false', ...a], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+    snap(dir, 'Swarm: the app before going back')
+    // the files the version had, and none it did not (byte for byte: no line-ending conversion on Windows)
+    for (const f of g('diff', '--name-only', '--diff-filter=A', v.rev, 'HEAD').split('\n').filter(Boolean)) g('rm', '-q', '--', f)
+    g('checkout', v.rev, '--', '.')
+    const to = snap(dir, `Swarm: back to "${v.what.slice(0, 80)}"`)
+    send(id, 'app:back', { rev: v.rev, to, label: v.what })
+    // the app as served is the newer one: stopped, and its build stamp dropped so it is built from these files
+    if (j) await unserve(id, j)
+    try { rmSync(join(dir, '.swarm-built.json'), { force: true }) } catch {}
+    let served = null
+    try { served = await open(id) } catch (err) { served = { ...state(id), message: String(err.message || err).slice(0, 300) } }
+    return { ...served, versions: versions(id).versions }
+  }
+
   const gitLog = dir => { try { return execFileSync('git', ['log', '--format=%h|%ct|%s', '-n', '30'], { cwd: dir, encoding: 'utf8' }).trim().split('\n').filter(Boolean).map(l => { const [hash, t, ...s] = l.split('|'); return { hash, t: Number(t) * 1000, subject: s.join('|') } }) } catch { return [] } }
 
   // The app on Vercel: the source goes up and Vercel builds it, so Nitro's
@@ -1068,7 +1192,7 @@ export function appJobs({ runsDir, record, broadcast, readEvents, provider, mode
   // a build is running somewhere (the server's idle exit waits for it)
   const busy = () => asking.size > 0 || [...jobs.values()].some(j => j.state === 'working')
 
-  return { start, bring, state, stop, tell, redirect, ask, open, scripts, seen, files, map, deploy, close, busy, dirOf, jobs, pool }
+  return { start, bring, state, stop, tell, redirect, ask, open, scripts, seen, files, map, versions, back, deploy, close, busy, dirOf, jobs, pool }
 }
 
 // "can I see it", "show me the pictures": the person wants to look, not to change anything

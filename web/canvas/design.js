@@ -1,5 +1,6 @@
 // @ts-check
 // web/canvas.js, split by area (web/canvas/README.md): the Design panel, manual editing, undo and redo, export.
+import { download } from '../headerstream.js'
 import { pageSeoHtml, wirePageSeo } from '../seo.js'
 import { $, S, els, api, cam, FRAME_W, history, BOOT, ico, commandOps } from './core.js'
 import { slotFor, applyTheme, live, pick, say } from './deck.js'
@@ -509,6 +510,10 @@ els.dDesign.addEventListener('click', e => {
 
 /** @type {HTMLInputElement & { timer?: any }} */
 const colorInput = Object.assign(document.createElement('input'), { type: 'color', className: 'dcolor' })
+// a 1 px proxy for the system's colour picker, opened by the swatch beside a variable: it is never seen or
+// tabbed to, so it takes a name for a screen reader and stays out of the tab order (axe: `label`)
+colorInput.setAttribute('aria-label', 'Colour')
+colorInput.tabIndex = -1
 document.body.append(colorInput)
 let colorEdit = null
 colorInput.addEventListener('input', () => {
@@ -595,15 +600,18 @@ export function showExport(e) {
   exp.el?.remove()
   exp.el = document.createElement('div')
   exp.el.className = 'export-pop'
-  const zip = `/api/runs/${encodeURIComponent(e.run)}/export.zip?k=${encodeURIComponent(BOOT.token || '')}`
+  // the zip is fetched with the token in its header, then saved (web/headerstream.js download): never ?k= in a link
+  const zip = `/api/runs/${encodeURIComponent(e.run)}/export.zip`
   exp.el.innerHTML = `<div class="vhead pop-title"><span>Exported, <em>ready</em></span><button class="vclose" aria-label="Close">${ico('x')}</button></div>
     <div class="xrow"><b>html/</b><span>${e.pages} pages, open index.html</span></div>
     <div class="xrow"><b>react/</b><span>${e.sections} section components · Vite + Tailwind · <code>npm i && npm run dev</code></span></div>
     <div class="xrow"><b>aba/</b><span>spec.md + blueprint.json for an app builder</span></div>
     <div class="xpath">${esc(e.dir)}</div>
-    <div class="vfoot"><span></span>${e.zip ? `<a class="vagain" href="${zip}" download>Download .zip</a>` : ''}</div>`
+    <div class="vfoot"><span></span>${e.zip ? '<button class="vagain xzip">Download .zip</button>' : ''}</div>`
   document.body.append(exp.el)
   exp.el.querySelector('.vclose').onclick = () => { exp.el.remove(); exp.el = null }
+  const zb = /** @type {HTMLButtonElement | null} */ (exp.el.querySelector('.xzip'))
+  if (zb) zb.onclick = () => { zb.disabled = true; download(zip, { token: BOOT.token || '', name: `${e.run}.zip` }).catch(err => feed(null, `export: ${err.message}`, 'err')).finally(() => { zb.disabled = false }) }
   closeable(exp.el, () => { exp.el?.remove(); exp.el = null })
   feed(null, `⬇ exported ${e.pages} pages to ${e.dir}`, 'sys')
 }

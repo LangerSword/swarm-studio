@@ -22,6 +22,7 @@ const AUTO = {
   internal: { rule: 'No internal names shown to a person', sev: 'confusing', say: a => `Internal words on screen: ${a.slice(0, 3).map(x => `“${x.text}”`).join(', ')}` },
   colour: { rule: 'Standing rule 3: no blue, purple or green in the chrome', sev: 'cosmetic', say: a => `${[...new Set(a.map(x => x.hue))].join(' and ')} in the chrome: ${a.slice(0, 3).map(x => `${x.label || x.what} (${x.value})`).join(', ')}` },
   small: { rule: 'Rule 16: targets at least 40 px (44 on touch)', sev: 'cosmetic', say: a => `${a.length}${a.length >= 14 ? '+' : ''} targets too small: ${a.slice(0, 4).map(x => `${x.label || 'unnamed'} ${x.size}`).join(', ')}` },
+  // an older capture's own count; a newer one leaves names to axe-core (the `axe` lines below)
   unnamed: { rule: 'Rule 12: every control has a name (aria-label)', sev: 'cosmetic', say: a => `${a.length} control${a.length > 1 ? 's' : ''} with no name` },
   sentences: { rule: 'Rule 8: at rest, names only; no helper sentences', sev: 'cosmetic', say: a => `Sentences at rest: ${a.slice(0, 2).map(x => `“${x.text}”`).join(', ')}` }
 }
@@ -63,6 +64,11 @@ for (const id of order) {
       const first = { note: def.say(a), rule: def.rule, sev: def.sev, width: w, auto: true }
       faults.push({ ...first, box: a[0].box })
       for (const x of a.slice(1, 8)) faults.push({ ...first, box: x.box, extra: true })
+    }
+    // the standard rules (axe-core, scripts/walkthrough-probe.mjs): one line per rule, each node marked
+    for (const v of (note.drop || []).includes('axe') ? [] : s.axe?.violations || []) {
+      const first = { note: `${v.help} (${v.count}): ${v.nodes.slice(0, 3).map(n => n.target).join(', ')}`, rule: `Rule 26: axe-core ${v.id}`, sev: v.impact === 'critical' || v.impact === 'serious' ? 'confusing' : 'cosmetic', width: w, auto: true }
+      v.nodes.forEach((n, i) => faults.push({ ...first, box: n.box, extra: i > 0 }))
     }
     if (s.audit.overflow) faults.push({ note: 'The page scrolls sideways', rule: 'Rule 25: at 390 nothing scrolls sideways', sev: 'confusing', width: w, auto: true })
   }

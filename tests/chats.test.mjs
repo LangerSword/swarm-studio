@@ -1,7 +1,7 @@
 // Chats (spec 29 §Store): a store of their own, apart from builds; a chat moves into its project on build.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, existsSync, readdirSync } from 'node:fs'
+import { mkdtempSync, existsSync, readdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { chatStore, titleFrom, isDir } from '../engine/chats.mjs'
@@ -89,4 +89,13 @@ test('titleFrom keeps a short first sentence and cuts a long one at a word', asy
   assert.equal(titleFrom('tea shop. more words here'), 'Tea shop')
   const long = titleFrom('a very long description of a website for a bakery that sells sourdough and pastries')
   assert.ok(long.length <= 49 && long.endsWith('…'))
+})
+
+// The person, 2026-11-16: "i cant see my old chat where i asked it to fix something". The chat was
+// there all along (a loose "New game", 20 turns), but the Chats popover on a build asks for that
+// project's chats, and a project's list holds only its own: an empty list hid every loose chat.
+test('the Chats popover lists loose chats when the project has none of its own', () => {
+  const src = readFileSync(new URL('../web/canvas/talk.js', import.meta.url), 'utf8')
+  assert.match(src, /if \(pid && !groupOf\.length\)/, 'an empty project list falls back')
+  assert.match(src, /api\('\/api\/chats'\)/, 'to the loose chats the server keeps')
 })

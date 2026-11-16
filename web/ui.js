@@ -1,3 +1,4 @@
+// @ts-check
 // Swarm Studio UI kit, behaviour half (web/ui.css is the look). Two helpers every panel uses,
 // so each one closes the same three ways (spec 12, rule 10): its × button, Esc, and a click
 // outside it. Only the topmost open layer answers Esc.
@@ -43,7 +44,7 @@
     d.setAttribute('aria-modal', 'true')
     d.innerHTML = `<header class="ui-dialog-header"></header><div class="ui-dialog-body"></div><footer class="ui-dialog-footer" hidden></footer><button class="ui-btn ui-btn-ghost ui-btn-icon ui-dialog-close" aria-label="Close">${X}</button>`
     ov.append(d)
-    const api = { el: d, overlay: ov, header: d.querySelector('.ui-dialog-header'), body: d.querySelector('.ui-dialog-body'), footer: d.querySelector('.ui-dialog-footer'), closed: false }
+    const api = { el: d, overlay: ov, header: d.querySelector('.ui-dialog-header'), body: d.querySelector('.ui-dialog-body'), footer: /** @type {HTMLElement} */ (d.querySelector('.ui-dialog-footer')), closed: false }
     api.setHead = (kicker, title, desc) => {
       // no eyebrows (docs/ux/RULES.md, minimal text): a kicker shows only when there is no title
       api.header.innerHTML = `${kicker && !title ? `<span class="ui-dialog-kicker">${kicker}</span>` : ''}${title ? `<h2 class="ui-dialog-title">${title}</h2>` : ''}${desc ? `<p class="ui-dialog-desc">${desc}</p>` : ''}`
@@ -62,7 +63,7 @@
       opt.onClose?.(why)
       api.restore?.focus?.({ preventScroll: true })
     }
-    d.querySelector('.ui-dialog-close').onclick = () => { if (!opt.canClose || opt.canClose()) api.close('x') }
+    /** @type {HTMLElement} */ (d.querySelector('.ui-dialog-close')).onclick = () => { if (!opt.canClose || opt.canClose()) api.close('x') }
     api.restore = document.activeElement
     document.body.append(ov)
     off = layer({ modal: true, inside: t => d.contains(t) || !document.contains(t), close: api.close, canClose: opt.canClose })
@@ -113,14 +114,16 @@
 
   // a slider shows how full it is: the kit's track reads --v
   const slider = el => { const min = Number(el.min || 0), max = Number(el.max || 100); el.style.setProperty('--v', `${((Number(el.value) - min) / (max - min || 1)) * 100}%`) }
-  addEventListener('input', e => { if (e.target.classList?.contains('ui-slider')) slider(e.target) }, true)
+  addEventListener('input', e => { const t = /** @type {HTMLElement} */ (e.target); if (t.classList?.contains('ui-slider')) slider(t) }, true)
   // A picture at the size it is drawn: a small webp copy (its long side, or its width, at most `max`
   // px), made once per picture and size and kept. A big picture is decoded only to make the copy, so
   // a canvas zoomed out, or a row of thumbnails, never holds full-size pictures. Returns the copy's
   // url, or null until it is ready; `ready` is called with it then.
   const smalls = new Map()
   // one copy is made at a time: each decodes a full picture, and a dozen at once stalls the page
+  /** @type {Promise<unknown>} */
   let smallQueue = Promise.resolve()
+  /** @param {string} src @param {number} [max] @param {{ by?: string, ready?: (url: string) => void }} [opt] */
   function small(src, max = 256, { by = 'long', ready } = {}) {
     if (!src) return null
     const k = `${max}|${by}|${src}`

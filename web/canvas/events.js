@@ -1,8 +1,10 @@
 // @ts-check
 // web/canvas.js, split by area (web/canvas/README.md): engine events drawn on the canvas.
-import { cosmosHooks, S, els } from './core.js'
+import { cosmosHooks, S, els, buildOf } from './core.js'
+import { buildLeft } from '../replaytalk.js'
+import { reasonFromError, reasonFromFailure } from '../stopreason.js'
 import { fresh, setTitle, navBrand, links } from './base.js'
-import { feed, botMsg, renderTheme, chatAgent, logSay, summarize, STOP_PILL, stoppedMsg, STOPPED } from './panels.js'
+import { feed, botMsg, renderTheme, chatAgent, logSay, summarize, STOP_PILL, stoppedMsg, STOPPED, failSay, logErr, noteAsked, hostedErr } from './panels.js'
 import { viewing, loadFiles, traceLive, rec } from './replay.js'
 import { addAgent, live, applyTheme, addFrame, addLayer, setTool, detectTool, gestureFor, spark, say, startGesture, banter } from './deck.js'
 import { renderAppLink, idleCard, appEvent } from './rooms.js'
@@ -16,6 +18,8 @@ import { videoEvent } from './film.js'
 
 // ---------- events
 
+// the build whose planner retry the chat has said (once per build)
+let retrySaid = null
 export function on(e) {
   for (const fn of cosmosHooks) try { fn(e) } catch (err) { console.error(err) } // studio hook (web/studio.js, web/project.js)
   switch (e.type) {
@@ -33,6 +37,7 @@ export function on(e) {
       // a project brought in (docs/specs/45-intake.md) goes by its name; its brief only says where it is from
       setTitle(e.intake && e.title ? e.title : e.brief.slice(0, 60))
       feed(null, e.ask || e.brief, 'you')
+      noteAsked(e.run, e.brief)
       S.extend = e.extend ? { kept: e.kept } : null
       S.progress = botMsg(e.extend ? 'Planning what to add…' : 'Planning the pages…', true)
       if (!viewing) loadFiles()
@@ -154,10 +159,11 @@ export function on(e) {
       const l = S.layers.get(key(e.page, e.layer))
       if (l) { l.status = 'failed'; S.treeDirty = true }
       // a failed fix puts the section back as it was
-      if (l && e.keep) { l.text = e.keep; l.ver++; l.status = 'done'; if (e.message !== 'stopped') chatAgent(S.agents.get(e.agent), `Couldn't make that change: ${e.message}. Try again, or ask for less at once.`, e.layer) }
+      // the agent says why in plain words (web/stopreason.js); the message as it came is the Log's
+      if (l && e.keep) { l.text = e.keep; l.ver++; l.status = 'done'; if (e.message !== 'stopped') chatAgent(S.agents.get(e.agent), `Couldn't make that change. ${reasonFromFailure(e.message, { ended: true }).message} Try again, or ask for less at once.`, e.layer) }
       const a = S.agents.get(e.agent)
       if (a) a.layer = null
-      feed(a, `failed ${e.layer}: ${e.message}`, 'err')
+      logErr(a, `failed ${e.layer}: ${e.message}`)
       break
     }
     case 'crew:act':
@@ -188,7 +194,8 @@ export function on(e) {
       feed(null, `Done: ${e.done}/${e.planned} layers across ${e.pages} pages in ${(e.ms / 1000).toFixed(1)}s${e.failed ? `, ${e.failed} failed` : ''}`, 'sys')
       summarize(e)
       els.planState.textContent = 'done'
-      if (!viewing) { S.cheerUntil = performance.now() + 9000; banter.next = 0; loadFiles() }
+      // the crew cheers a build that is whole, never one that ended with sections failed
+      if (!viewing) { if (!buildLeft(buildOf())) { S.cheerUntil = performance.now() + 9000; banter.next = 0 } loadFiles() }
       if (live(e)) autoReview()
       break
     case 'run:stopped': {
@@ -205,9 +212,19 @@ export function on(e) {
     case 'work:stopped':
       if (live(e)) botMsg(`Stopped the ${e.what.map(w => STOPPED[w] || w).join(' and ')}. Everything finished is kept.`)
       break
-    case 'error':
-      feed(null, `${e.where}: ${e.message}`, 'err')
+    case 'error': {
+      // The line as it came (a provider's text, a status, JSON) is the Log's. The chat gets plain words
+      // (web/stopreason.js), and only the ones the build's end will not say: a retry in progress, said once,
+      // and a model that is not set up. Why a build stopped or added nothing is said with its end (build:state).
+      logErr(null, `${e.where}: ${e.message}`)
+      const r = reasonFromError(e)
+      // (as it happens only: a build opened again is not trying anything)
+      if (r.code === 'retry') { if (live(e) && retrySaid !== S.run) { retrySaid = S.run; botMsg(r.message) } }
+      else if (r.code === 'setup') failSay(r)
+      // the hosted studio's own words (its limits) are written for the person: they stay in the chat
+      else hostedErr(e.message)
       break
+    }
     case 'edit':
       applyEdit(e)
       break

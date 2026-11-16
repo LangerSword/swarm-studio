@@ -72,3 +72,16 @@ test('no Hermes internals are run from Node, and nothing writes the allowlist', 
     assert.doesNotMatch(src, /\[\s*'config'\s*,\s*'set'/, f)
   }
 })
+
+test("GitHub is not in Hermes's catalog: the command to add it is shown, never run; added by hand, it is there and needs only the grant", async () => {
+  const none = fakeHermes({ servers: {}, granted: [] })
+  const c = hermesConnectors({ run: none.run, home: mkdtempSync(join(tmpdir(), 'hc-')) })
+  const s = await c.connect('github', { confirm: true })
+  assert.equal(s.installed, false)
+  assert.equal(s.add, 'hermes mcp add github --url https://api.githubcopilot.com/mcp/ --auth header')
+  assert.ok(none.runs.every(a => a[0] === 'config'), 'nothing is installed or signed in by the studio')
+  const added = fakeHermes({ servers: { github: { url: 'https://api.githubcopilot.com/mcp/' } }, granted: [] })
+  const t = await hermesConnectors({ run: added.run, home: mkdtempSync(join(tmpdir(), 'hc-')) }).status('github')
+  assert.deepEqual({ installed: t.installed, signed_in: t.signed_in, allowed: t.allowed, add: t.add }, { installed: true, signed_in: true, allowed: false, add: undefined })
+  assert.match(t.allow, /mcp_allowlist '\["github"\]'/)
+})

@@ -12,7 +12,7 @@ The owner, 2026-11-13:
 
 Why it did not load: the Studio opens only what it built. A game or app is a run (`runs/<id>/events.jsonl`
 plus `runs/<id>/app/`), and nothing made a run from a folder or a repository. ARES was written by hand in
-`games/ares/` of this repo, so it had no run.
+ARES's own repository (it was `games/ares/` of this repo then; it is Pukujan/ares since 2026-11-16), so it had no run.
 
 The four questions ([PRODUCT.md](../PRODUCT.md)): it runs on the person's machine; nobody pays (no model is
 called); git and the person's own `gh` login do the fetching; the workspace shows it as a project like any
@@ -30,9 +30,9 @@ own `runs/` folder.
 4. When the files are in, the project opens in its room (the Game room, or the App view). If the person has
    left Projects meanwhile, nothing moves under them: the card says **Brought in**.
 
-For ARES: `Pukujan/swarm-studio` (or `~/dev/projects/hermes hackathon/swarm-studio`), Subfolder `games/ares`,
+For ARES: `Pukujan/ares` (or a local `~/dev/ares`), Subfolder empty — the game is the whole repository now,
 Game. Its page is `web/index.html` and its art is in `assets/` beside `web/`, so the folder to bring is
-`games/ares`, not `games/ares/web`: with `web` alone the sheet says "Its page loads ../assets/ from the folder
+the repository root, not `web/`: with `web` alone the sheet says "Its page loads ../assets/ from the folder
 above. Bring in that folder (ares) instead".
 
 ## The request
@@ -63,7 +63,7 @@ come in**) and in the room, with git's own words.
 - **Fetching a repository.** `git clone --depth 1 --single-branch --no-tags --no-recurse-submodules` into a
   temp folder, through `engine/proc.mjs`, with the address after `--`. With a subfolder it is a sparse,
   blobless clone of that folder only (measured on this repo: 25 s and 477 MB for all of it, a few seconds for
-  `games/ares`). The person's `gh` login answers for a private repository
+  `Pukujan/ares`). The person's `gh` login answers for a private repository
   (`credential.helper=!gh auth git-credential`, as `engine/publish.mjs` does); nothing is asked on a terminal
   (`GIT_TERMINAL_PROMPT=0`), Git LFS files are not downloaded, and the temp folder is removed whatever happens.
 - **Copying.** Files only, into `runs/<id>/app/`. Left out by name: `node_modules`, `.git`, build output
@@ -71,7 +71,8 @@ come in**) and in the room, with git's own words.
   keys (`.env`, `.env.*` except `.env.example`, `.npmrc`). A link to a file inside the folder is copied as
   that file; a link that leaves the folder, or names a folder, is not followed (counted in the record).
 - **Limits.** 200 MB and 20,000 files, counted before anything is copied. Over either, the refusal says
-  which ("More than 200 MB: bring in a smaller folder"). `games/ares` is 169 MB and 1,398 files.
+  which ("More than 200 MB: bring in a smaller folder"). ARES was 169 MB and 1,398 files when it lived in
+  this repo, and that is the size this rule was written against.
 - **Nothing is run.** No install, no script, no build, and git is not run inside the person's folder (its
   commit and origin are read from `.git/HEAD` and `.git/config`).
 - **History.** The project's own `.git` stays out of `app/`. The run starts its own history there with one
@@ -82,7 +83,7 @@ come in**) and in the room, with git's own words.
   `engine/sourcehub.mjs` `joinHistory`). The `intake` event then says `joined: true`. A subfolder, or a
   repository with files that were left out, starts with "Brought in" as before.
 - **A Swarm plan.** A `plan.json` in the Plan board's format (kind, cards, a name or idea) in the folder or
-  one folder up is copied to `runs/<id>/plan.json`. `games/ares/plan.json` is one. **The Plan board does not
+  one folder up is copied to `runs/<id>/plan.json`. `gamemaker/plan.json` is one. **The Plan board does not
   read it yet**: it is kept so a later slice can open it.
 
 ## What is stored
@@ -169,7 +170,7 @@ Said plainly, because the owner's wish is to go on developing it here:
 
 ## Not in this slice
 
-**Godot projects.** `games/ares/` is also a Godot 4 project (`project.godot`, `scenes/`, `scripts/`); it comes
+**Godot projects.** `Pukujan/ares` is also a Godot 4 project (`project.godot`, `scenes/`, `scripts/`); it comes
 along as files and is not opened. What it would take ([docs/engines/godot.md](../engines/godot.md)):
 - the person's own Godot 4 (`engine/port.mjs` `godotBin`; none on the MacBook Air, so this is a job for the
   Windows PC or the Pro) and Web export templates matching it;
@@ -210,10 +211,15 @@ small sheet that says what is true in a few plain lines, and has the moves:
 
 | The project | The sheet says | Moves |
 |---|---|---|
-| has an app or a game, never pushed | **Not on GitHub**, or **Brought in from owner/name/folder** | **Repository** (the project's name, to edit; `owner/name` links one that exists), **Private / Public**, **Push**; **Pull** when it was brought in from a repository |
-| is linked | **owner/name** (a link) and **Private** or **Public**; **Pushed 3 min ago** or **Pulled …**; then **Changes not pushed**, **New commits to pull** or **Up to date** | **Pull**, **Push** (Pull leads when GitHub has new commits) |
-| is linked, but this version has a history of its own | the same, and **This version needs a repository of its own** | **Repository**, **Private / Public**, **Push**, **Pull** |
+| has an app or a game, never pushed | **Not on GitHub**, or **Brought in from owner/name/folder** | **Where it goes**: **New repository** (**Name**, the project's, to edit; **Private / Public**) or **An existing repository** (**Repository**, `owner/name` or its address, typed or picked from the person's repositories on their account and in their organizations, newest first, narrowed as they type; a line says it is pushed there only when it is empty or already holds this project's history, and that nothing is overwritten); **Push**; **Pull** when it was brought in from a repository |
+| is linked | **owner/name** (a link), **Private** or **Public**, **Branch main**, and **Unlink** (the project forgets the repository; nothing on GitHub or on disk changes); **Pushed 3 min ago** or **Pulled …**; then **Changes not pushed**, **New commits to pull** or **Up to date** | **Pull**, **Push** (Pull leads when GitHub has new commits) |
+| is linked, but this version has a history of its own | the same, and **This version needs a repository of its own** | **Where it goes** as above, **Push**, **Pull** |
 | has no app or game yet | **No app or game here yet** | **Repository**, **Subfolder**, **Game / App**, **Bring in** (into this project, as its next version) |
+| pushed to an existing repository that holds other work | **owner/name already holds other work on main (N files). Nothing was changed.** | **Push to a new branch** (this project goes to `swarm/<name>` there, main untouched, then **Open a pull request**, GitHub's own page for one from that branch) or **Bring its files in first** (its files come into this project under the Bring-in rules, this project's kept where both have one, then pushed on top of main as a merge whose parents are both, so nothing of theirs is rewritten); each says what it does before it is pressed. Bringing in is not offered when its files may not come in (a key file, a link, a repository inside it, more than the caps), with why. |
+| linked to a branch of its own | **owner/name**, **Branch swarm/<name>**, **Open a pull request** | **Push** goes on to that branch |
+| unlinked, **A folder on this computer** picked | **Folder** (a path in the home folder, `~/…` taken) and **Subfolder, for a folder that is not a git checkout**; a line says what each kind gets | **Write**: a git checkout gets the project on its own branch `swarm/<name>` (a local fetch; its branches, its files and its checked-out branch untouched, nothing pushed); a plain folder gets the files in the subfolder. A file there the project did not write, or wrote and someone changed, stops the write first: **N files … were not written by this project, or changed since. Nothing was written.**, the list, and **Replace them**. |
+| typed in the chat | "connect this to my repo owner/name" (as "link owner/name"); "save this into ~/code/site" (the folder named is the one the files go in, made inside its parent, or the checkout itself); after a refusal, "push to a new branch", "bring its files in first", "replace them" | the same moves; the chat's answer names the next thing to say, and a pull request's page after a new branch. The model's same moves (`swarm_studio` `action: github`, `move: push` with `mode`, `folder`, `sub`, `confirm`) each go through Hermes's approval prompt, a rule each |
+| linked to a folder | **Checkout** or **Folder**, the path, **Branch swarm/<name>** for a checkout, **Unlink**; **Written 3 min ago** | **Write** (the same branch, or the same subfolder: only what it wrote is updated or removed), **Pull** (the folder read back as the next version, as Bring in reads one; a checkout must have the project's branch out) |
 | anything on its way | a crew cursor (Pip) and the step: checking, making, pushing to, pulling from | the buttons wait |
 
 Opening the sheet asks GitHub once what its newest commit is (`git ls-remote`, 12 seconds at most); without an
@@ -260,7 +266,7 @@ event's `repo`, `path`, `sha`; a folder inside a git repository records its `ori
 - GitHub is asked for its newest commit. The same one as last time, or one already in the project's history:
   **Nothing new on owner/name**, and no run is made.
 - For a subfolder, GitHub is asked whether anything under it changed between the two commits (`gh api
-  repos/…/compare`); when nothing did: **Nothing new in games/ares on owner/name**. When GitHub does not say
+  repos/…/compare`); when nothing did: **Nothing new in <path> on owner/name**. When GitHub does not say
   (more than 300 files changed, or no answer), the pull goes ahead.
 - Otherwise the repository comes in through intake itself (`bringIn`, the same limits, the same names left out,
   nothing run) as **the project's next version**: a new run in the same project. The whole of a repository
@@ -275,6 +281,41 @@ event's `repo`, `path`, `sha`; a folder inside a git repository records its `ori
   work made here. Seen in the walk-through: the card's status becomes **App · Brought in**.
 - A version whose history could not be carried on (files were left out on the way in) cannot be pushed to that
   repository; the sheet says so and offers a repository of its own.
+
+### Where builds go
+
+Owner, 2026-11-14: "a lot of swarm generated website and published from me atleast into here
+https://github.com/Swarm-Generations ... so they wont flood my public repos".
+
+- Every repository the Studio makes, a site's (Publish › Website) and a source's (the first Push), is made under
+  **one owner**: the person's own account (the default), or an organization they belong to. The site is then
+  served at `<owner>.github.io/<name>/`, and every link the Studio keeps (the publish event, the Feed's live link,
+  the project's menu, `github-source.json`, `connections.json` `github:repos`) is GitHub's own answer for that
+  repository, never a login put together by hand.
+- **Settings › You › GitHub**: the account and each organization from `gh api user/orgs --paginate`, one picked.
+  An organization that can't be used says why on its row and can't be picked: **Invitation not accepted**, **No
+  permission to make repositories** (a member, and the organization does not let members make public ones),
+  **Needs single sign-on: gh auth refresh**. No gh login: **GitHub CLI is not signed in: run gh auth login**.
+- **Typed**, in the Design deck's chat (either Studio): "publish to Swarm-Generations", "builds go to my account",
+  "where do builds go". A name is taken only when it is the person's login or one of their organizations, so
+  "publish to vercel" or "publish to production" stay ordinary messages.
+- Kept as `{ "owner": "<org>" }` in `github.json` in the data folder (engine/ghowner.mjs), read each time a
+  repository is about to be made, so a hand edit counts at once. `GET /api/github/owner`, `POST { owner }` (null:
+  the account; a name that is not theirs or can't be used is refused in words).
+- **When the chosen organization can no longer be used**, making a repository stops, in words ("Builds go to X,
+  which can't be used: …"). It is never made on the person's account instead.
+- **What is not moved.** A source repository a project is already linked to stays its repository. A site a build
+  published before goes to a new repository in the organization; the old one is not touched (moving repositories
+  is the person's own step on GitHub). A site repository moved into the organization by hand is found again by
+  its name.
+- **Shared organizations.** Other members' Studios publish there too: a marked site repository there is replaced
+  only when it is this build's own (its name is the one this build published to). Any other is skipped, as one the
+  Studio did not make. The limit: "its own" is known by name, so another member's marked repository with the very
+  name this build published to before would be taken for it.
+- The rules above still hold in an organization: the source push never forces, never takes over a repository the
+  Studio did not make or the person did not name, and refuses key files. The site's repository is replaced on
+  each publish (a force push, as before) only when it is this build's own; a site with a key file in it is not
+  published.
 
 ### Bring in from inside
 

@@ -10,24 +10,32 @@
 // watched in the current Studio's Design deck, where it runs.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Chat, type ChatKind, type ChatLine, type ChatTalk } from '../chat'
+import { WALK_SAYS, moodLine, nextStep, walkLine } from '@studio/walkline'
 import { Button } from '../primitives/Button'
 import { Layers, StepDot, type LayerGroup } from '../shared/Layers'
 import { startPet, type KitCard as KitCardDef } from '../legacy'
 import { useNav, useNavMachine } from '../nav/NavProvider'
 import { useTrail } from '../shell/Trail'
+import { FoundLine, Importer } from './studio/Importer'
 import { KitCard } from './studio/KitCard'
 import { StepPath } from './studio/StepPath'
 import './studio/brand-step.css'
-import { StudioBoard } from './studio/StudioBoard'
+import { StudioBoard, onAssets } from './studio/StudioBoard'
+import { refAt } from '../shared/refs'
+import { useRefDrop } from '../shared/RefDrop'
 import { useCardTiers } from './studio/useCardTiers'
 import { createCamera } from '../board/camera'
 import { boardMode } from '../board/flag'
 import { StudioInspector } from './studio/StudioInspector'
 import { STEP_NAME, TAKES, lookOf, useStudio, walkOf, type Pack } from './studio/useStudio'
+import type { StoreItem } from '../legacy'
 
 const FILE_ICON: Record<string, string> = { link: '🔗', video: '🎞', audio: '♪', font: 'Aa' }
 // the talk's kind for each Studio kind (web/scaffold.js CHAT_KIND)
 const CHAT_KIND: Record<string, ChatKind> = { site: 'site', app: 'app', game: 'game', video: 'film', deck: 'site', brand: 'site' }
+// each project's steps and mood as Hermia last saw them, kept while the page is open, so a step done on another screen
+// (the brand sheet's Lock) is said when the Studio is back
+const SEEN = new Map<string, { states: Record<string, string>, pack: string | null }>()
 
 export function StudioFirst() {
   const { view, go } = useNav()
@@ -35,7 +43,7 @@ export function StudioFirst() {
   const pid = view.room === 'studio' ? view.project : null
   const S = useStudio(pid)
   const { fail, reload } = S
-  const { d, error, takes, moods, sel, select, kit, ctx, stateOf, steps, gone, planSections, cards, board, actions, tick } = S
+  const { d, error, takes, moods, moodsFailed, sel, select, kit, ctx, stateOf, steps, gone, planSections, cards, board, actions, tick } = S
   const root = useRef<HTMLDivElement>(null)
   const picker = useRef<HTMLInputElement>(null)
   const pickTo = useRef<'ref' | 'asset'>('ref')
@@ -52,7 +60,7 @@ export function StudioFirst() {
   // it goes back a step and then to Projects (App's Esc, through the machine)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || (e.target as HTMLElement | null)?.closest?.('input, textarea, select, [role="menu"], [role="dialog"]')) return
+      if (e.key !== 'Escape' || (e.target as HTMLElement | null)?.closest?.('input, textarea, select, [role="menu"], [role="dialog"], [data-refask]')) return
       if (sheet) { e.preventDefault(); setSheet(false); return }
       if (sel) { e.preventDefault(); select(null) }
     }
@@ -68,6 +76,7 @@ export function StudioFirst() {
   }, [sheet])
   // the step the address names comes into view when it changes from outside (Back, Esc), not under a selection
   useEffect(() => {
+    if (view.step && view.step === placed.current) { placed.current = null; return }
     if (view.step && !sel && framed.current === pid) board.current?.focus(view.step)
   }, [view.step]) // only a change of step moves the board
 
@@ -102,10 +111,58 @@ export function StudioFirst() {
   const lines = useMemo<ChatLine[]>(() => {
     if (!d) return []
     const st = kit.prepare ? null : (kit.starts.find(s => s.id === (kit.suggest?.(ctx()) || d.studio.start)) || kit.starts[0])
-    const text = !d.studio.idea ? 'What are you making?' : st ? (st.why ? `Start with ${st.name}: ${st.why}.` : `Start with ${st.name}.`) : ''
+    // a kit whose starts are the walk's own steps starts on the first open one, in decision 0015's order (What you
+    // have first), with Skip; a kit whose starts are its Plan's cards keeps its own start
+    const first = kit.starts.every(s => s.id in d.studio.steps) ? nextStep(walkOf(steps), stateOf) : null
+    const text = !d.studio.idea ? 'What are you making?' : first && WALK_SAYS[first] ? `Start with ${STEP_NAME[first]}: ${WALK_SAYS[first].next}. Or skip it.` : st ? (st.why ? `Start with ${st.name}: ${st.why}.` : `Start with ${st.name}.`) : ''
     // it follows the idea the talk starts with (its turns are stamped as the chat draws them, just after this)
     return text ? [{ id: `start:${d.project.id}`, at: Date.now() + 1000, who: 'hermia', text }] : []
   }, [d?.project.id, !!d?.studio.idea]) // the start line, once per project
+  // no Hermes: the walk opens all the same (it builds nothing), and Hermia's line says why Build will wait and what
+  // to do. It stays until Hermes is there, looked at again every 5 s meanwhile (#541)
+  const [hermesOff, setHermesOff] = useState<ChatLine | null>(null)
+  useEffect(() => {
+    if (!pid) return
+    let on = true, timer = 0
+    const look = () => fetch(`${window.SWARM?.base || ''}/api/hermes?ready=1`, { headers: { 'x-swarm-token': window.SWARM?.token ?? '' } })
+      .then(r => (r.ok ? r.json() : null)).then((j: { needed?: boolean, health?: { ok?: boolean, message?: string, action?: string } } | null) => {
+        if (!on) return
+        const off = !!(j?.needed && j.health && !j.health.ok)
+        setHermesOff(cur => (!off ? null : cur ?? { id: `hermes:${pid}`, at: Date.now() + 2000, who: 'hermia', text: `${j!.health!.message} ${String(j!.health!.action || '').replace(/`/g, '')}` }))
+        if (off) timer = window.setTimeout(look, 5000)
+      }).catch(() => {})
+    look()
+    return () => { on = false; clearTimeout(timer) }
+  }, [pid])
+  // ---------- Hermia walks the steps (#541, decision 0015): one line when a step is done or skipped, saying what it
+  // meant and which step is next; a mood picked gets its own. The same words as the current Studio's (web/walkline.js)
+  const order = walkOf(steps)
+  const [walked, setWalked] = useState<ChatLine[]>([])
+  useEffect(() => {
+    if (!d) return
+    const states = Object.fromEntries(order.map(s => [s, stateOf(s)]))
+    const pack = d.brand?.pack ?? null
+    const was = SEEN.get(d.project.id)
+    SEEN.set(d.project.id, { states, pack })
+    if (!was) return
+    const say = (text: string) => setWalked(w => [...w, { id: `walk:${d.project.id}:${w.length}`, at: Date.now(), who: 'hermia', text }])
+    const now = (s: string) => states[s] ?? 'empty'
+    const at = order.filter(s => now(s) !== (was.states[s] ?? 'empty') && (now(s) === 'done' || now(s) === 'skipped')).at(-1)
+    if (at) return say(walkLine({ step: at, how: now(at) as 'done' | 'skipped', next: nextStep(order, now, at) ?? nextStep(order, now), names: STEP_NAME }))
+    if (pack && pack !== was.pack) say(moodLine(moods?.packs?.find(p => p.slug === pack)?.name || 'That mood', nextStep(order, now, 'brand'), STEP_NAME))
+  })
+  useEffect(() => { setWalked([]) }, [pid])
+  // a file dropped anywhere on the board but Assets goes to References, read for what it says (source=import, as a
+  // drop on References was before) and selected, and Hermia asks once in the chat and beside it: like this, or use
+  // as is? (web/scaffold.js's refDrop)
+  const hermia = useCallback((text: string) => setWalked(w => [...w, { id: `drop:${pid}:${w.length}:${Date.now()}`, at: Date.now(), who: 'hermia', text }]), [pid])
+  const drop = useRefDrop<StoreItem>({
+    place: 'top',
+    at: d ? refAt(d.project.id) : null, skip: onAssets, source: 'import', said: hermia,
+    done: (refs, added) => { actions.stored(refs); select(`ref:${added[0].id}`) },
+    asset: (refs, assets) => actions.stored(refs, assets)
+  })
+  const said = useMemo(() => [...lines, ...walked, ...(hermesOff ? [hermesOff] : [])], [lines, walked, hermesOff])
   const heard = useCallback((text: string) => {
     if (!pid || d?.studio.idea) return
     fetch(`${window.SWARM?.base || ''}/api/studio/${encodeURIComponent(pid)}/idea`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-swarm-token': window.SWARM?.token ?? '' }, body: JSON.stringify({ idea: text }) })
@@ -114,15 +171,22 @@ export function StudioFirst() {
 
   // the step named in the address is in view (the planner's start when none is named), once the board is drawn
   const framed = useRef<string | null>(null)
+  // the step the first framing put in the address itself, already in view: not a change from outside to slide to
+  const placed = useRef<string | null>(null)
   useEffect(() => {
     if (!d || framed.current === d.project.id) return
     framed.current = d.project.id
     requestAnimationFrame(() => {
       board.current?.frameAll(false)
       if (d.studio.mode === 'takes' && takes) { board.current?.focus('takes', false); return }
-      const first = view.step || kit.suggest?.(ctx()) || d.studio.start || kit.starts[0]?.id
+      // where the planner says to start, as the current Studio picks it (web/scaffold.js startOf): the kit's word or
+      // the record's, only when it is one of the kit's own starts. A kit whose starts are its Plan's own cards (a
+      // deck's title slide, an app's main screen) opens on its Plan step, never on the record's first step (#397)
+      const own = kit.starts.map(s => s.id)
+      const start = view.step || [kit.suggest?.(ctx()), d.studio.start].find(id => !!id && own.includes(id)) || own[0]
+      const first = start && start !== 'proposal' && !(start in d.studio.steps) && 'plan' in d.studio.steps ? 'plan' : start
       if (!first) return
-      if (!view.step) go({ type: 'studio.step', step: first })
+      if (!view.step) { placed.current = first; go({ type: 'studio.step', step: first }) }
       board.current?.focus(first, false)
     })
   }, [d, takes, view.step, kit, ctx, go, board])
@@ -132,9 +196,10 @@ export function StudioFirst() {
     if (x?.press) return x.press(ctx())
     if (key === 'brand:open') return void go({ type: 'brand' })
     if (key.startsWith('mood:')) return void actions.pickMood(key.slice(5)).catch(S.fail)
+    if (key === 'lock:press') return void actions.lock(!d?.brand?.lockedAt).catch(S.fail)
     if (key === 'ref:add' || key === 'asset:add') { pickTo.current = key === 'ref:add' ? 'ref' : 'asset'; return picker.current?.click() }
     select(key)
-  }, [cards, ctx, go, select])
+  }, [cards, ctx, go, select, d?.brand?.lockedAt]) // the lock follows the brand
 
   const fly = (key: string) => { const el = root.current?.querySelector<HTMLElement>(`.ab[data-key="${CSS.escape(key)}"]`); if (el) { board.current?.focus(el); el.focus({ preventScroll: true }) } }
   const selectable = (key: string) => cards.has(key) || /^(ref|asset|lock|take):/.test(key)
@@ -152,14 +217,25 @@ export function StudioFirst() {
   const skip = (step: string) => { actions.setStep(step, stateOf(step) === 'skipped' ? 'empty' : 'skipped').catch(S.fail) }
   const head = (step: string) => (
     <span className="al flex items-center gap-2"><StepDot state={stateOf(step)} />{STEP_NAME[step]}
-      {step === walk[0] && step !== 'proposal' && <Button role="ghost" className="ml-2 min-h-8 px-3 text-xs" onPress={() => skip(step)}>{stateOf(step) === 'skipped' ? 'Undo skip' : 'Skip'}</Button>}
+      {(step === walk[0] || step === nextStep(walk, stateOf)) && step !== 'proposal' && <Button role="ghost" className="ml-2 min-h-8 px-3 text-xs" onPress={() => skip(step)}>{stateOf(step) === 'skipped' ? 'Undo skip' : 'Skip'}</Button>}
     </span>
   )
   const card = (key: string, name: string, cls: string, inner: React.ReactNode, def?: KitCardDef) =>
     <KitCard key={key} id={key} name={name} cls={cls} selected={sel === key} onPress={() => press(key)} draw={def?.render} ctx={ctx} version={tick + (d ? 0 : 1)}>{inner}</KitCard>
-  const thumb = (kind: 'ref' | 'asset', x: { id: string, name: string, kind?: string, src?: string, role?: string }) => card(`${kind}:${x.id}`, x.name, 'sc-thumb', <>
+  const thumb = (kind: 'ref' | 'asset', x: StoreItem) => card(`${kind}:${x.id}`, x.name, 'sc-thumb', <>
     {x.kind === 'image' && x.src ? <img src={x.src} alt="" draggable={false} loading="lazy" /> : <div className="sc-file"><span aria-hidden>{FILE_ICON[x.kind || ''] || '▤'}</span></div>}
-    <em>{x.role || x.name}</em></>)
+    <em>{x.role || x.name}</em>{x.found && <FoundLine r={x} />}</>)
+  // Lock (decision 0015): the look only, the colours, heading font and corners the build is held to
+  const lockCard = () => {
+    const b = d?.brand, L = lookOf(b ?? null)
+    if (!b || !L) return card('lock:look', 'Look', 'pcard', <><b>Look</b><span>Pick a mood on Brand first</span></>)
+    return card('lock:look', 'Look', 'sc-brand sc-lock', <>
+      <div className="br-sw">{(['bg', 'text', 'accent', 'link'] as const).map(k => <i key={k} style={{ background: L[k] }} />)}</div>
+      <div className="sc-type" style={{ background: L.bg, color: L.text }}><b style={{ fontFamily: `'${L.heading}'` }}>Aa</b><span style={{ fontFamily: `'${L.heading}'` }}>{L.heading}</span><i className="sc-corner" style={{ borderRadius: b.radius || '12px', borderColor: `${L.accent} ${L.accent} transparent transparent` }} aria-hidden /></div>
+      <em>{b.lockedAt ? 'Locked' : 'Open'}</em></>)
+  }
+  // its press, a card of its own beside the look (a card stays a fair size at any zoom of the board)
+  const lockPress = () => (lookOf(d?.brand ?? null) ? card('lock:press', d?.brand?.lockedAt ? 'Unlock' : 'Lock the look', 'sc-add', <><span aria-hidden className="text-lg">{d?.brand?.lockedAt ? '○' : '●'}</span><span>{d?.brand?.lockedAt ? 'Unlock' : 'Lock the look'}</span></>) : null)
   const add = (key: string, name: string) => card(key, name, 'sc-add', <><span aria-hidden className="text-lg">+</span><span>{name}</span></>)
   const brandCard = () => {
     const b = d?.brand, L = lookOf(b ?? null)
@@ -173,6 +249,11 @@ export function StudioFirst() {
   // the story, colours, type and voice that follow from it; the sheet itself for the detail
   const brandStep = () => {
     if (!d?.studio.idea) return brandCard()
+    // the options could not be made: no skeletons working on nothing, the reason (Hermia says it too) and Try again
+    if (!moods && moodsFailed) return <>
+      <div className="ab sc-take sc-failed" role="status"><b>No options yet</b><span>{moodsFailed}</span><Button onPress={() => void S.reload()}>Try again</Button></div>
+      {brandCard()}
+    </>
     if (!moods) return <>{Array.from({ length: TAKES }, (_, i) => <div key={i} className="ab sc-take wait-in" aria-busy="true" aria-label="An option on its way" />)}{brandCard()}</>
     const b = moods.brand, picked = (moods.packs || []).find(p => p.slug === b?.pack), L = lookOf(b ?? null)
     const photos = (b?.pictures?.photos || picked?.pictures?.photos || []).slice(0, 6)
@@ -212,10 +293,11 @@ export function StudioFirst() {
     </div></section>}
     {walk.map(step => {
       if (step === 'brand') return sec('brand', brandStep())
-      if (step === 'references') return sec('references', <>{d.refs.map(r => thumb('ref', r))}{add('ref:add', 'Add reference')}</>)
+      // What you have: the importer first (choices first), then what was brought
+      if (step === 'references') return sec('references', <><Importer onChoose={() => { pickTo.current = 'ref'; picker.current?.click() }} onLink={actions.addLink} />{d.refs.map(r => thumb('ref', r))}</>)
       if (step === 'assets') return sec('assets', <>{d.assets.map(a => thumb('asset', a))}{add('asset:add', 'Add asset')}</>)
       if (step === 'plan' && kit.plan) return sec('plan', planSections.flatMap(s => s.cards).map(x => card(x.key, x.name, kitLook(x), x.render ? null : <b>{x.name}</b>, x)), `sc-plan-${kit.kind}`)
-      if (step === 'proposal') return sec('proposal', card('lock:idea', 'Idea', 'pcard sc-idea', <><b>Idea</b><span>{d.studio.idea}</span></>))
+      if (step === 'proposal') return sec('proposal', <>{lockCard()}{lockPress()}</>)
       return null
     })}
   </>
@@ -225,7 +307,7 @@ export function StudioFirst() {
   if (d) {
     if (d.studio.mode === 'takes' && takes?.packs.length) groups.push({ id: 'takes', title: 'Three takes', rows: takes.packs.map(p => ({ key: `take:${p.slug}`, name: p.name })) })
     for (const step of walk) {
-      if (step === 'proposal') groups.push({ id: 'proposal', title: STEP_NAME.proposal, state: stateOf('proposal'), rows: [{ key: 'lock:idea', name: 'Idea' }] })
+      if (step === 'proposal') groups.push({ id: 'proposal', title: STEP_NAME.proposal, state: stateOf('proposal'), rows: [{ key: 'lock:look', name: 'Look' }] })
       if (step === 'brand') groups.push({ id: 'brand', title: STEP_NAME.brand, state: stateOf('brand'), rows: [{ key: 'brand:open', name: 'Brand sheet' }] })
       if (step === 'references') groups.push({ id: 'references', title: STEP_NAME.references, state: stateOf('references'), rows: d.refs.map(r => ({ key: `ref:${r.id}`, name: r.name })) })
       if (step === 'assets') groups.push({ id: 'assets', title: STEP_NAME.assets, state: stateOf('assets'), rows: d.assets.map(a => ({ key: `asset:${a.id}`, name: a.name })) })
@@ -266,12 +348,12 @@ export function StudioFirst() {
         </div>
       </aside>
 
-      <StudioBoard ref={board} camera={tiered ? camera : undefined} inspector={insp} onEmptyClick={() => { if (sel) select(null) }} onDropFiles={(to, files) => void actions.upload(to, files)}>
+      <StudioBoard ref={board} camera={tiered ? camera : undefined} inspector={insp} onEmptyClick={() => { if (sel) select(null) }} onDropFiles={(to, files) => void actions.upload(to, files)} drop={drop}>
         <div className="col">{sections}</div>
       </StudioBoard>
 
-      {d && <StepPath steps={steps} gone={gone} current={sel?.startsWith('step:') ? sel.slice(5) : null} stateOf={stateOf}
-        onStep={s => { if (s !== 'proposal') select(`step:${s}`); board.current?.focus(s) }}
+      {d && <StepPath steps={steps} gone={gone} current={sel?.startsWith('step:') ? sel.slice(5) : sel?.startsWith('lock:') ? 'proposal' : null} stateOf={stateOf}
+        onStep={s => { select(s === 'proposal' ? 'lock:look' : `step:${s}`); board.current?.focus(s) }}
         onAdd={s => { actions.setStep(s, 'empty').then(() => requestAnimationFrame(() => board.current?.focus(s))).catch(fail) }} />}
 
       {insp && d && sel && <StudioInspector sel={sel} d={d} card={x} pack={pack} ctx={ctx} version={tick} onClose={() => select(null)} act={{
@@ -283,13 +365,14 @@ export function StudioFirst() {
         assetRef: id => { actions.assetAsRef(id).then(r => select(`ref:${r.id}`)).catch(fail) },
         removeAsset: id => { actions.removeAsset(id).then(() => select(null)).catch(fail) },
         useTake: slug => { actions.useTake(slug).then(() => { select(null); board.current?.focus('brand') }).catch(fail) },
-        mix: () => go({ type: 'brand' })
+        mix: () => go({ type: 'brand' }),
+        lock: on => { actions.lock(on).catch(fail) }
       }} />}
 
       <button type="button" className="ib pj-files-btn sc-layers-btn" aria-label="Layers" aria-expanded={sheet} onClick={() => setSheet(v => !v)}><svg aria-hidden width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5z" /><path d="m3 13 9 5 9-5" /></svg></button>
       <input ref={picker} type="file" multiple hidden onChange={e => { const f = [...(e.currentTarget.files || [])]; e.currentTarget.value = ''; void actions.upload(pickTo.current, f) }} />
       {S.toast && <div className="hm-toast" role="status">{S.toast}</div>}
-      {d && <Chat talk={talk} project={pid} lines={lines} onHeard={heard}
+      {d && <Chat talk={talk} project={pid} lines={said} onHeard={heard}
         onBuild={({ brief }) => { if (kit.build) void runBuild(brief); else go({ type: 'brand' }) }}
         onBrandSheet={() => { go({ type: 'brand' }) }} />}
     </div>

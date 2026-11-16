@@ -5,8 +5,8 @@ import { fileURLToPath } from 'node:url'
 import { skinJobs, fxJobs, fxAt } from '../engine/skins.mjs'
 import { voiceJobs } from '../engine/voice.mjs'
 
-const heroes = JSON.parse(readFileSync(new URL('../games/ares/data/heroes.json', import.meta.url), 'utf8'))
-const game = fileURLToPath(new URL('../games/ares/', import.meta.url))
+const heroes = JSON.parse(readFileSync(new URL('../gamemaker/heroes.json', import.meta.url), 'utf8'))
+const game = fileURLToPath(new URL('../gamemaker/', import.meta.url))
 
 test('every outfit job carries the look, the layout contract and the design picture first', () => {
   for (const hero of Object.keys(heroes.heroes)) {
@@ -21,13 +21,9 @@ test('every outfit job carries the look, the layout contract and the design pict
   }
 })
 
-test('the design pictures and every built sheet are in the game', () => {
-  for (const [hero, h] of Object.entries(heroes.heroes)) {
-    assert.ok(existsSync(game + h.art.outfits.default.design), hero)
-    const pack = JSON.parse(readFileSync(`${game}assets/skins/${hero}/default/pack.json`, 'utf8'))
-    for (const name of Object.keys(h.art.sheets)) assert.ok(pack.sheets[name]?.file, `${hero}/${name}`)
-  }
-})
+// "the design pictures and every built sheet are in the game" moved to Pukujan/ares with the game: it
+// checks that ARES's own art matches its own config, and both of those live there now. What this plugin
+// still needs is the config's shape, which `skinJobs` above reads from gamemaker/heroes.json.
 
 test('only, unknown hero and missing outfit', () => {
   assert.deepEqual(skinJobs(heroes, { hero: 'runner', only: ['o-idle'] }).map(j => j.sheet), ['o-idle'])

@@ -7,6 +7,8 @@ import { join, extname } from 'node:path'
 import { planStore, planView, editCard, editStarter, setSystems, lockPlan, assertLocked, pickCell, roster, is3d, replan, PLAN_ID } from '../engine/plan.mjs'
 import { addSheet, addMocks, lockStyle, addBackdrops, addCloseups, entryFor, settleStale, buildScope, charEntry, viewJob, spriteJobs, VIEWS, gameBrief } from '../engine/planart.mjs'
 import { askShape } from '../engine/planshape.mjs'
+import { nextStep } from '../engine/gamestep.mjs'
+import { addPlanRef, addPlanNote, addPlanLink, removePlanRef, planRefAsIs, planRefFor, planRefs, carryPlanRefs } from '../engine/planrefs.mjs'
 import { planTemplate, remixPlan, templateStore, TEMPLATE_ID } from '../engine/template.mjs'
 
 // paint({ prompt, quality: 'medium' | 'high', aspect, crop, refs }) -> { ok, path, error }: one picture
@@ -14,7 +16,8 @@ import { planTemplate, remixPlan, templateStore, TEMPLATE_ID } from '../engine/t
 // make.character(opts) is engine/meshy.mjs makeCharacter (spends Meshy credits); make.key() the key or ''.
 // planner() -> { provider, model } or null: reads the idea's genre family (engine/planshape.mjs askShape);
 // without one the plan is shaped from the tables alone. godot() says whether Godot 4 is on this machine.
-export function planRoutes({ dataDir, hooks = {}, paint = null, make = null, onPicture = null, builtInTemplates = [], planner = null, godot = () => undefined }) {
+// toProject(pid, { name, buf, asIs }): a plan's art reference copied into a project, once its talk joins one (engine/planrefs.mjs)
+export function planRoutes({ dataDir, hooks = {}, paint = null, make = null, onPicture = null, builtInTemplates = [], planner = null, godot = () => undefined, toProject = null }) {
   const store = planStore(join(dataDir, 'plans'))
   const env = () => ({ godot: godot() })
   // the planner's reading of the idea, never longer than 40 s and never a reason to fail
@@ -25,7 +28,9 @@ export function planRoutes({ dataDir, hooks = {}, paint = null, make = null, onP
   }
   const templates = templateStore(join(dataDir, 'templates'), { builtIn: builtInTemplates })
   const files = id => join(store.dir, id)
-  const view = plan => planView(settleStale(plan))
+  // the next step is the game chat's own last line (engine/gamestep.mjs), shown on the board too
+  const nextOf = plan => { try { return nextStep({}, plan).text || '' } catch { return '' } }
+  const view = plan => ({ ...planView(settleStale(plan)), next: nextOf(plan) })
 
   // a finished picture lands in its entry: copied next to the plan, served by name
   function land(planId, job, r) {
@@ -131,9 +136,9 @@ export function planRoutes({ dataDir, hooks = {}, paint = null, make = null, onP
     return () => runJobs(plan.id, jobs)
   }
   const art = {
-    sheet: (plan, input) => painting(plan, () => addSheet(plan, String(input.kind || 'cast'))),
+    sheet: (plan, input) => painting(plan, dir => addSheet(plan, String(input.kind || 'cast'), dir)),
     mocks: (plan, input) => painting(plan, dir => addMocks(plan, dir, Array.isArray(input.shots) && input.shots.length ? input.shots.map(String) : undefined)),
-    backdrops: (plan, input) => painting(plan, () => addBackdrops(plan, { stage: input.stage })),
+    backdrops: (plan, input) => painting(plan, dir => addBackdrops(plan, { stage: input.stage, dir })),
     closeups: (plan, input) => painting(plan, dir => addCloseups(plan, dir, { name: input.name ? String(input.name) : undefined })),
     // draw one view of a character again (the person did not like it), before or between builds
     view: (plan, input) => painting(plan, dir => {
@@ -189,13 +194,88 @@ export function planRoutes({ dataDir, hooks = {}, paint = null, make = null, onP
     return view(store.save(was))
   }
 
+  // a plan's talk joined a project: its art references go there too, each once
+  function carry(planId, pid) {
+    const plan = PLAN_ID.test(String(planId || '')) && store.get(planId)
+    if (!plan || !toProject || !planRefs(plan).length) return 0
+    const n = carryPlanRefs(plan, files(plan.id), pid, toProject)
+    if (n) store.save(plan)
+    return n
+  }
+
+  // the owner's art references (engine/planrefs.mjs), as a project's References answer: { ref, refs } and, for
+  // Use as is (POST …/assets { ref }), { refs, assets }. The body is the picture, 60 MB at most, as References.
+  function refsRoute(req, res, url) {
+    const m = url.pathname.match(/^\/api\/plans\/([^/]+)\/(?:refs(?:\/(ar[0-9a-z]{6,16})\/(remove))?|(assets))$/)
+    if (!m) return false
+    const [, id, rid, op, assets] = m
+    const plan = PLAN_ID.test(id) && store.get(id)
+    if (!plan) { json(res, 404, { error: 'no such plan' }); return true }
+    const out = (p, extra = {}) => ({ refs: planRefs(p), assets: planRefs(p).filter(r => r.asIs), plan: view(p), ...extra })
+    if (req.method === 'GET' && !rid && !assets) { json(res, 200, out(plan)); return true }
+    if (req.method !== 'POST') { json(res, 405, { error: 'GET or POST' }); return true }
+    if (rid || assets) {
+      body(req).then(input => {
+        const p = store.get(id)
+        const r = rid ? removePlanRef(p, rid) : planRefAsIs(p, String(input.ref || ''), input.asIs !== false)
+        if (!rid) lockAgain(p)
+        store.save(p)
+        json(res, 200, out(p, { ref: r }))
+      }).catch(err => fail(res, err))
+      return true
+    }
+    const chunks = []
+    let n = 0
+    req.on('data', c => { n += c.length; if (n > 60e6) { req.destroy(); fail(res, Object.assign(new Error('too big'), { status: 413 })) } else chunks.push(c) })
+    req.on('end', () => {
+      if (n > 60e6) return
+      try {
+        const p = store.get(id)
+        // pasted words are a note, a pasted link is a link (its first address); anything else a picture
+        const type = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase()
+        const text = () => Buffer.concat(chunks).toString('utf8')
+        const r = type === 'text/uri-list' ? addPlanLink(p, { url: text().split(/\r?\n/).find(l => l.trim() && !l.startsWith('#')) })
+          : type === 'text/plain' ? addPlanNote(p, { text: text() })
+          : addPlanRef(p, files(p.id), { name: url.searchParams.get('name') || 'reference.png', buf: Buffer.concat(chunks) })
+        lockAgain(p)
+        store.save(p)
+        json(res, 200, out(p, { ref: r }))
+      } catch (err) { fail(res, err) }
+    })
+    return true
+  }
+  // a locked style names its references: a change to them is said in it at once
+  const lockAgain = p => { if (p.style?.locked) lockStyle(p, true) }
+
   // true when the request was a plan route (and has been answered)
   handle.fromTalk = fromTalk
+  handle.carry = carry
+  // a picture into a plan's art references from elsewhere in the Studio (the chat's helper, decision 0025 e)
+  handle.addRef = (planId, { name, buf }) => {
+    const plan = PLAN_ID.test(String(planId || '')) && store.get(planId)
+    if (!plan) throw Object.assign(new Error('no such plan'), { status: 404 })
+    const r = addPlanRef(plan, files(plan.id), { name, buf })
+    lockAgain(plan)
+    store.save(plan)
+    return r
+  }
+  // one art reference's use, from the chat's helper: { asIs } like this or as is, { slot } the part it is for
+  // (planRefFor; null frees it). Returns the reference.
+  handle.refUse = (planId, refId, { asIs, slot } = {}) => {
+    const plan = PLAN_ID.test(String(planId || '')) && store.get(planId)
+    if (!plan) throw Object.assign(new Error('no such plan'), { status: 404 })
+    const r = slot !== undefined ? planRefFor(plan, refId, slot) : planRefAsIs(plan, refId, asIs !== false)
+    lockAgain(plan)
+    store.save(plan)
+    return r
+  }
   // a plan as the board shows it, or null
   handle.get = id => { const p = store.get(id); return p ? view(p) : null }
+  handle.act = (id, sub, input) => act(id, sub, input)
   return handle
   function handle(req, res, url) {
     if (servePicture(req, res, url)) return true
+    if (refsRoute(req, res, url)) return true
     if (url.pathname === '/api/plans') {
       if (req.method === 'GET') { json(res, 200, { plans: store.list() }); return true }
       if (req.method === 'POST') {
@@ -224,50 +304,59 @@ export function planRoutes({ dataDir, hooks = {}, paint = null, make = null, onP
     if (!PLAN_ID.test(id)) { json(res, 404, { error: 'no such plan' }); return true }
     const plan = store.get(id)
     if (!plan) { json(res, 404, { error: 'no such plan' }); return true }
-    if (req.method === 'GET' && !sub) { json(res, 200, view(plan)); return true }
+    // a read also says whether an image model is signed in: the board says so before a paint fails
+    if (req.method === 'GET' && !sub) {
+      const shown = view(plan)
+      Promise.resolve(paint ? paint.ready() : false).catch(() => false).then(ok => json(res, 200, { ...shown, painter: !!ok }))
+      return true
+    }
     if (req.method === 'GET' && sub === 'brief') { json(res, 200, { brief: gameBrief(plan) }); return true }
     if (req.method === 'GET' && sub === 'build') { json(res, 200, { gate: plan.gate, build: plan.build }); return true }
     if (req.method !== 'POST') { json(res, 405, { error: 'POST' }); return true }
     body(req).then(async input => {
-      try {
-        const ready = PAINTS.has(sub) ? !!(paint && await paint.ready()) : true
-        // "this is not what I asked for": the planner reads the idea again with the note, then the plan is re-shaped in place
-        const hint = sub === 'replan' ? await hintFor(`${store.get(id)?.idea || ''}. ${String(input.note || '').slice(0, 300)}`, store.get(id)?.given || {}) : null
-        const noPainter = () => Object.assign(new Error('sign in an image model first'), { status: 503 })
-        if (!ready && sub !== 'build') throw noPainter()
-        // read again after every wait: a picture may have landed meanwhile; nothing below awaits
-        const plan = store.get(id)
-        let after = null
-        if (sub === 'card') editCard(plan, String(input.card || ''), input.body || {})
-        else if (sub === 'systems') setSystems(plan, input || {})
-        else if (sub === 'starter') editStarter(plan, { key: input.key, value: input.value, system: input.system, on: input.on })
-        else if (sub === 'title') { const t = String(input.title || '').trim().slice(0, 80); if (t) { plan.title = t; plan.titleSet = true } }
-        else if (sub === 'replan') {
-          if (building.has(plan.id)) throw Object.assign(new Error('the build is running'), { status: 409 })
-          queues.delete(plan.id)
-          replan(plan, { note: String(input.note || '') }, env(), hint)
-        }
-        else if (sub === 'pick') pickCell(plan, input)
-        else if (sub === 'template') {
-          const t = templates.save(planTemplate(plan, { name: input.name }), files(plan.id))
-          return json(res, 200, { template: { id: t.id, name: t.name, parts: t.parts.length } })
-        }
-        else if (sub === 'lock') lockPlan(plan, { credits: input.credits, testFirst: input.testFirst === true })
-        else if (sub === 'build') {
-          assertLocked(plan)
-          if (!ready) throw noPainter()
-          if (building.has(plan.id)) throw Object.assign(new Error('the build is running'), { status: 409 })
-          plan.build ||= { characters: [], props: [], animations: null }
-          plan.build.state = 'building'
-          after = () => setImmediate(() => runBuild(plan.id))
-        } else if (art[sub]) after = art[sub](plan, input)
-        else if (hooks[sub]) await hooks[sub](plan, input, store)
-        else return json(res, 404, { error: 'no such action' })
-        store.save(plan)
-        if (typeof after === 'function') after()
-        json(res, 200, view(plan))
-      } catch (err) { fail(res, err) }
+      try { json(res, 200, await act(id, sub, input)) } catch (err) { fail(res, err) }
     })
     return true
+  }
+  // One action on a plan, as its POST route runs it: the board's buttons and the planner chat's options
+  // (server/talk.mjs) both come here, so a button in the chat does exactly what the board's does.
+  async function act(id, sub, input = {}) {
+    if (!store.get(id)) throw Object.assign(new Error('no such plan'), { status: 404 })
+    const ready = PAINTS.has(sub) ? !!(paint && await paint.ready()) : true
+    // "this is not what I asked for": the planner reads the idea again with the note, then the plan is re-shaped in place
+    const hint = sub === 'replan' ? await hintFor(`${store.get(id)?.idea || ''}. ${String(input.note || '').slice(0, 300)}`, store.get(id)?.given || {}) : null
+    const noPainter = () => Object.assign(new Error('sign in an image model first'), { status: 503 })
+    if (!ready && sub !== 'build') throw noPainter()
+    // read again after every wait: a picture may have landed meanwhile; nothing below awaits
+    const plan = store.get(id)
+    let after = null
+    if (sub === 'card') editCard(plan, String(input.card || ''), input.body || {})
+    else if (sub === 'systems') setSystems(plan, input || {})
+    else if (sub === 'starter') editStarter(plan, { key: input.key, value: input.value, system: input.system, on: input.on })
+    else if (sub === 'title') { const t = String(input.title || '').trim().slice(0, 80); if (t) { plan.title = t; plan.titleSet = true } }
+    else if (sub === 'replan') {
+      if (building.has(plan.id)) throw Object.assign(new Error('the build is running'), { status: 409 })
+      queues.delete(plan.id)
+      replan(plan, { note: String(input.note || '') }, env(), hint)
+    }
+    else if (sub === 'pick') pickCell(plan, input)
+    else if (sub === 'template') {
+      const t = templates.save(planTemplate(plan, { name: input.name }), files(plan.id))
+      return { template: { id: t.id, name: t.name, parts: t.parts.length } }
+    }
+    else if (sub === 'lock') lockPlan(plan, { credits: input.credits, testFirst: input.testFirst === true })
+    else if (sub === 'build') {
+      assertLocked(plan)
+      if (!ready) throw noPainter()
+      if (building.has(plan.id)) throw Object.assign(new Error('the build is running'), { status: 409 })
+      plan.build ||= { characters: [], props: [], animations: null }
+      plan.build.state = 'building'
+      after = () => setImmediate(() => runBuild(plan.id))
+    } else if (art[sub]) after = art[sub](plan, input)
+    else if (hooks[sub]) await hooks[sub](plan, input, store)
+    else throw Object.assign(new Error('no such action'), { status: 404 })
+    store.save(plan)
+    if (typeof after === 'function') after()
+    return view(plan)
   }
 }

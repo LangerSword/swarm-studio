@@ -11,7 +11,7 @@
 // project's canvas; a click on a card opens its project; a drag on the stage pans it and Frame brings
 // it back; a double-click on an artboard opens its room and Esc comes back; the mode menu (Canvas,
 // Video, App, Game) works from the keyboard and there is no Auto button or pill; at 390 and 700 the
-// canvas stays, Files is a sheet, "Tell the crew…" is on screen and the Chat pill covers nothing;
+// canvas stays, Files is a sheet, the dock has no text box and the Chat pill covers nothing;
 // the logo and Esc lead home from every view (a room, App, a replay); there is no Classic view; the side panel is Chat and Log;
 // ☰ → Sound switches the crew's voices. At 390 wide nothing scrolls sideways.
 //
@@ -142,8 +142,9 @@ async function modeMenu(page, w) {
 async function narrow(page, w) {
   const vis = () => page.evaluate(() => [...document.querySelectorAll('.ab')].filter(a => { const b = a.getBoundingClientRect(); return b.width > 4 && b.right > 0 && b.left < innerWidth && b.bottom > 52 && b.top < innerHeight }).length)
   ok((await vis()) > 0 && !(await page.isVisible('.pj-side')), `${w}: a project shows its artboards, not the file list`)
-  const ask = await page.evaluate(() => { const r = document.querySelector('.pj-ask').getBoundingClientRect(); return { w: r.width, in: r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight } })
-  ok(ask.w >= 120 && ask.in, `${w}: "Tell the crew…" is on screen (${Math.round(ask.w)} px wide)`)
+  // the dock has no text box (the chat is the one place to type); its Chat tool is on screen
+  const ask = await page.evaluate(() => { const r = document.querySelector('.pj-dock [data-tool="comment"]').getBoundingClientRect(); return { box: !!document.querySelector('.pj-dock input, .pj-dock textarea'), in: r.width > 0 && r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight } })
+  ok(!ask.box && ask.in, `${w}: the dock has no text box, and its Chat tool is on screen`)
   ok(await page.isVisible('.pj-dock [data-tool="move"]') && await page.isVisible('.pj-dock [data-tool="frame"]'), `${w}: the dock keeps Move and Frame`)
   await page.click('.pj-files-btn'); await wait(400)
   ok(await page.isVisible('.pj-side .pj-list .row'), `${w}: the Files button opens the file sheet`)
@@ -209,7 +210,7 @@ async function sections(page, w) {
   await page.mouse.click(b.x + b.width / 2, b.y + b.height * 0.35); await wait(600)
   const got = await page.evaluate(() => ({ back: !!document.querySelector('.pj-insp .pj-back'), outline: !!document.querySelector('.ab .lsel'), text: document.querySelectorAll('.pj-insp [data-text]').length, code: !!document.querySelector('.pj-insp [data-act="code"]'), scope: !document.querySelector('.pj-scope')?.hidden, design: document.body.classList.contains('design-on'), pin: !!document.querySelector('.cbox') && getComputedStyle(document.querySelector('.cbox')).display !== 'none' }))
   ok(got.back && got.outline && got.text > 0 && got.code, `Sections @${w}: a click on the page picks a section: outlined, its words, Code (${JSON.stringify(got)})`)
-  ok(got.scope && !got.design && !got.pin, `Sections @${w}: the dock is scoped to it, and the room's Design panel and comment pin stay away`)
+  ok(got.scope && !got.design && !got.pin, `Sections @${w}: the chat's box is scoped to it, and the room's Design panel and comment pin stay away`)
   await page.click('.pj-insp [data-act="code"]'); await wait(300)
   ok(await page.isVisible('.pj-code textarea'), `Sections @${w}: Code opens the section's HTML`)
   await page.keyboard.press('Escape'); await wait(300)
@@ -236,7 +237,7 @@ async function cardPick(page, w) {
 // Projects: each card says what it is and how far it got; a filter by kind or status; Assets by project
 async function homeState(page, w) {
   const st = await page.evaluate(() => [...document.querySelectorAll('.hm-body .card')].map(c => c.querySelector('.st')?.textContent || ''))
-  const shape = /^(Website|App|Game|Video) · (Draft|Building|Designed|App built|App failed|Game built|Game failed|Live)\b/
+  const shape = /^(Website|App|Game|Video) · (Draft|Building|Designed|Partly built|Failed|Stopped|App built|App failed|Game built|Game failed|Live)\b/
   ok(st.length > 0 && st.every(t => shape.test(t)), `Cards @${w}: each card has a one-line kind · status (${st.slice(0, 3).join(' | ')})`)
   await page.evaluate(() => document.querySelector('.hm-filter').click()); await wait(300)
   const opts = await page.evaluate(() => [...document.querySelectorAll('.hm-menu button')].map(b => b.textContent.trim()))

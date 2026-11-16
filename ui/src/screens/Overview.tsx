@@ -1,16 +1,20 @@
 // The Overview (docs/ux/OBJECTS.md; SITEMAP §8): a project's pages and files, as artboards in sections. The left
 // panel lists them (Files) or the pages and sections (Layers); the stage shows the same files on one board; selecting
-// one opens the inspector; a double-click opens its room. Files dropped on the screen, or + → Upload files, land in
-// the project's uploads; + → Reference and Link keep things the crew read. The behaviour is web/project.js's, moved as
+// one opens the inspector; a double-click opens its room. + → Upload files lands in the project's uploads; a file
+// dropped anywhere on the screen goes to its References (shared/RefDrop.tsx, issue #543), and + → Reference and Link
+// keep things the crew read too. The behaviour is web/project.js's, moved as
 // it is (issue #404). What is drawn is the machine's (useNav().view: the project and version); the selection, the
 // search and the panel are this screen's own.
 //
 // Not here yet, because they run on the Design deck's runtime in the current Studio (web/canvas/): a page's sections
 // picked and edited by hand, Scribble and its drafts, the Critic's pins, pictures' stand-ins while painting, the
-// crew's cursors and Follow, the live line, and new snapshots of a changed page. A page shows its saved snapshot,
-// else its plan; the chat is the current Studio's (the Dock says how).
-import { useCallback, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from 'react'
+// crew's cursors and Follow, and the live line. A page shows its saved snapshot, else its plan, and a page that
+// changed is photographed again in a frame of its own (overview/Snapper.tsx); the chat is the current Studio's (the
+// Dock says how).
+import { useCallback, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { search } from '../nav/address'
+import { openOn } from '../nav/opening'
+import { classicHref } from '../shell/classic'
 import { useNav } from '../nav/NavProvider'
 import { MenuAt, MenuRow, MenuSeparator } from '../primitives/Menu'
 import { ToastProvider, useToast } from '../primitives/Toast'
@@ -20,10 +24,16 @@ import { Dock } from './overview/Dock'
 import { FilesPanel } from './overview/FilesPanel'
 import { Inspector } from './overview/Inspector'
 import { download, findItem, groups as groupOf, opening, projectName, type Act, type Item, type Project, type Ref, type Section, type Sending, type Upload } from './overview/model'
+import { PlayPublish } from './overview/PlayPublish'
 import { ProjectCrumb } from './overview/ProjectCrumb'
+import { useSnapshots } from './overview/Snapper'
+import { withShots } from './overview/snaps'
 import { Stage, type StageHandle } from './overview/Stage'
 import { useOverview } from './overview/useOverview'
 import './overview/overview.css'
+import { revealLabel } from '../shared/reveal'
+import { refAt } from '../shared/refs'
+import { useRefDrop } from '../shared/RefDrop'
 
 const enc = encodeURIComponent
 const narrow = () => matchMedia('(max-width: 760px)').matches
@@ -52,14 +62,17 @@ function OverviewScreen() {
   const refIn = useRef<HTMLInputElement>(null)
   const anchor = useRef<HTMLSpanElement>(null)
   const replacing = useRef<string | null>(null)
-  const [dropping, setDropping] = useState(0)
 
   const waiting = !o.ready || o.run !== view.version
-  const groups = useMemo(() => groupOf(waiting ? null : o.board, o.uploads, o.refs, q, sending), [waiting, o.board, o.uploads, o.refs, q, sending])
+  // pages that changed are photographed again, and their new pictures drawn before the server is asked again
+  const snaps = useSnapshots(waiting ? null : o.run, waiting ? null : o.board, stage)
+  const board = useMemo(() => withShots(o.board, snaps.kept), [o.board, snaps.kept])
+  const groups = useMemo(() => groupOf(waiting ? null : board, o.uploads, o.refs, q, sending), [waiting, board, o.uploads, o.refs, q, sending])
   const find = useCallback((key: string | null) => findItem(groups, key), [groups])
   const x = find(sel)
   const name = projectName(o.project, o.board)
-  const studioAt = `/${search(view, location.search)}`
+  // the crew's chat is the classic Studio's for now (decision 0024: `/` is the next UI, the classic one is /classic/)
+  const studioAt = classicHref(search(view, location.search))
 
   // ---------- the breadcrumb: Projects › name ▾
   const rename = useCallback((title: string) => { if (o.pid) post('/api/projects', { op: 'rename', ids: [o.pid], title }).then(() => o.reload()).catch(err => toast(said(err))) }, [o, toast])
@@ -82,6 +95,8 @@ function OverviewScreen() {
     const to = opening(it, o.run)
     if (!to) return
     if ('tab' in to) { window.open(to.tab, '_blank', 'noopener'); return }
+    // the deck opens on this page (src/nav/opening.ts)
+    openOn(to.page)
     go(to.event)
   }
 
@@ -119,7 +134,7 @@ function OverviewScreen() {
   const reveal = (it: Item) => { if (o.pid) post(`/api/projects/${enc(o.pid)}/reveal`, it.kind === 'upload' ? { name: it.name } : { run: o.run }).catch(() => {}) }
   const remove = (it: Item) => void fileOp({ op: 'delete', name: it.name }).then(out => { if (!out) return; if (sel === it.key) setSel(null); toast('Deleted', { icon: 'trash' }) })
 
-  // ---------- uploads: + → Upload files, the dock's Image, or files dropped anywhere on the screen
+  // ---------- uploads: + → Upload files, or the dock's Image
   const upload = (list: File[], as: string | null = null) => {
     if (!o.pid) { toast('Uploads need a saved project'); return }
     setOpen(p => ({ ...p, uploads: true }))
@@ -144,7 +159,6 @@ function OverviewScreen() {
       xhr.send(f)
     }
   }
-  const hasFiles = (e: DragEvent) => [...(e.dataTransfer?.types || [])].includes('Files')
 
   // ---------- references (spec 29): + → Reference or Link; Remove, with Undo; Use for…
   const refPost = async (path: string, body: unknown, file: File | null = null) => {
@@ -171,6 +185,14 @@ function OverviewScreen() {
     if (out) toast('Sent to the crew', { icon: 'check' })
     return !!out
   }
+
+  // ---------- a file dropped anywhere on the screen goes to References, and Hermia asks once: like this, or use as
+  // is? (web/project.js's refDrop). + → Upload files still adds any other file.
+  const drop = useRefDrop<Ref>({
+    at: refAt(o.pid), said: toast,
+    done: (refs, added) => { o.setRefs(refs); setOpen(p => ({ ...p, refs: true })); setSel(`rf:${added[added.length - 1].id}`) },
+    asset: refs => o.setRefs(refs)
+  })
 
   // ---------- Replace: a picture is painted again (the words in "Tell the crew…" steer it); an upload takes a new file
   const replace = (it: Item) => {
@@ -209,11 +231,7 @@ function OverviewScreen() {
 
   const shut = (k: Section) => { const next = { ...open, [k]: !(open[k] === false || (k === 'code' && !open[k])) }; setOpen(next); store.set('project.open', next) }
   return (
-    <div className={`ov ${x ? 'insp-on' : ''} ${files ? 'files-on' : ''}`} onKeyDown={onKey}
-      onDragEnter={e => { if (hasFiles(e)) { e.preventDefault(); setDropping(d => d + 1) } }}
-      onDragOver={e => { if (hasFiles(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' } }}
-      onDragLeave={e => { if (hasFiles(e)) setDropping(d => Math.max(0, d - 1)) }}
-      onDrop={e => { if (!hasFiles(e)) return; e.preventDefault(); setDropping(0); upload([...e.dataTransfer.files]) }}>
+    <div className={`ov ${x ? 'insp-on' : ''} ${files ? 'files-on' : ''}`} onKeyDown={onKey} {...drop.zone}>
       <FilesPanel groups={groups} theme={o.board?.theme} selected={sel} open={open} onToggle={shut} q={q} onSearch={setQ}
         layers={{ pages: waiting ? [] : o.board?.pages || [], page: x?.kind === 'page' ? x.page! : null, onPickPage: p => select(`page:${p}`, { pan: true }) }}
         onSelect={k => { if (narrow()) { setSel(k); setFiles(false); requestAnimationFrame(() => stage.current?.zoomTo(k)) } else select(k, { pan: true }) }}
@@ -228,7 +246,10 @@ function OverviewScreen() {
       {x && <Inspector x={x} theme={o.board?.theme} onClose={() => setSel(null)} onAct={act} onUseFor={useFor} />}
       <Dock ref={ask} text={text} onText={setText} onSubmit={send} files={files} onFiles={() => setFiles(!files)}
         onFrame={() => stage.current?.frameAll()} onNewPage={newPage} onUpload={() => fileIn.current?.click()} onChat={() => { location.href = studioAt }} />
-      {dropping > 0 && <div className="ov-drop" aria-hidden />}
+      {/* Play and Publish in the top bar, as the classic Overview has them */}
+      <PlayPublish run={o.run} />
+      {drop.layer}
+      {snaps.booth}
       <input ref={fileIn} type="file" multiple hidden onChange={e => {
         const fs = [...(e.target.files || [])]
         if (fs.length) upload(fs, replacing.current && fs.length === 1 ? replacing.current : null)
@@ -269,7 +290,7 @@ function fileMenu(x: Item) {
     up ? <MenuRow key="rename" id="rename" icon="type" label="Rename" /> : null,
     up ? <MenuRow key="dup" id="dup" icon="layers" label="Duplicate" /> : null,
     (['art', 'upload', 'film'].includes(x.kind) && x.sending == null) || x.kind === 'page' ? <MenuRow key="dl" id="dl" icon="download" label="Download" /> : null,
-    x.sending == null ? <MenuRow key="show" id="show" icon="file" label="Show in Finder" /> : null,
+    x.sending == null ? <MenuRow key="show" id="show" icon="file" label={revealLabel()} /> : null,
     up ? <MenuSeparator key="sep" /> : null,
     up ? <MenuRow key="del" id="del" icon="trash" label="Delete" red /> : null
   ]

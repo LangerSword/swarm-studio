@@ -70,7 +70,7 @@ export function studioRoutes({ studios, assets, refs, projects, chats, builtOf =
       built: built ? { theme: built.theme || null, pages: built.pages || [] } : null,
       studio,
       brand: studios.brands.get(pid)?.brand || null,
-      refs: refs.list(pid),
+      refs: refs.shown(pid),
       assets: assets.list(pid)
     }
   }
@@ -96,10 +96,13 @@ export function studioRoutes({ studios, assets, refs, projects, chats, builtOf =
     const building = input.building === true
     if (studio.kind !== 'site') return { ...whole(pid), ask: { read: false, set: {}, text: '', next: null, build: building, building: false } }
     const said = typeof input.said === 'string' ? input.said.trim().slice(0, 2000) : ''
+    // Setup already asked about pictures (its Pictures row; a pick, else what it recommends): that counts as said
+    // until the Studio's own Pictures card says otherwise, so the walk never asks it again (#541)
+    const setupPictures = await Promise.resolve(picturesDefault()).catch(() => 'painted')
     const out = studioTurn({
-      said, asked: input.asked, state: studio.kit || {}, building,
+      said, asked: input.asked, state: { pictures: setupPictures, ...(studio.kit || {}) }, building,
       planSkipped: studio.steps?.plan === 'skipped', built: !!builtOf(pid), look: !!brand?.lockedAt,
-      defaults: { pictures: await Promise.resolve(picturesDefault()).catch(() => 'painted') }
+      defaults: { pictures: setupPictures }
     })
     if (out.read && Object.keys(out.set).length) studios.kit(pid, out.set)
     // the answer and the planner's line stay in the Studio's chat, so they are there when it is opened again
@@ -129,17 +132,17 @@ export function studioRoutes({ studios, assets, refs, projects, chats, builtOf =
     if (!r || !r.file) throw bad('that reference has no file', 404)
     const asset = assets.addCopy(pid, { name: r.name, source: 'upload', w: r.w, h: r.h }, join(refs.dir(pid), r.file))
     refs.remove(pid, id)
-    return { asset, assets: assets.list(pid), refs: refs.list(pid) }
+    return { asset, assets: assets.list(pid), refs: refs.shown(pid) }
   }
   function assetToRef(pid, id) {
     const at = assets.path(pid, id)
     if (!at) throw bad('no such asset', 404)
     const ref = refs.addFile(pid, { name: at.asset.name, source: 'upload' }, readFileSync(at.file))
     assets.remove(pid, id)
-    return { ref, assets: assets.list(pid), refs: refs.list(pid) }
+    return { ref, assets: assets.list(pid), refs: refs.shown(pid) }
   }
 
-  return function handle(req, res, url) {
+  function handle(req, res, url) {
     const file = url.pathname.match(/^\/asset\/([\w-]{1,64})\/([^/]{1,400})$/)
     if (file) {
       const f = assets.file(file[1], file[2])
@@ -195,4 +198,6 @@ export function studioRoutes({ studios, assets, refs, projects, chats, builtOf =
     }).catch(err => fail(res, err))
     return true
   }
+  // setIdea: what the person brought to the first step fills in the idea too (server/server.mjs readWhatYouHave)
+  return Object.assign(handle, { setIdea })
 }

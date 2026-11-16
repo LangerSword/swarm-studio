@@ -3,7 +3,9 @@
 // tests/next-projects.test.mjs runs these in Node.
 
 export interface Theme { colors: string[], fonts?: { heading?: string, display?: string } }
-export interface ProjectState { kind: string, status: string, host?: string | null }
+// site, empty: a website's own build state and whether no section stands (server/projects.mjs stateOf)
+// live: a version is online while the status is its newest build's own word ("Failed · Live · host")
+export interface ProjectState { kind: string, status: string, host?: string | null, live?: boolean, site?: string, empty?: boolean }
 export interface Version {
   id: string, title?: string, t?: number, updated?: number, cover?: string | null, theme?: Theme | null,
   kinds?: string[], state?: ProjectState | null, live?: boolean, work?: { what?: string, pct?: number } | null
@@ -29,8 +31,8 @@ export type Layout = 'grid' | 'list'
 
 export const SORTS: [Sort, string][] = [['edited', 'Last edited'], ['name', 'Name'], ['created', 'Created']]
 export const KINDS = ['Website', 'App', 'Game', 'Video']
-export const STATUSES = ['Draft', 'Building', 'Designed', 'App built', 'App failed', 'Game built', 'Game failed', 'Brought in', 'Live']
-export const STATUS_ICON: Record<string, string> = { Draft: 'pencil', Building: 'clock', Designed: 'frame', 'App built': 'code', 'App failed': 'x', 'Game built': 'game', 'Game failed': 'x', 'Brought in': 'download', Live: 'globe' }
+export const STATUSES = ['Draft', 'Building', 'Designed', 'Partly built', 'Failed', 'Stopped', 'App built', 'App failed', 'Game built', 'Game failed', 'Brought in', 'Live']
+export const STATUS_ICON: Record<string, string> = { Draft: 'pencil', Building: 'clock', Designed: 'frame', 'Partly built': 'frame', Failed: 'x', Stopped: 'x', 'App built': 'code', 'App failed': 'x', 'Game built': 'game', 'Game failed': 'x', 'Brought in': 'download', Live: 'globe' }
 export const KIND_ICON: Record<string, string> = { Website: 'site', App: 'code', Game: 'game', Video: 'film' }
 export const KIND = { site: 'site', app: 'code', game: 'game', film: 'film' } as Record<string, string>
 export const KIND_NAME = { site: 'Site', app: 'App', game: 'Game', film: 'Film' } as Record<string, string>
@@ -55,14 +57,16 @@ export function withPlans(projects: Project[], plans: Plan[]): Project[] {
 
 // A version that failed, or a Draft that never got a section, is not shown once a newer one works: the project
 // is its working versions. A newest version that failed does not name the card when an older one works.
-const dead = (v?: { state?: ProjectState | null }) => /failed|^Draft$/i.test(String(v?.state?.status || ''))
+// A website says itself whether it is empty, and its card never borrows: its newest build's own state names it
+// (docs/ux/states/build.md, hole B2).
+const dead = (v?: { state?: ProjectState | null }) => v?.state?.site ? !!v.state.empty : /failed|^Draft$/i.test(String(v?.state?.status || ''))
 export function working(projects: Project[]): Project[] {
   return projects.map(p => {
     if (!Array.isArray(p.versions) || p.versions.length < 2) return p
     const out = { ...p }
     const kept = p.versions.filter((v, i) => !(dead(v) && p.versions!.slice(0, i).some(n => !dead(n))))
     if (kept.length && kept.length < p.versions.length) { out.versions = kept; out.count = kept.length }
-    const ok = dead(p) ? out.versions!.find(v => !dead(v)) : undefined
+    const ok = dead(p) && !p.state?.site ? out.versions!.find(v => !dead(v)) : undefined
     if (ok?.state) out.state = ok.state
     return out
   })
@@ -77,8 +81,10 @@ export const seenAt = (p: Project, opened: Record<string, number>) => Math.max(p
 export const passes = (filter: string) => (p: Project) => {
   if (!filter) return true
   const [t, v] = [filter.slice(0, 1), filter.slice(2)]
-  return t === 'k' ? p.state?.kind === v : p.state?.status === v
+  return t === 'k' ? p.state?.kind === v : hasStatus(p, v)
 }
+// Live: every project with a version online, whatever its newest build's word (state.live)
+const hasStatus = (p: Project, v: string) => p.state?.status === v || (v === 'Live' && !!p.state?.live)
 
 export function shown(ps: Project[], c: Choices, opened: Record<string, number>): Project[] {
   const seen = (p: Project) => seenAt(p, opened)
@@ -101,7 +107,7 @@ export const versionCards = (p: Project): Project[] => (p.versions || []).map((v
 
 // only the kinds and states the projects really have
 export const filterKinds = (ps: Project[]) => KINDS.filter(k => live(ps).some(p => p.state?.kind === k))
-export const filterStates = (ps: Project[]) => STATUSES.filter(v => live(ps).some(p => p.state?.status === v))
+export const filterStates = (ps: Project[]) => STATUSES.filter(v => live(ps).some(p => hasStatus(p, v)))
 
 // Assets: grouped by the project each came from, unfiled projects first, then each folder in the sidebar's order;
 // the sort orders the projects too (by name, by when made, else the server's order: newest piece first)

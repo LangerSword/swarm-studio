@@ -28,6 +28,12 @@ export const alias: AliasOptions = [
   { find: '@studio/crew', replacement: fileURLToPath(new URL('../web/crew.js', import.meta.url)) },
   // the ways to make something, the same file as the current Studio's (src/studio/)
   { find: '@studio/makeways', replacement: fileURLToPath(new URL('../web/makeways.js', import.meta.url)) },
+  // what Hermia says as the Studio's walk goes (web/walkline.js, #541): the same words in both apps
+  { find: '@studio/walkline', replacement: fileURLToPath(new URL('../web/walkline.js', import.meta.url)) },
+  // the server's token in its header for the event stream and downloads (web/headerstream.js): never ?k= in an address
+  { find: '@studio/headerstream', replacement: fileURLToPath(new URL('../web/headerstream.js', import.meta.url)) },
+  // a build that looked something up stops with what it found, shown before it is used (web/researchstop.js)
+  { find: '@studio/researchstop', replacement: fileURLToPath(new URL('../web/researchstop.js', import.meta.url)) },
   // by path: a bare 'xstate' would be looked up from web/, which has no node_modules
   { find: /^(\.\.?\/)+vendor\/xstate\/xstate\.mjs$/, replacement: fileURLToPath(import.meta.resolve('xstate')) },
   // the sanitiser the current deck runs on every section before a frame shows it (web/clean.js): the Design deck's
@@ -39,7 +45,12 @@ export const alias: AliasOptions = [
   // Open Design's Edit, ported (web/edit/patches.js, decision 0010): one part of a finished section changed by hand
   { find: '@studio/edit', replacement: fileURLToPath(new URL('../web/edit/patches.js', import.meta.url)) },
   // where a message typed into a build's chat goes (web/route.js): the Design deck routes the same way
-  { find: '@studio/route', replacement: fileURLToPath(new URL('../web/route.js', import.meta.url)) }
+  { find: '@studio/route', replacement: fileURLToPath(new URL('../web/route.js', import.meta.url)) },
+  // where builds go on GitHub, typed in the chat ("publish to <organization>"): the same words in both apps (web/github.js)
+  { find: '@studio/github', replacement: fileURLToPath(new URL('../web/github.js', import.meta.url)) },
+  // a page's picture, taken inside its frame and sized in a worker (web/capture.js, spec 36): the Overview photographs
+  // a changed page the same way in both apps (src/screens/overview/Snapper.tsx)
+  { find: '@studio/capture', replacement: fileURLToPath(new URL('../web/capture.js', import.meta.url)) }
 ]
 
 export default defineConfig({
