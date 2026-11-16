@@ -88,7 +88,14 @@ export const GROUPS = [
         state: F => !F.local ? wait : F.local.godot ? ok('Found') : off('Not found'),
         fix: () => ({ link: 'https://godotengine.org/download', label: 'Get Godot', note: 'Put it on PATH as godot. Swarm Studio finds it when it next starts.' }) },
       { k: 'meshy', name: '3D characters', need: false, for: 'Turns painted characters into rigged 3D models. Asks before it spends credits.', by: 'Meshy, with MESHY_API_KEY', without: 'Characters stay 2D painted sprites.', goes: 'Meshy: the picture a 3D character is made from',
-        state: F => has(F, 'MESHY_API_KEY') === undefined ? wait : has(F, 'MESHY_API_KEY') ? ok('Key in Hermes') : off(), fix: () => key('MESHY_API_KEY') }
+        state: F => has(F, 'MESHY_API_KEY') === undefined ? wait : has(F, 'MESHY_API_KEY') ? ok('Key in Hermes') : off(), fix: () => key('MESHY_API_KEY') },
+      // The sprites are painted on a flat key colour and cut out by scripts/cutout.py, which needs numpy, scipy and
+      // Pillow in the Python the Studio runs. Nothing installed them: on the Pro a whole game shipped with its
+      // magenta background still on every sprite and drew a magenta box behind the hero (2026-11-15). The probe
+      // was already there (server/server.mjs CUT_PROBE); no row used it.
+      { k: 'cutter', name: 'Sprite cutter', need: true, for: 'Cuts a painted sprite out of its flat key colour, so it has a transparent background.', by: 'numpy, scipy and Pillow, in the Python Swarm Studio runs', without: 'Every sprite keeps its magenta or green background and draws a box behind the character.',
+        state: F => { const p = F.view?.python; if (!p) return wait; if (p.use) return ok(String(p.use).split('/').pop()); const first = (p.tried || []).find(t => t.missing && t.missing.length); return { st: 'fail', why: first ? `${String(first.py).split('/').pop()} lacks ${first.missing.map(m => (m === 'PIL' ? 'Pillow' : m)).join(', ')}` : 'No Python on this computer' } },
+        fix: F => { const p = F.view?.python; const first = (p?.tried || []).find(t => t.missing && t.missing.length); if (!first) return null; const cmd = `${first.py} -m pip install ${first.missing.map(m => (m === 'PIL' ? 'Pillow' : m)).join(' ')}`; return { cmd, note: p.restart ? 'The running Studio looked before they were installed, so restart it after this.' : 'Swarm Studio reads them when it next starts.' } } }
     ]
   },
   {
