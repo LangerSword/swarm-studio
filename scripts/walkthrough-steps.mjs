@@ -65,13 +65,16 @@ export const STEPS = [
 
   // 3. The Make box
   { id: 'kind-menu', flow: 'Make', title: 'What to make', run: async env => { await open(env); await click(env.page, '.hm-kind'); await vis(env.page, '.hm-menu') } },
-  { id: 'kind-pics', flow: 'Make', title: 'What to make › Pictures', run: async ({ page }) => { await page.locator('.hm-menu [data-k="pics"]').first().hover(); await page.locator('.hm-menu [data-k="pics"]').first().click().catch(() => {}) } },
+  // retired steps keep their place, so the pictures after them keep their numbers (the runner skips them)
+  { id: 'kind-pics', retired: 'the kind menu lists only things to make now (web/home.js); how pictures are made is Setup’s: m-setup-pictures' },
   { id: 'ideas', flow: 'Make', title: 'The lightbulb', run: async env => { await open(env); await click(env.page, '.hm-ideas'); await vis(env.page, '.hm-pop.show') } },
   { id: 'make-empty', flow: 'Make', title: 'Make with nothing typed', run: async env => { await open(env); await click(env.page, '.hm-make') } },
-  { id: 'no-hermes', flow: 'Make', title: 'Make with no Hermes', run: async env => { await noHermes(env); await makeText(env, 'A site for a bike repair shop', 'site'); await vis(env.page, '.hm-toast', 15000) }, settle: 800, after: endNoHermes },
-  { id: 'studio-first', flow: 'Make (Hermes stubbed on)', title: 'Make: Studio first or Build now', run: async env => { await open(env); await hermesOn(env.page); await makeText(env, 'A site for a bike repair shop', 'site'); await vis(env.page, '.hm-pop.grill.start') } },
-  { id: 'thorough', flow: 'Make (Hermes stubbed on)', title: 'Studio first, Thorough: the questions', run: async env => { await env.page.locator('.hm-depth [data-d="thorough"]').first().click().catch(() => {}); await click(env.page, '.hm-choice[data-studio]') }, settle: 4000 },
-  { id: 'build-now', flow: 'Make (Hermes stubbed on)', title: 'Build now: the brief', run: async env => { await open(env); await hermesOn(env.page); await makeText(env, 'A site for a bike repair shop', 'site'); await click(env.page, '.hm-choice[data-now]') }, settle: 5000 },
+  // Make opens its menu (Just make it · Studio) before anything starts: with no Hermes, Just make it is pressed
+  // and the step shows the line a person is then told it in, with Check again (web/hermesline.js)
+  { id: 'no-hermes', flow: 'Make', title: 'Make with no Hermes: Just make it', run: async env => { await noHermes(env); await makeText(env, 'A site for a bike repair shop', 'site'); await click(env.page, '.hm-menu [data-k="now"]'); await vis(env.page, '.hm-off', 15000) }, settle: 800, after: endNoHermes },
+  { id: 'studio-first', retired: 'the "Studio first or Build now" popup is gone: Make opens the menu m-make-menu-site shows' },
+  { id: 'thorough', retired: 'the popup’s Thorough questions are gone with it: m-step-by-step opens the Studio, m-pick-steps the steps' },
+  { id: 'build-now', retired: 'Build now is Just make it: m-ask-first' },
   { id: 'make-app', flow: 'Make (Hermes stubbed on)', title: 'Make an App', run: async env => { await open(env); await hermesOn(env.page); await makeText(env, 'An app for swapping nurse shifts', 'app') }, settle: 2500 },
   { id: 'make-game', flow: 'Make (Hermes stubbed on)', title: 'Make a Game: the Plan board', run: async env => { await open(env); await hermesOn(env.page); await makeText(env, 'A platformer through a night market', 'game') }, settle: 4000 },
   { id: 'make-video', flow: 'Make (Hermes stubbed on)', title: 'Make a Video', run: async env => { await open(env); await hermesOn(env.page); await makeText(env, 'A 30 second film for a riverside cafe', 'video') }, settle: 2500 },

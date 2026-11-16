@@ -1,0 +1,30 @@
+{
+ "nav": {
+  "states": 19,
+  "reachable": 19,
+  "configurations": 960,
+  "longestShortestPath": 3,
+  "noWayIn": [],
+  "deadEnds": [],
+  "onlyTopLevelMovesLeave": [
+   "draft",
+   "home",
+   "plan"
+  ],
+  "eventsNeverTaken": [],
+  "eventsNotTried": [],
+  "eventsSentNotDeclared": []
+ },
+ "studio": {
+  "states": 87,
+  "reachable": 87,
+  "configurations": 237,
+  "longestShortestPath": 6,
+  "noWayIn": [],
+  "deadEnds": [],
+  "onlyTopLevelMovesLeave": [],
+  "eventsNeverTaken": [],
+  "eventsNotTried": [],
+  "eventsSentNotDeclared": []
+ }
+}
