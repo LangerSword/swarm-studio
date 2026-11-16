@@ -233,16 +233,16 @@ const APPCHAT = [
     if (/Build the app first/.test(feedText)) throw new Error('the chat still answers "Build the app first"')
     await toEnd(env.page)
   } },
-  { id: 'f-app-overview-ask', flow: APP, title: 'The same change typed into the Overview’s bar and sent: a build of the design’s next version starts (the server took it), and this is the Overview five seconds on', run: async env => {
+  { id: 'f-app-overview-ask', flow: APP, title: 'The same change typed into the Overview’s chat and sent: a build of the design’s next version starts (the server took it), and this is the Overview five seconds on', run: async env => {
     const s = await app(env)
     await go(env, s, `/?project=${s.ids.app}&version=${s.ids.app}`, '.pj-world')
     await env.wait(1200)
-    await env.page.locator('form.pj-ask input[name=q]').first().fill(APP_ASK)
+    await type(env, APP_ASK)
     const run = env.page.waitForResponse(r => new URL(r.url()).pathname === '/api/run' && r.request().method() === 'POST', { timeout: 12000 }).catch(() => null)
-    await env.page.keyboard.press('Enter')
+    await env.page.locator('#brief').press('Enter')
     const res = await run
     // the title says a build started: it holds only if the server said so
-    if (!res || res.status() !== 200) throw new Error(`the Overview’s bar did not start a build as this step’s title says: ${res ? `POST /api/run answered ${res.status()}` : 'no build was asked for'}`)
+    if (!res || res.status() !== 200) throw new Error(`the Overview’s chat did not start a build as this step’s title says: ${res ? `POST /api/run answered ${res.status()}` : 'no build was asked for'}`)
     await env.wait(5000)
   } },
   { id: 'f-app-plan-thinking', flow: APP, title: '"/plan" and the change: Hermia thinking', run: async env => {
