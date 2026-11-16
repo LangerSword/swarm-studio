@@ -50,7 +50,7 @@ it has the hero's sprite, `idleGate` runs while the rest paints.
      like its start, with the head counted twice.
    - It samples 21 frames from that span and adds 3 in-between frames, made on the raw green frames
      before keying, to close the seam.
-   - Each frame is keyed and despilled with the ARES keyer (`games/ares/tools/sheets/cut.py`), cleared of
+   - Each frame is keyed and despilled with the ARES keyer (`gamemaker/cut.py`), cleared of
      stray specks and aligned on the feet.
    - The frames are packed into a WebP strip of square cells of up to 680 px (24 cells stay under WebP's
      16383 px), with `fps` = frames / loop length, `anchor.feet` and a `qc` block.

@@ -4,13 +4,13 @@
 
 ARES's heroines were made by hand on 2026-11-10 and 11: a design picture each, painted 3 × 2 sprite sheets cut
 into strips, a Fish Audio voice per heroine, Japanese lines per move, combos, effect levels and outfits. All of it
-now lives in one config file (`games/ares/data/heroes.json`) and three tools that read it:
+now lives in one config file (`gamemaker/heroes.json`) and three tools that read it:
 
 | Tool | Does | Reads |
 |---|---|---|
 | `engine/voice.mjs` | records every move and bark `line` to `assets/voice/<hero>/<key>.mp3` (Fish or ElevenLabs, key from the env or an Octo vault lease) | `voices`, `heroes.*.voice`, `moves.*.line`, `moves.*.fx.levels.*.line`, `barks` |
 | `engine/skins.mjs` | paints every sheet of one outfit from its design picture (`imagegen.py --ref --edit`), cuts and checks it into `assets/skins/<hero>/<outfit>/`, writes `pack.json`; `--fx` paints the effect sheets on black | `sheet` (grid, layout, fx style), `heroes.*.art` (look, personality, refs, outfits, sheets), `fx.sheets` |
-| `games/ares/tools/sheets/cut.py` | keys out the grey, cuts a 3 × 2 sheet into a strip of six frames, checks it (`qc.ok`, `edge`, `height_spread`) | one painted PNG |
+| `gamemaker/cut.py` | keys out the grey, cuts a 3 × 2 sheet into a strip of six frames, checks it (`qc.ok`, `edge`, `height_spread`) | one painted PNG |
 
 But only someone at a terminal can run them. The game maker today (`engine/game.mjs`) asks nine chip questions,
 writes a JSON spec and hands it to a coding run; `engine/plan.mjs` (spec 21) turns the answers into nine Plan
@@ -35,7 +35,7 @@ part. Both paths end in the same config and call the same tools.
 - **The one-prompt path does not change.** Build fills every step from its defaults (`planFromAnswers` plus the
   heroes defaults below) and goes straight on. A maker can still open the board later and walk the steps.
 - **One config.** Both paths produce the same plan, and the plan carries a `heroes` config with the same shape as
-  `games/ares/data/heroes.json`. On Build it is written to `<game>/data/heroes.json` and the tools run on it.
+  `gamemaker/heroes.json`. On Build it is written to `<game>/data/heroes.json` and the tools run on it.
 - **Off any time.** Guided mode is a view of the board, not a different plan: the progress ring's sheet has a
   **Board** item that drops back to the free canvas with every pick kept.
 
@@ -70,7 +70,7 @@ place and width (RULES 29).
    showcase builds for the rest), the type's name under it. Selecting one shows, in the inspector, the questions
    that type still needs (`look`, `length`, `target` from `QUESTIONS`) as chips. Clips are library files, never
    made per plan, so this step spends nothing.
-2. **World.** Four level looks as stills (existing backdrops from `games/ares/assets/backdrops` and the template
+2. **World.** Four level looks as stills (existing backdrops from `gamemaker/backdrops` and the template
    library), then, once one is picked and the style is locked, the plan's own backdrops painted from it. One wide
    picture each; **Draw again** in the inspector.
 3. **Characters.** The cast sketch sheet (5 × 4) as in spec 21. A picked cell is cut out into a design picture and
@@ -131,7 +131,7 @@ The plan gains three fields:
 // <data>/plans/<id>.json, added to spec 21's shape
 {
   guide: { on: true, step: 'voice', steps: ['game', 'world', 'characters', 'personality', 'voice', 'moves', 'outfits'], done: ['game', 'world'] },
-  heroes: { _note, voices: {}, heroes: {}, sheet: {}, fx: {} },     // same shape as games/ares/data/heroes.json
+  heroes: { _note, voices: {}, heroes: {}, sheet: {}, fx: {} },     // same shape as gamemaker/heroes.json
   previews: [{ id, step, hero, kind: 'strip' | 'loop' | 'still' | 'clip' | 'voice', src, from: ['heroes.runner.art.outfits.default.design'], state: 'ready' | 'stale' | 'painting' | 'failed' }],
   refs: [{ id, step, kind, file, notes }]
 }
@@ -172,13 +172,13 @@ pictures and voice lines, both cheap and from the person's own logins:
 | Need | Exists | Missing (this spec builds it) |
 |---|---|---|
 | Paint and cut a sheet | `skins.mjs` `skinJobs`, `buildPack`; `cut.py` | calling them per sheet from the server, as a background job with progress, into the plan's preview folder instead of the game's `assets/skins` |
-| A moving preview of a strip | `cut.py` writes the strip (frames side by side, `cell` = slot size in the `.json`) | **`strip → loop`**: `games/ares/tools/sheets/loop.py strip.webp out.webp [--fps 10] [--fx]` reads the slot size from the `.json` and writes an **animated WebP** (Pillow `save_all`, alpha kept) for the studio and a **GIF** only on export (GIF has 1-bit alpha). It also writes a first-frame PNG for reduced motion. |
+| A moving preview of a strip | `cut.py` writes the strip (frames side by side, `cell` = slot size in the `.json`) | **`strip → loop`**: `loop.py strip.webp out.webp [--fps 10] [--fx]` (in the game, Pukujan/ares) reads the slot size from the `.json` and writes an **animated WebP** (Pillow `save_all`, alpha kept) for the studio and a **GIF** only on export (GIF has 1-bit alpha). It also writes a first-frame PNG for reduced motion. |
 | A move with its effect | strips for the character and for the effect; `fxAt(move, level)` | **`moveLoop(hero, move, level)`** in `engine/guide.mjs`: composites the effect strip (additive, scaled by the level's `scale`) over the character strip at the cell origin, then `loop.py` |
-| A face crop for personality chips | `games/ares/assets/faces`, `face.gd` in the game | `faceCrop(strip)`: the top third of the idle strip's first frame, by the alpha box |
+| A face crop for personality chips | `gamemaker/faces`, `face.gd` in the game | `faceCrop(strip)`: the top third of the idle strip's first frame, by the alpha box |
 | Voice samples | `voice.mjs` `speakLine`, `ttsRequest`, the two voices in ARES's config | **a voice library** `engine/voices.json`: 8–12 curated Fish voices `{ key, provider, voice, model, about }`, and `sampleVoice(voice, line)` that caches `<plan>/voices/<voice>/<hash>.mp3` so a sample is recorded once |
-| Gameplay clips for game types | `footage.mjs` `filmBuild` records a web build; Jev plays ARES (`games/ares/jev`) | a small **clip library** `web/clips/<type>.webm` (6 s, muted, 720p), recorded once from the showcase builds with `filmBuild` |
+| Gameplay clips for game types | `footage.mjs` `filmBuild` records a web build; Jev plays ARES (`Pukujan/ares jev`) | a small **clip library** `web/clips/<type>.webm` (6 s, muted, 720p), recorded once from the showcase builds with `filmBuild` |
 | Reading a reference for one step | `reference.mjs` `kindOf`, `measureImage`, `measureVideo`, `describe` | the per-step `focus` passed to `describe`, and the notes → options step |
-| Writing the config | the shape, in `games/ares/data/heroes.json` | `applyPick`, `heroesDefaults`, `checkHeroes`, and writing `data/heroes.json` on Build |
+| Writing the config | the shape, in `gamemaker/heroes.json` | `applyPick`, `heroesDefaults`, `checkHeroes`, and writing `data/heroes.json` on Build |
 | Effect levels in a picture | `fx.levels` with `scale`, `projectiles`, `trail`, `shake`, `cutin` | the slider only reads them; tuning numbers beyond the five levels stays in the file |
 | Running the game with the picks | ARES reads its config at start | for a new game made from the ARES template, the coding run is told to read `data/heroes.json` the same way (a line in `gameBrief(plan)`) |
 

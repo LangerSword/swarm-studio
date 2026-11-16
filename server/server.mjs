@@ -1872,7 +1872,7 @@ const godotJob = godotJobOf({ install: ({ onProgress }) => godotStandIn.on
 // engine: godot
 // engine: meshy
 const plans = planRoutes({
-  dataDir, builtInTemplates: [join(root, 'games', 'ares', 'plan.json')], paint: planPaint, make: { character: planMakeCharacter, key: () => planMeshyKey() },
+  dataDir, builtInTemplates: [join(root, 'gamemaker', 'plan.json')], paint: planPaint, make: { character: planMakeCharacter, key: () => planMeshyKey() },
   // the planner reads the idea's genre family; Godot asked for is said in the plan, and so is a missing Godot
   planner: () => models.planner.apiKey ? { provider: provider('planner'), model: modelFor('planner') } : null,
   godot: () => godotHere,
@@ -2302,7 +2302,7 @@ const workshops = workshopRoutes({
   dataDir,
   paint: planPaint,
   planner: () => ({ provider: provider('planner'), model: modelFor('planner') }),
-  voices: (() => { try { return JSON.parse(readFileSync(join(root, 'games', 'ares', 'data', 'heroes.json'), 'utf8')).voices || {} } catch { return {} } })(),
+  voices: (() => { try { return JSON.parse(readFileSync(join(root, 'gamemaker', 'heroes.json'), 'utf8')).voices || {} } catch { return {} } })(),
   // engine: sound
   speak: (voice, text, out) => import('../engine/voice.mjs').then(v => v.speakLine(voice, text, out)),
   // end engine: sound
@@ -2729,7 +2729,7 @@ async function paintGame(runId, spec, items, appDir, step, signal = null, { have
     }
   }
   // A sprite sheet: painted over the figure's own picture so it stays on-model, cut into a
-  // strip of frames (games/ares/tools/sheets/cut.py), then checked by its numbers and by the
+  // strip of frames (gamemaker/cut.py), then checked by its numbers and by the
   // reviewer on dark and magenta. One sent back is painted once more; the second one stands.
   const quota = (it, slot, why) => {
     if (!OUT_OF_QUOTA.test(why) || stopped) return false
@@ -2767,7 +2767,7 @@ async function paintGame(runId, spec, items, appDir, step, signal = null, { have
       const strip = join(dirname(r.path), `${it.id}-strip.webp`), view = join(dirname(r.path), `${it.id}-check.png`)
       const py = await cutPy()
       if (!py) { live(slot, it, 'failed', { problems: ['cutting sheets needs numpy and scipy'] }); step({ kind: 'setup', text: `could not cut the ${it.what}: no Python with numpy and scipy (set SWARM_CUT_PY)`, ok: false }); return }
-      const cut = await new Promise(ok => execFile(py, [join(root, 'games', 'ares', 'tools', 'sheets', 'cut.py'), r.path, strip, ...(it.fx ? ['--fx'] : [])], { timeout: 120000 }, (err, out, errOut) => ok({ ok: !err, out: String(out || ''), why: String(errOut || err?.message || '').trim() })))
+      const cut = await new Promise(ok => execFile(py, [join(root, 'gamemaker', 'cut.py'), r.path, strip, ...(it.fx ? ['--fx'] : [])], { timeout: 120000 }, (err, out, errOut) => ok({ ok: !err, out: String(out || ''), why: String(errOut || err?.message || '').trim() })))
       let meta = null
       try { meta = JSON.parse(cut.out.trim().split('\n').pop()) } catch {}
       if (!cut.ok || !meta || !existsSync(strip)) {
@@ -2861,7 +2861,7 @@ async function paintGame(runId, spec, items, appDir, step, signal = null, { have
     live(slot, it, 'cutting', { src: img(startName) })
     const heavy = heavyConfig(dataDir)
     const out = `idle-${tag}.webp`, outs = [out, `idle-${tag}.json`, `idle-${tag}-check.png`, `idle-${tag}-loop.webp`]
-    const r = await runHeavy({ config: heavy, script: join(root, 'scripts', 'idle_sheet.py'), files: [join(root, 'games', 'ares', 'tools', 'sheets', 'cut.py'), clip], args: ['sheet', clipName, out, ...(interpOf(heavy)?.args || [])], outputs: outs, outDir: imgDir, timeout: 600000 })
+    const r = await runHeavy({ config: heavy, script: join(root, 'scripts', 'idle_sheet.py'), files: [join(root, 'gamemaker', 'cut.py'), clip], args: ['sheet', clipName, out, ...(interpOf(heavy)?.args || [])], outputs: outs, outDir: imgDir, timeout: 600000 })
     await idleKeep(slot, it, r, outs, fail, 'the clip could not be cut into a loop', meta => ({
       how: 'the clip', step: `animated the ${it.who} idle from a ${o.by} clip: ${meta.frames} frames at ${meta.fps} fps${meta.video?.rife ? `, ${meta.video.rife} in-between frames on the seam` : ''}`
     }))
@@ -2907,7 +2907,7 @@ async function paintGame(runId, spec, items, appDir, step, signal = null, { have
     const tag = randomBytes(4).toString('hex'), out = `idle-${tag}.webp`, outs = [out, `idle-${tag}.json`, `idle-${tag}-check.png`, `idle-${tag}-loop.webp`]
     const sName = `keys-${tag}${extname(strip)}`, mName = `keys-${tag}.json`
     copyFileSync(strip, join(imgDir, sName)); copyFileSync(meta, join(imgDir, mName))
-    const r = await runHeavy({ config: heavy, script: join(root, 'scripts', 'idle_sheet.py'), files: [join(root, 'games', 'ares', 'tools', 'sheets', 'cut.py'), join(imgDir, sName), join(imgDir, mName)], args: ['keys', sName, mName, out, '--key', idleKey(it.look).hex, ...interp.args], outputs: outs, outDir: imgDir, timeout: 600000 })
+    const r = await runHeavy({ config: heavy, script: join(root, 'scripts', 'idle_sheet.py'), files: [join(root, 'gamemaker', 'cut.py'), join(imgDir, sName), join(imgDir, mName)], args: ['keys', sName, mName, out, '--key', idleKey(it.look).hex, ...interp.args], outputs: outs, outDir: imgDir, timeout: 600000 })
     await idleKeep(slot, it, r, outs, fail, 'the keyframes could not be in-betweened', m => ({
       how: `${m.keys?.keys || 4} keyframes and ${interp.name}`, step: `animated the ${it.who} idle from ${m.keys?.keys || 4} close keyframes with ${interp.name}: ${m.frames} frames at ${m.fps} fps, no ghost blends`
     }))

@@ -12,7 +12,7 @@ The owner, 2026-11-13:
 
 Why it did not load: the Studio opens only what it built. A game or app is a run (`runs/<id>/events.jsonl`
 plus `runs/<id>/app/`), and nothing made a run from a folder or a repository. ARES was written by hand in
-`games/ares/` of this repo, so it had no run.
+ARES's own repository (it was `games/ares/` of this repo then; it is Pukujan/ares since 2026-11-16), so it had no run.
 
 The four questions ([PRODUCT.md](../PRODUCT.md)): it runs on the person's machine; nobody pays (no model is
 called); git and the person's own `gh` login do the fetching; the workspace shows it as a project like any
@@ -30,9 +30,9 @@ own `runs/` folder.
 4. When the files are in, the project opens in its room (the Game room, or the App view). If the person has
    left Projects meanwhile, nothing moves under them: the card says **Brought in**.
 
-For ARES: `Pukujan/swarm-studio` (or `~/dev/projects/hermes hackathon/swarm-studio`), Subfolder `games/ares`,
+For ARES: `Pukujan/ares` (or a local `~/dev/ares`), Subfolder empty — the game is the whole repository now,
 Game. Its page is `web/index.html` and its art is in `assets/` beside `web/`, so the folder to bring is
-`games/ares`, not `games/ares/web`: with `web` alone the sheet says "Its page loads ../assets/ from the folder
+the repository root, not `web/`: with `web` alone the sheet says "Its page loads ../assets/ from the folder
 above. Bring in that folder (ares) instead".
 
 ## The request
@@ -63,7 +63,7 @@ come in**) and in the room, with git's own words.
 - **Fetching a repository.** `git clone --depth 1 --single-branch --no-tags --no-recurse-submodules` into a
   temp folder, through `engine/proc.mjs`, with the address after `--`. With a subfolder it is a sparse,
   blobless clone of that folder only (measured on this repo: 25 s and 477 MB for all of it, a few seconds for
-  `games/ares`). The person's `gh` login answers for a private repository
+  `Pukujan/ares`). The person's `gh` login answers for a private repository
   (`credential.helper=!gh auth git-credential`, as `engine/publish.mjs` does); nothing is asked on a terminal
   (`GIT_TERMINAL_PROMPT=0`), Git LFS files are not downloaded, and the temp folder is removed whatever happens.
 - **Copying.** Files only, into `runs/<id>/app/`. Left out by name: `node_modules`, `.git`, build output
@@ -71,7 +71,8 @@ come in**) and in the room, with git's own words.
   keys (`.env`, `.env.*` except `.env.example`, `.npmrc`). A link to a file inside the folder is copied as
   that file; a link that leaves the folder, or names a folder, is not followed (counted in the record).
 - **Limits.** 200 MB and 20,000 files, counted before anything is copied. Over either, the refusal says
-  which ("More than 200 MB: bring in a smaller folder"). `games/ares` is 169 MB and 1,398 files.
+  which ("More than 200 MB: bring in a smaller folder"). ARES was 169 MB and 1,398 files when it lived in
+  this repo, and that is the size this rule was written against.
 - **Nothing is run.** No install, no script, no build, and git is not run inside the person's folder (its
   commit and origin are read from `.git/HEAD` and `.git/config`).
 - **History.** The project's own `.git` stays out of `app/`. The run starts its own history there with one
@@ -82,7 +83,7 @@ come in**) and in the room, with git's own words.
   `engine/sourcehub.mjs` `joinHistory`). The `intake` event then says `joined: true`. A subfolder, or a
   repository with files that were left out, starts with "Brought in" as before.
 - **A Swarm plan.** A `plan.json` in the Plan board's format (kind, cards, a name or idea) in the folder or
-  one folder up is copied to `runs/<id>/plan.json`. `games/ares/plan.json` is one. **The Plan board does not
+  one folder up is copied to `runs/<id>/plan.json`. `gamemaker/plan.json` is one. **The Plan board does not
   read it yet**: it is kept so a later slice can open it.
 
 ## What is stored
@@ -169,7 +170,7 @@ Said plainly, because the owner's wish is to go on developing it here:
 
 ## Not in this slice
 
-**Godot projects.** `games/ares/` is also a Godot 4 project (`project.godot`, `scenes/`, `scripts/`); it comes
+**Godot projects.** `Pukujan/ares` is also a Godot 4 project (`project.godot`, `scenes/`, `scripts/`); it comes
 along as files and is not opened. What it would take ([docs/engines/godot.md](../engines/godot.md)):
 - the person's own Godot 4 (`engine/port.mjs` `godotBin`; none on the MacBook Air, so this is a job for the
   Windows PC or the Pro) and Web export templates matching it;
@@ -265,7 +266,7 @@ event's `repo`, `path`, `sha`; a folder inside a git repository records its `ori
 - GitHub is asked for its newest commit. The same one as last time, or one already in the project's history:
   **Nothing new on owner/name**, and no run is made.
 - For a subfolder, GitHub is asked whether anything under it changed between the two commits (`gh api
-  repos/…/compare`); when nothing did: **Nothing new in games/ares on owner/name**. When GitHub does not say
+  repos/…/compare`); when nothing did: **Nothing new in <path> on owner/name**. When GitHub does not say
   (more than 300 files changed, or no answer), the pull goes ahead.
 - Otherwise the repository comes in through intake itself (`bringIn`, the same limits, the same names left out,
   nothing run) as **the project's next version**: a new run in the same project. The whole of a repository

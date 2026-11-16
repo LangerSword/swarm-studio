@@ -1,5 +1,5 @@
 // The flat colour painted sprites and sprite sheets stand on, so they key out cleanly (the
-// cutters read it from the corners: scripts/cutout.py, games/ares/tools/sheets/cut.py).
+// cutters read it from the corners: scripts/cutout.py, gamemaker/cut.py).
 // Three keys, in the order they are preferred: magenta, green, blue.
 //
 // The key is chosen from a picture whenever there is one: `measureKey` asks the cutter to

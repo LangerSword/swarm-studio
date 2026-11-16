@@ -1,6 +1,6 @@
 """One painted frame to a looping idle sheet, through a video model (docs/specs/24-video-idle.md).
 
-The way ARES's Oracle and Baker idles were made (games/ares/assets/skins/*/default/*-idle.json):
+The way the ARES game's Oracle and Baker idles were made (in Pukujan/ares now):
 
   start   the figure's first painted frame, cut out, put on one flat key colour
           (#00FF00, or #FF00FF for a green figure) at the size the video model draws
@@ -49,7 +49,7 @@ from PIL import Image
 
 HERE = Path(__file__).resolve().parent
 # the ARES sheet keyer: next to this file when it was copied to a job folder, else in the repo
-for p in (HERE, HERE.parent / "games" / "ares" / "tools" / "sheets"):
+for p in (HERE, HERE.parent / "gamemaker"):
     if (p / "cut.py").exists():
         sys.path.insert(0, str(p))
         break

@@ -281,7 +281,7 @@ export function githubDoor(host) {
         <ul class="gh-lines">${lines.map(l => `<li>${esc(l)}</li>`).join('')}</ul>
         ${mid ? working(job) : ''}
         ${!mid && !s.source ? `<label class="ui-field"><span class="ui-label">Repository</span><input class="ui-input" name="repo" value="${esc(typed.repo)}" placeholder="owner/name" maxlength="200" required></label>
-          <label class="ui-field"><span class="ui-label">Subfolder</span><input class="ui-input" name="path" value="${esc(typed.path)}" placeholder="games/ares" maxlength="300"></label>
+          <label class="ui-field"><span class="ui-label">Subfolder</span><input class="ui-input" name="path" value="${esc(typed.path)}" placeholder="web" maxlength="300"></label>
           ${toggle('Kind', [['game', 'Game'], ['app', 'App']], kind, 'kind')}` : ''}
         ${!mid && needsName ? `${toggle('Where it goes', [['new', 'New repository'], ['existing', 'An existing repository'], ['folder', 'A folder on this computer']], way, 'way')}
           ${way === 'folder' ? `<label class="ui-field"><span class="ui-label">Folder</span><input class="ui-input" name="folder" value="${esc(typed.folder)}" placeholder="~/code/site" maxlength="1000" required></label>

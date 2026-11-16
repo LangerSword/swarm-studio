@@ -1,4 +1,4 @@
-"""Cut a kit strip (six pieces side by side, from games/ares/tools/sheets/cut.py) into one
+"""Cut a kit strip (six pieces side by side, from gamemaker/cut.py) into one
 trimmed, transparent PNG per piece.
 
 python3 scripts/kit_split.py strip.webp outdir name1 name2 ... name6
