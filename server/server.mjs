@@ -1776,11 +1776,20 @@ async function askApp(a, id, text, { chart = false } = {}) {
 // Fix: the facts about the Studio's own working parts (engine/doctor.mjs says what each is). Every lookup
 // has a few seconds: a part that does not answer in time reads "not known yet", and the rest still show.
 const CUT_PROBE = "import importlib.util, json; print(json.dumps([m for m in ['numpy', 'scipy', 'PIL'] if importlib.util.find_spec(m) is None]))"
+// The cutters' Python, for whoever asks: the doctor's facts and Setup's Parts row both read it, and it is the one
+// thing that says why a sprite shipped with its key colour still on it (web/setup-parts.js `cutter`).
+const cutPython = async (d) => {
+  const win = process.platform === 'win32'
+  return d.pythonFacts({
+    candidates: [process.env.SWARM_CUT_PY, win ? 'python' : 'python3', win ? '' : '/usr/bin/python3', PY],
+    missing: py => new Promise((ok, no) => execFile(py, ['-c', CUT_PROBE], { timeout: 15000 }, (err, out) => { try { if (err) throw err; ok(JSON.parse(String(out).trim().split('\n').pop())) } catch (e) { no(e) } })),
+    inUse: cutPyP ? await cutPy() : undefined
+  })
+}
 async function studioFacts(runId = null, { light = false } = {}) {
   const d = await import('../engine/doctor.mjs')
   const { GROUPS } = await import('../web/setup-parts.js')
   const soon = (p, ms = 6000) => Promise.race([Promise.resolve().then(p).catch(() => null), new Promise(r => { setTimeout(() => r(null), ms).unref?.() })])
-  const win = process.platform === 'win32'
   // light (Ask's one-paragraph view of the Studio): nothing that starts a program or calls a model
   const skip = () => null
   const well = await soon(() => health.now())
@@ -1791,18 +1800,14 @@ async function studioFacts(runId = null, { light = false } = {}) {
     soon(() => mediaNow()), soon(light ? skip : () => githubLogin()), soon(() => connections(dataDir)),
     soon(() => connectors.list()), soon(light ? skip : () => gatewayTargets()), soon(() => imageChoice()),
     // the cutters' Python, looked at now: cutPy (below) keeps its first answer until the Studio restarts
-    soon(light ? skip : async () => d.pythonFacts({
-      candidates: [process.env.SWARM_CUT_PY, win ? 'python' : 'python3', win ? '' : '/usr/bin/python3', PY],
-      missing: py => new Promise((ok, no) => execFile(py, ['-c', CUT_PROBE], { timeout: 15000 }, (err, out) => { try { if (err) throw err; ok(JSON.parse(String(out).trim().split('\n').pop())) } catch (e) { no(e) } })),
-      inUse: cutPyP ? await cutPy() : undefined
-    }), 40000)
+    soon(light ? skip : async () => cutPython(d), 40000)
   ])
   const st = hermes.status()
   const F = {
     // `python` rides on the view: Setup's Sprite cutter row reads it (web/setup-parts.js), and it is the one
     // thing that says why a sprite shipped with its key colour still on it
     view: { ...view, python }, hermes: { ...st, health: well }, models: { roles: Object.fromEntries(ROLES.map(r => [r, { model: modelFor(r), picked: picks[r] || null }])) },
-    local: setup.local(), media, publish: conn || login ? { github: login, ...(conn || {}) } : null, conn: connList, gateway: gw ? { platforms: gw } : null
+    local: { ...setup.local(), ...(python ? { python } : {}) }, media, publish: conn || login ? { github: login, ...(conn || {}) } : null, conn: connList, gateway: gw ? { platforms: gw } : null
   }
   const events = runId ? readEvents(runId) : null
   const kind = events ? (events.findLast(e => e.type === 'app:start')?.kind === 'game' || events.some(e => e.type === 'run:start' && e.kind === 'game') ? 'game' : events.some(e => e.type === 'app:start') ? 'app' : 'site') : ''

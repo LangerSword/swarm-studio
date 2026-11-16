@@ -111,12 +111,7 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
     if (goWords(said)) return ids[0] === 'do:godot' ? 'do:next' : ids[0] && (ids[0] === 'lock' || ids[0].startsWith('do:')) ? ids[0] : 'do:next'
     if (step.sheet && readPicks(said, step.sheet, planFacts(plan).cast).length) return 'do:typed'
     const engine = wordsDecide(said).engine
-    // "the browser is fine", while the Godot question is the open one — including WHILE IT INSTALLS, when the step
-    // carries no options at all (its line is the install's progress, engine/gamestep.mjs `installLine`). The option
-    // ids were the only guard, so mid-install the words fell through to the planner and were answered as talk
-    // instead of choosing the browser (#644's leftover). `step.install` is that state; `settle` already gives way
-    // when the person went on with the browser meanwhile (`chat.godot !== 'installing'`), so the choice sticks.
-    if ((ids.includes('do:browser') || ids.includes('do:godot') || step.install) && engine === 'web') return 'do:browser'
+    if ((ids.includes('do:browser') || ids.includes('do:godot')) && engine === 'web') return 'do:browser'
     // only an order installs ("install", "install godot", "ok, install it", "try again"): a question, a "don't" or
     // the word Godot alone is talk
     const offered = [...chat.turns].reverse().find(t => t.who === 'planner')?.options || []
