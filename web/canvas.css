@@ -2090,7 +2090,12 @@ body.view-video .video-pop .vmin { display: none; }
 .tabs .chats-btn { display: inline-flex; align-items: center; gap: 4px; }
 .tabs .chats-btn .ico { width: 13px; height: 13px; }
 body.side-min .tabs .chats-btn { display: none; }
-.chats-pop { width: 280px; padding: 6px; }
+/* The list scrolls on its own and keeps "New chat" in reach: a build with a long history pushed the rows
+   past the panel with no way to reach them (the person, 2026-11-16: "along with overflow scroll"). */
+.chats-pop { width: 280px; padding: 6px; display: flex; flex-direction: column; max-height: min(70vh, 460px); }
+.chats-pop .cp-group, .chats-pop .cp-new { flex: none; }
+.chats-pop-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.chats-pop .cp-new { margin-top: 4px; border-top: 1px solid var(--ui-border); border-radius: 0 0 8px 8px; }
 .chats-pop .cp-group h4 { margin: 8px 8px 4px; font: 600 11px/1 var(--ui-head); letter-spacing: .12em; text-transform: uppercase; color: var(--ui-muted-foreground); }
 .chats-pop .cp-group.empty { display: none; }
 .chats-pop.dragging .cp-group.empty { display: block; min-height: 34px; border: 1px dashed var(--ui-border); border-radius: 8px; margin: 4px 0; }
