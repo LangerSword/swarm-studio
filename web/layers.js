@@ -39,15 +39,19 @@ export function layerTree(host, groups, on) {
   for (const g of groups) {
     const div = document.createElement('div')
     div.className = `pg${g.open ? ' open' : ''}`
-    // a group is an expandable tree item that owns its rows (role=tree holds tree items only)
-    div.setAttribute('role', 'treeitem')
-    div.setAttribute('aria-expanded', String(g.open))
-    div.setAttribute('aria-label', g.num ? `${g.num} ${g.title}` : g.title)
+    // the page's row is the tree item and the wrapper is presentational: a tree item's name is its own words, and
+    // the wrapper holds its children's words as well (axe: label-content-name-mismatch). The tree still reads
+    // tree > treeitem > group > treeitem, with the group the item expands.
+    div.setAttribute('role', 'none')
     const title = document.createElement('div')
     title.className = 'pg-title'
     title.dataset.page = g.id
     title.tabIndex = 0
-    title.innerHTML = `${g.state ? `<i class="sc-dot ${g.state}" role="img"></i>` : ''}<span class="num"></span><span class="ttl"></span>${g.busy ? '<span class="dot busy" role="img" aria-label="Working"></span>' : ''}${g.count != null ? '<span class="n"></span>' : ''}<span class="caret">▶</span>`
+    title.setAttribute('role', 'treeitem')
+    title.setAttribute('aria-expanded', String(g.open))
+    // no aria-label: the row's own words are its name (the number, the title and the count). The caret is a shape,
+    // so it is hidden from the rules and never joins them.
+    title.innerHTML = `${g.state ? `<i class="sc-dot ${g.state}" role="img"></i>` : ''}<span class="num"></span><span class="ttl"></span>${g.busy ? '<span class="dot busy" role="img" aria-label="Working"></span>' : ''}${g.count != null ? '<span class="n"></span>' : ''}<span class="caret" aria-hidden="true">▶</span>`
     title.querySelector('.sc-dot')?.setAttribute('aria-label', STEP_STATE[g.state] || g.state)
     const num = /** @type {HTMLElement} */ (title.querySelector('.num')), ttl = /** @type {HTMLElement} */ (title.querySelector('.ttl'))
     if (g.num) num.textContent = g.num; else num.remove()

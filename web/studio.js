@@ -286,7 +286,8 @@ function chrome() {
     brand.innerHTML = '<span class="sw-logo">SWARM<i></i><i></i><i></i><i></i></span>'
     brand.setAttribute('role', 'button')
     brand.tabIndex = 0
-    brand.setAttribute('aria-label', 'Projects')
+    // the visible word is SWARM, so the name has to hold it: "SWARM Studio, Projects" (axe: label-content-name-mismatch)
+    brand.setAttribute('aria-label', 'SWARM Studio, Projects')
     brand.onclick = () => C.home()
     brand.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); C.home() } }
   }
