@@ -38,15 +38,20 @@ export function makeHome({ sw, C, root }) {
   window.SwarmSetup = { open: (row, pg, pp) => setup.open(row, pg, pp) }
   let setupAsked = false
 
+  // one view row; the set is fixed, so the first markup holds them all (a row added later moves the whole
+  // sidebar, which the walkthrough sees as a layout shift on load)
+  const navRow = (v, icon, label, count = 0, on = false) => `<button class="nv${on ? ' on' : ''}" data-v="${v}">${ic(icon)}<span>${label}</span>${count ? `<span class="n" aria-label="${count} projects">${count}</span>` : ''}</button>`
+  const NAV_ROWS = navRow('recent', 'clock', 'Recent') + navRow('all', 'grid', 'All projects') + (hosted() ? '' : navRow('chats', 'msg', 'Chats') + navRow('assets', 'image', 'Assets') + navRow('trash', 'trash', 'Trash'))
+
   root.className = 'home'
   root.hidden = true
   root.innerHTML = `
     <aside class="hm-side" aria-label="Projects">
-      <button class="hm-logo" aria-label="Projects">${logo()}</button>
-      <nav class="hm-nav"></nav>
+      <button class="hm-logo" aria-label="SWARM Studio, Projects">${logo()}</button>
+      <nav class="hm-nav">${NAV_ROWS}</nav>
       <div class="hm-sub"><span class="cap">Folders</span><button class="ib sm hm-addf" aria-label="New folder">${ic('plus', 16)}</button></div>
       <div class="hm-folders"></div>
-      <div class="hm-me"><button class="hm-who" aria-label="You"><span class="av"></span><span class="nm"></span></button><a class="ib hm-feed" aria-label="Swarm Feed" target="_blank" rel="noopener">${ic('globe')}</a></div>
+      <div class="hm-me"><button class="hm-who" aria-label="You"><span class="av" aria-hidden="true"></span><span class="nm"></span></button><a class="ib hm-feed" aria-label="Swarm Feed" target="_blank" rel="noopener">${ic('globe')}</a></div>
     </aside>
     <div class="hm-scrim" hidden></div>
     <main class="hm-main">
@@ -115,7 +120,10 @@ export function makeHome({ sw, C, root }) {
     H.me = await api('/api/me').catch(() => null)
     const name = H.me?.name || 'You'
     $('.hm-who .nm').textContent = name
-    $('.hm-who .av').textContent = name.slice(0, 1).toUpperCase()
+    $('.hm-who .av').dataset.l = name.slice(0, 1).toUpperCase()
+    // the button's visible word is the person's own name, so the name it is read by holds it (the avatar
+    // letter is hidden from the rules: it is a monogram, not a word)
+    $('.hm-who').setAttribute('aria-label', `You: ${name}`)
     $('.hm-feed').href = H.me?.feed || 'https://swarm.design-bakery.com'
   }
 
@@ -153,7 +161,7 @@ export function makeHome({ sw, C, root }) {
   }
   function renderSide() {
     const n = live().length, t = H.data.projects.filter(p => p.trashed).length
-    const item = (v, icon, label, count) => `<button class="nv${H.view === v && !H.stack ? ' on' : ''}" data-v="${v}">${ic(icon)}<span>${label}</span>${count ? `<span class="n" aria-label="${count} projects">${count}</span>` : ''}</button>`
+    const item = (v, icon, label, count) => navRow(v, icon, label, count, H.view === v && !H.stack)
     nav.innerHTML = item('recent', 'clock', 'Recent') + item('all', 'grid', 'All projects', n) + (hosted() ? '' : item('chats', 'msg', 'Chats') + item('assets', 'image', 'Assets') + item('trash', 'trash', 'Trash', t))
     foldersEl.innerHTML = H.data.folders.map(f => `<button class="nv${H.view === 'folder' && H.folder === f.name && !H.stack ? ' on' : ''}" data-folder="${esc(f.name)}">${ic('folder')}<span>${esc(f.name)}</span>${f.count ? `<span class="n" aria-label="${f.count} projects">${f.count}</span>` : ''}</button>`).join('')
     root.classList.toggle('no-folders', hosted())
@@ -185,7 +193,7 @@ export function makeHome({ sw, C, root }) {
     ? `<img class="im${/^\/snaps\//.test(src) ? ' top' : ''}" src="${esc((sw.base || '') + src)}" alt="" loading="lazy" decoding="async" draggable="false">`
     : th?.colors?.length ? typeCover(title, th)
       : `<div class="blank">${ic('box', 28)}</div>`
-  const kinds = list => list?.length ? `<span class="kinds" aria-label="${list.map(k => KIND_NAME[k]).join(', ')}">${list.map(k => ic(KIND[k], 14)).join('')}</span>` : ''
+  const kinds = list => list?.length ? `<span class="kinds" role="img" aria-label="${list.map(k => KIND_NAME[k]).join(', ')}">${list.map(k => ic(KIND[k], 14)).join('')}</span>` : ''
   const crew = p => p.live ? `<div class="crew">${CREW.slice(0, 2 + (p.id.length % 3)).map(n => cursor(n)).join('')}</div>${p.progress == null && p.work ? `<div class="prog ind" role="progressbar" aria-label="Building ${WHAT[p.work.what] || ''}"><i></i></div>` : `<div class="prog" role="progressbar" aria-label="Building" aria-valuenow="${Math.round((p.progress ?? 0.1) * 100)}"><i style="width:${Math.max(6, Math.round((p.progress ?? 0.1) * 100))}%"></i></div>`}` : ''
   const WHAT = { site: 'the site', app: 'the app', game: 'the game', film: 'the film' }
   // what it is and how far it got, one quiet line: "App · Live · tidebreak-app.vercel.app"
@@ -199,10 +207,12 @@ export function makeHome({ sw, C, root }) {
   function card(p) {
     const stack = p.count > 1 && !H.stack
     const sel = H.sel.has(p.id)
-    return `<div class="card${sel ? ' selc' : ''}${p.live ? ' live' : ''}" data-id="${esc(p.id)}" draggable="${!hosted() && !p.plan && H.view !== 'trash'}" tabindex="0" role="button" aria-label="${esc(p.title)}">
-      <div class="cv${stack ? ' stack' : ''}">${cover(p.cover, p.theme, p.title)}${stack ? `<span class="badge" aria-label="${p.count} versions">${p.count}</span>` : ''}${kinds(p.kinds)}${crew(p)}${acts(p)}</div>
+    // the card itself is not a button: it holds the More button and, in Trash, two more. The title is the card's
+    // one control, so a keyboard reaches it and a screen reader reads a button that is not wrapping other buttons
+    return `<div class="card${sel ? ' selc' : ''}${p.live ? ' live' : ''}" data-id="${esc(p.id)}" draggable="${!hosted() && !p.plan && H.view !== 'trash'}">
+      <div class="cv${stack ? ' stack' : ''}">${cover(p.cover, p.theme, p.title)}${stack ? `<span class="badge" role="img" aria-label="${p.count} versions">${p.count}</span>` : ''}${kinds(p.kinds)}${crew(p)}${acts(p)}</div>
       ${sel ? '<div class="sel"><i></i><i></i><i></i><i></i></div>' : ''}
-      <div class="nm"><b>${esc(p.title)}</b>${hosted() || p.plan ? '' : `<button class="ib sm more" aria-label="More" aria-haspopup="menu">${ic('more', 16)}</button>`}</div>
+      <div class="nm"><button type="button" class="card-open"><b>${esc(p.title)}</b></button>${hosted() || p.plan ? '' : `<button class="ib sm more" aria-label="More" aria-haspopup="menu">${ic('more', 16)}</button>`}</div>
       ${stateLine(p)}
       ${H.layout === 'list' ? `<span class="meta">${p.count > 1 ? `<span aria-label="${p.count} versions">${ic('layers', 13)}${p.count}</span>` : ''}${p.folder && H.view !== 'folder' ? `<span>${ic('folder', 13)}${esc(p.folder)}</span>` : ''}<span>${ago(seen(p))}</span></span>` : ''}
     </div>`
@@ -239,9 +249,9 @@ export function makeHome({ sw, C, root }) {
     const tile = a => {
       const i = flat.push(a) - 1
       const img = a.kind === 'film' ? a.poster : a.kind === 'upload' && !/^image\//.test(a.type || '') ? null : a.src
-      return `<div class="card asset" data-asset="${i}" data-project="${esc(a.project)}" tabindex="0" role="button" aria-label="${esc(a.name)}">
+      return `<div class="card asset" data-asset="${i}" data-project="${esc(a.project)}">
         <div class="cv">${img ? `<img class="im" src="${esc((sw.base || '') + img)}" alt="" loading="lazy" decoding="async" draggable="false">` : `<div class="blank">${ic(a.kind === 'film' ? 'film' : 'file', 28)}</div>`}${a.kind === 'film' ? `<span class="kinds" aria-label="Film">${ic('film', 14)}</span>` : a.kind === 'upload' ? `<span class="kinds" aria-label="Upload">${ic('upload', 14)}</span>` : ''}</div>
-        <div class="nm"><b>${esc(a.name)}</b></div></div>`
+        <div class="nm"><button type="button" class="card-open"><b>${esc(a.name)}</b></button></div></div>`
     }
     const group = id => {
       const p = byId.get(id)
@@ -405,7 +415,8 @@ export function makeHome({ sw, C, root }) {
   bodyEl.addEventListener('keydown', e => {
     const c = e.target.closest('.card')
     if (!c || e.target.closest('input')) return
-    if (e.key === 'Enter') { e.preventDefault(); c.click() }
+    // the title is a real button and opens on its own; Enter on any other control in the card is that control's
+    if (e.key === 'Enter') { if (e.target.closest('button')) return; e.preventDefault(); c.click() }
     if ((e.key === 'Delete' || e.key === 'Backspace') && !hosted() && !H.stack) { e.preventDefault(); act(H.view === 'trash' ? 'purge' : 'trash', idsFor(c.dataset.id)) }
     if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) { e.preventDefault(); menuFor(c.dataset.id, c) }
   })
@@ -725,7 +736,11 @@ export function makeHome({ sw, C, root }) {
   const offered = () => MAKES.filter(m => !m.kit || window.swarmKits?.[m.k])
   let make = offered().find(m => m.k === store.get('home.make', 'site')) || MAKES[0]
   const kindBtn = $('.hm-kind')
-  const showKind = () => { kindBtn.innerHTML = `${ic(make.icon, 16)}<span>${make.label}</span>${ic('chd', 14)}` }
+  const showKind = () => {
+    kindBtn.innerHTML = `${ic(make.icon, 16)}<span>${make.label}</span>${ic('chd', 14)}`
+    // the visible word is the kind ("Site", "App"), so the name holds it (axe: label-content-name-mismatch)
+    kindBtn.setAttribute('aria-label', `What to make: ${make.label}`)
+  }
   showKind()
   if (hosted()) kindBtn.hidden = true  // the hosted studio makes websites only
   // the way to begin last picked for a kind (Make's menu pre-selects it). The Studio's depth (what Grill

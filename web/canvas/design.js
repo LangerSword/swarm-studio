@@ -510,6 +510,10 @@ els.dDesign.addEventListener('click', e => {
 
 /** @type {HTMLInputElement & { timer?: any }} */
 const colorInput = Object.assign(document.createElement('input'), { type: 'color', className: 'dcolor' })
+// a 1 px proxy for the system's colour picker, opened by the swatch beside a variable: it is never seen or
+// tabbed to, so it takes a name for a screen reader and stays out of the tab order (axe: `label`)
+colorInput.setAttribute('aria-label', 'Colour')
+colorInput.tabIndex = -1
 document.body.append(colorInput)
 let colorEdit = null
 colorInput.addEventListener('input', () => {
