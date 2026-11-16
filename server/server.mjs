@@ -5135,6 +5135,25 @@ server.listen(port, '127.0.0.1', () => {
   console.log(`swarm studio on http://127.0.0.1:${port}/  (planner ${models.planner.model}, workers ${models.worker.model})`)
 })
 
+// The port is taken. Most often that is a hand-over: the launcher starts this server on a new build while
+// the old one has not let go yet, so it is busy for a moment and then free. Instead of throwing on the spot
+// (the unhandled 'error' took the whole studio with it, nineteen times in one evening, 2026-11-16), wait a
+// few seconds for the hand-over and try again. If it is still taken it is somebody else's server, and that
+// must still be *said* as EADDRINUSE: the launcher reads that word and starts a fresh port (onFreePort in
+// scripts/studio-child.mjs), so swallowing it would leave a studio nobody can reach.
+const WAIT_MS = 3000
+let listenTries = 0
+server.on('error', err => {
+  const code = /** @type {any} */ (err)?.code
+  if (code !== 'EADDRINUSE') { console.error(`swarm studio could not start: ${/** @type {any} */ (err)?.message || err}`); process.exit(1) }
+  listenTries++
+  if (listenTries > WAIT_MS / 200) {
+    console.error(`swarm studio: port ${port} is still in use; another server has it (EADDRINUSE)`)
+    process.exit(1)
+  }
+  setTimeout(() => server.listen(port, '127.0.0.1'), 200)
+})
+
 // app servers and engine runs stop with the studio, each with every process it started (engine/proc.mjs stopTree)
 const shutdown = () => { autoplayRoute.stopAll(); appsP?.then(a => a.close()).finally(() => process.exit(0)); if (!appsP) process.exit(0); setTimeout(() => process.exit(0), 8000).unref() }
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, shutdown)
