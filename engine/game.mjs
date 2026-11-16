@@ -37,14 +37,30 @@ const DEFAULTS = { type: 'Roguelike', goal: 'Clear rooms, beat a boss', controls
 // of minutes. The interview's "How big?" answer, or big: true on the spec or the job.
 export const isBig = x => x?.big === true || /\b(big|showcase|full)\b/i.test(String(x?.scope || x?.answers?.scope || ''))
 
+// The engine the interview's "Make it for?" answer names, or null when it names none (Web, or nothing at all).
+// A game plan locked for Godot (docs/specs/38-game-starters.md) says `godot` here; `engine/godotfirst.mjs`
+// `godotFirst` then builds it as a Godot project. Before this, `target` was asked and never read, so a plan
+// locked for Godot got a Phaser 3 spec and no Godot project was ever made (found on the Pro, 2026-11-15: the
+// plan locked `engine: godot`, and `POST /api/game/spec` answered `engine: 'Phaser 3'`).
+export const engineOf = a => /godot/i.test(String(a?.target || '')) ? 'godot'
+  : /unity/i.test(String(a?.target || '')) ? 'unity'
+    : /unreal/i.test(String(a?.target || '')) ? 'unreal'
+      : null
+
 // Which engine and which skill files, from the answers.
 export function plan(answers) {
   const a = { ...DEFAULTS, ...answers }
+  const asked = engineOf(a)
   const three = /3d/i.test(a.look)
-  const engine = three ? 'three.js' : /hand|effect/i.test(a.look) ? 'PixiJS' : 'Phaser 3'
+  // an engine the person named wins over the look: they said what to build it in
+  const engine = asked || (three ? 'three.js' : /hand|effect/i.test(a.look) ? 'PixiJS' : 'Phaser 3')
   const genre = { roguelike: 'roguelike', platformer: 'platformer', puzzle: 'puzzle', 'tower defense': 'tower-defense', 'card game': 'card-game' }[String(a.type).toLowerCase()]
+  // the skill files follow the engine that was actually picked: a Godot game is not read Phaser's notes
   const skills = [
-    ...(engine === 'three.js' ? ['gamedev/threejs-scene-setup', 'gamedev/threejs-materials-lighting'] : engine === 'PixiJS' ? ['gamedev/pixijs-rendering'] : ['gamedev/phaser-core', 'gamedev/phaser-arcade-physics']),
+    ...(engine === 'three.js' ? ['gamedev/threejs-scene-setup', 'gamedev/threejs-materials-lighting']
+      : engine === 'PixiJS' ? ['gamedev/pixijs-rendering']
+        : engine === 'godot' ? ['gamedev/godot-gdscript', 'gamedev/godot-nodes-scenes']
+          : ['gamedev/phaser-core', 'gamedev/phaser-arcade-physics']),
     ...(genre ? [`gamedev/${genre}`] : []),
     ...(/roguelike|endless|survive/i.test(`${a.type} ${a.goal} ${a.length}`) ? ['gamedev/procedural-gen'] : []),
     'gamedev/game-feel', 'gamedev/game-ui-ux', 'gamedev/input-systems'
@@ -138,7 +154,9 @@ const SPEC_FALLBACKS = ['deepseek-v4.1-flash', 'claude-haiku-5.5', 'gemini-3.8-f
 export async function writeSpec({ provider, model, idea, answers, brand, signal, big }) {
   const p = plan(big ? { ...answers, scope: 'Big game' } : answers)
   const promo = brand ? `\n\nThis is a promo game for ${brand.name}: ${brand.brief}\nSet it in the brand's own world: its place, its people, its products and its goal (for an event, getting there and enjoying it; for a shop, its products). Use its real names. The "look" uses the brand's colours and mood: ${brand.direction}\nThe win screen invites the player to the real thing (one short line, like the site's own call to action).\nThe site's copy:\n${brand.copy}` : ''
-  const ask = `Idea: ${idea || '(none)'}\n${QUESTIONS.filter(q => q.id !== 'scope' && q.id !== 'target').map(q => `${q.q} ${p.answers[q.id] || '(no answer)'}`).join('\n')}\nEngine: ${p.engine}.${promo}`
+  // the engine is said the way a builder reads it: "Godot 4", not "godot"
+  const ENGINE_SAID = { godot: 'Godot 4 (GDScript, scenes in res://, a project that opens in Godot)', unity: 'Unity', unreal: 'Unreal', 'three.js': 'three.js', PixiJS: 'PixiJS', 'Phaser 3': 'Phaser 3' }
+  const ask = `Idea: ${idea || '(none)'}\n${QUESTIONS.filter(q => q.id !== 'scope' && q.id !== 'target').map(q => `${q.q} ${p.answers[q.id] || '(no answer)'}`).join('\n')}\nEngine: ${ENGINE_SAID[p.engine] || p.engine}.${promo}`
   const models = [model, ...(/inferhub/.test(provider?.baseUrl || '') ? SPEC_FALLBACKS.filter(m => m !== model) : [])].filter(Boolean)
   for (const m of models) {
     try {

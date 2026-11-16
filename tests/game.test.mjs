@@ -214,3 +214,20 @@ test('after a slice the build asks in the chat, and the answer goes into the nex
   assert.match(p, /The person played the last slice and said: "make the gaps wider"/)
   assert.doesNotMatch(bigStagePrompt(big, 1), /The person played/)
 })
+
+test('the engine the person named wins over the look: a plan locked for Godot is a Godot spec', () => {
+  // the interview asks "Make it for?" — Web, Godot, Unity, Unreal — and the answer decides the engine.
+  // It used to be asked and never read, so a Godot plan got a Phaser 3 spec (found on the Pro, 2026-11-15)
+  const base = { type: 'Action RPG', goal: 'beat the boss', look: '2D pixel sprites', length: '5 minutes' }
+  assert.equal(plan({ ...base, target: 'Godot' }).engine, 'godot')
+  assert.equal(plan({ ...base, target: 'godot 4' }).engine, 'godot')
+  assert.equal(plan({ ...base, target: 'Unity' }).engine, 'unity')
+  assert.equal(plan({ ...base, target: 'Unreal' }).engine, 'unreal')
+  // a Web answer, or none, keeps the look's own choice
+  assert.equal(plan({ ...base, target: 'Web (plays here)' }).engine, 'Phaser 3')
+  assert.equal(plan(base).engine, 'Phaser 3')
+  assert.equal(plan({ ...base, look: '3D neon' }).engine, 'three.js')
+  // and the skill files follow: a Godot game is not handed Phaser's notes
+  assert.ok(plan({ ...base, target: 'Godot' }).skills.some(s => s.startsWith('gamedev/godot-')))
+  assert.equal(plan({ ...base, target: 'Godot' }).skills.some(s => /phaser/.test(s)), false)
+})

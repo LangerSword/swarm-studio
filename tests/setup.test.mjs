@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { pictureState, pictureRun, modelTester, modelError, modelProblem } from '../engine/setup.mjs'
 
 const codex = { provider: 'openai-codex', available: true, models: ['gpt-image-2-low'], default: 'gpt-image-2-low' }
@@ -42,6 +43,22 @@ test('what a build does with each mode', () => {
   assert.deepEqual(pictureRun('painted', choice), { images: true, paint: true })
   // painted with no image model: the slots stay and stock photos fill them, never empty
   assert.deepEqual(pictureRun('painted', null), { images: true, paint: false })
+})
+
+// The tiny call opens with a system message, as every real call in the Studio does. A route that
+// only accepts a system prompt first refuses the call otherwise (WorkBuddy: code 11128, "first
+// message is not system prompt"), and the sheet whose one job is to say whether a model answers
+// said it did not — for a model that answers fine. The server builds this body; assert its shape
+// where it is built, so a later edit that drops the system message fails here.
+test('the model test opens with a system message, so a route that needs one answers', async () => {
+  const src = readFileSync(new URL('../server/server.mjs', import.meta.url), 'utf8')
+  const line = src.split('\n').find(l => l.includes("trace: { kind: 'setup-test' }"))
+  assert.ok(line, 'the setup-test call is in server/server.mjs')
+  const from = line.indexOf('messages:') + 'messages:'.length
+  // the body is JS in the source (unquoted keys), not JSON: read it as the literal it is
+  const messages = new Function(`return ${line.slice(from, line.indexOf(', signal:', from))}`)()
+  assert.equal(messages[0].role, 'system', 'the first message is a system prompt')
+  assert.equal(messages[1].role, 'user')
 })
 
 test('the model test calls each role once and keeps the answer', async () => {
