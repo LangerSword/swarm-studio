@@ -81,7 +81,9 @@ test('a saved build answers every part, and the card and the board read the same
   } finally { s.stop() }
 })
 
-test('a film: Try again is taken where its state names it, refused where it does not, and the pages are told at once', { timeout: 120000 }, async () => {
+// 600 s: the film's first one in a fresh data folder installs the video renderer (engine/video.mjs `videoTools`,
+// whose own `npm ci` is allowed ten minutes), and the wait below is that install's, not a race against it
+test('a film: Try again is taken where its state names it, refused where it does not, and the pages are told at once', { timeout: 620000 }, async () => {
   const s = await startServer()
   const stream = new AbortController()
   try {
@@ -112,9 +114,13 @@ test('a film: Try again is taken where its state names it, refused where it does
     assert.equal(told?.parts.film.state, 'making')
     const first = seen.findIndex(e => e.run === id && String(e.type).startsWith('video:'))
     assert.ok(first < 0 || seen.indexOf(told) < first, 'the state comes before the film\'s own events')
-    // however it ends here (no model, no Hermes), it ends with a state: failed with a reason, or stopped
+    // however it ends here (no model, no Hermes), it ends with a state: failed with a reason, or stopped.
+    // The wait is the film's own, not a race: a stop is read where the film next looks (engine/video.mjs
+    // `videoTools` has already been asked for the renderer by then), and in a fresh data folder that is the
+    // renderer's first `npm ci`, which is allowed ten minutes. A 60 s wait here failed on Windows first
+    // (tests/kindstateroutes.test.mjs, run 43784909538): the renderer's install, not the film, ran out the clock.
     await s.call('/api/stop', { run: id })
-    const end = await until(async () => { const f = (await (await s.call(`/api/runs/${id}/state`)).json()).parts.film; return f.state !== 'making' ? f : null }, 60000)
+    const end = await until(async () => { const f = (await (await s.call(`/api/runs/${id}/state`)).json()).parts.film; return f.state !== 'making' ? f : null }, 600000)
     assert.ok(end && ['failed', 'stopped'].includes(end.state), JSON.stringify(end))
     if (end.state === 'failed') assert.ok(end.reason?.message)
     assert.ok(seen.some(e => e.type === 'build:state' && e.run === id && e.parts?.film?.state === end.state), 'and the pages were told')
