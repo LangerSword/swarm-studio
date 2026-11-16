@@ -79,16 +79,24 @@ export function gameProgress(steps = []) {
 }
 export function stateOf(card, cards = [card]) {
   const game = card.kind === 'game' || card.game
-  const kind = game ? 'Game' : card.build || card.app ? 'App' : card.pages > 0 || card.planned > 0 ? 'Website' : card.video ? 'Video' : 'Website'
+  // what it is comes from the build's own facts at its start (engine/kindstate.mjs `kind`, on the card as
+  // parts): an app is an App before anything of it is built, a film run is a Video
+  const kind = game ? 'Game' : card.build || card.app || card.parts?.kind === 'app' ? 'App' : card.parts?.kind === 'film' ? 'Video' : card.pages > 0 || card.planned > 0 ? 'Website' : card.video ? 'Video' : 'Website'
   const made = game ? 'Game' : 'App'
-  // a website build's own state; an app, a game, a film on its own or a project brought in has none
-  const site = kind === 'Website' && !card.intake ? card.buildState || null : null
+  // a website build's own state: an app's design is one too, until its app is built. A game, a film on its
+  // own or a project brought in has none
+  const site = (kind === 'Website' || (kind === 'App' && !card.build && !card.app)) && !card.intake ? card.buildState || null : null
   const word = site ? SITE_WORD[site.state] || null : null
   // live once any version went out: its newest published address
   const out = [...cards].reverse().map(c => c.deployed || Object.values(c.sites || {})[0]).find(Boolean)
-  // a build still writing steps in the last ten minutes is running, here or on another Studio server
+  // the app's or the game's one state, and a film run's (engine/kindstate.mjs): designed, building, waiting
+  // (a game asking after a slice: your turn), built, failed, stopped. A card made without its parts (a script, a
+  // test) is read as before: a game still writing steps in the last ten minutes is running, here or elsewhere
   const busy = game && card.build === 'working' && Date.now() - (card.updated || 0) < 600000
-  const g = game ? card.work?.progress || (busy ? card.gameAt : null) : null
+  const part = card.parts ? (card.parts.game || card.parts.app)?.state || null
+    : busy ? 'building' : game && (card.build === 'working' || card.build === 'stopped') ? 'stopped' : card.build === 'failed' ? 'failed' : card.build === 'built' ? 'built' : null
+  const film = kind === 'Video' ? card.parts?.film?.state : null
+  const g = game ? card.work?.progress || (part === 'building' ? card.gameAt : null) : null
   const status = out ? 'Live'
     : g?.art ? `Painting art · ${g.art[0]} of ${g.art[1]}`
     : g?.stage ? `Building · stage ${g.stage[0]} of ${g.stage[1]}`
@@ -97,11 +105,14 @@ export function stateOf(card, cards = [card]) {
     : card.intake === 'coming' ? (card.work || busy || card.build === 'working' ? 'Coming in' : 'Did not come in')
     : card.intake === 'in' && card.build === 'built' ? 'Brought in'
     : card.live || card.work ? 'Building'
-    // a game build that was stopped (or whose server went away) keeps app:start as its last word
-    : busy ? 'Building'
-    : game && (card.build === 'working' || card.build === 'stopped') ? 'Stopped'
-    : card.build === 'failed' ? `${made} failed`
-    : card.build === 'built' || (card.app && !card.build) ? `${made} built`
+    : part === 'building' || film === 'making' ? 'Building'
+    // a big game that stopped after a slice and asks: the room's own word for it (web/replaytalk.js appPill)
+    : part === 'waiting' ? 'Your turn'
+    // a build that was stopped (or whose Studio went away) keeps app:start as its last word: an app's too
+    : part === 'stopped' || film === 'stopped' ? 'Stopped'
+    : part === 'failed' ? `${made} failed`
+    : part === 'built' || (card.app && !card.build) ? `${made} built`
+    : film === 'failed' ? 'Failed'
     : word ? word
     : card.layers > 0 || card.video ? 'Designed'
     : 'Draft'

@@ -153,9 +153,13 @@ export function makeProject({ sw, C, root }) {
     const g = {}
     if (b.pages?.length) g.site = b.pages.flatMap(p => [{ key: `page:${p.id}`, kind: 'page', name: p.title?.split(/\s[—–|:-]\s/)[0] || p.id, full: p.title, page: p.id, src: P.thumbs.get(p.id) || p.cover, sharp: P.sharp.get(p.id), snap: P.thumbs.has(p.id), cover: p.cover, plan: p.plan }, ...draftsOf(p.id)])
     lane.into(g)
-    if (b.app) g.app = [{ key: 'app', kind: 'app', name: 'App' }]
-    if (b.game) g.game = [{ key: 'game', kind: 'game', name: b.game.title, pitch: b.game.pitch || '', src: b.game.cover, run: b.game.run || null, work: b.game.work || null }]
+    // an app is on the board from its start, built or not: its one state (engine/kindstate.mjs, the board's
+    // `parts`) says which, as the game's and the film's do
+    if (b.app) g.app = [{ key: 'app', kind: 'app', name: 'App', part: b.parts?.app || null }]
+    if (b.game) g.game = [{ key: 'game', kind: 'game', name: b.game.title, pitch: b.game.pitch || '', src: b.game.cover, run: b.game.run || null, work: b.game.work || null, part: b.game.part || null }]
     if (b.films?.length) g.film = b.films.map((f, i) => ({ key: `film:${i}`, kind: 'film', name: f.name, src: f.poster, video: f.src, seconds: f.seconds }))
+    // a film being made, or one that failed or was stopped with none made before: it is on the board too
+    else if (b.parts?.film && b.parts.film.state !== 'done') g.film = [{ key: 'film:0', kind: 'film', name: 'Promo', part: b.parts.film }]
     const arts = (b.art || []).map(a => ({ key: `art:${a.page}/${a.layer}/${a.gen}`, kind: 'art', name: a.name.replace(/^\w/, c => c.toUpperCase()), src: a.src, used: a.used?.split(/\s[—–|:-]\s/)[0], style: a.style, art: a }))
     // pictures still being made: a slot of their own (or over the old picture, when one is painted again)
     for (const w of b.painting || []) {
@@ -254,6 +258,11 @@ export function makeProject({ sw, C, root }) {
     const resume = b.next === 'resume' && !hosted() ? `<button class="pt-again" data-resume="${esc(P.run || '')}">${ic('restore', 12)}Resume</button>` : ''
     return `<span class="pt-tag${resume ? ' act' : ''}"><b>${failed ? 'Failed' : 'Stopped'}</b>${n} section${n === 1 ? '' : 's'}${failed ? '' : ' left'}</span>${resume}`
   }
+  // An app's, a game's or a film's artboard says its one state in a word, in the picture-failed tag: an app that
+  // is designed and not built, a build or a film that failed or was stopped, a game waiting for its person
+  const PART_TAG = { designed: 'Designed', failed: 'Failed', stopped: 'Stopped', waiting: 'Your turn' }
+  const partTag = x => (x.part && PART_TAG[x.part.state] && !(x.kind !== 'app' && x.part.state === 'designed') ? `<span class="pt-tag"><b>${PART_TAG[x.part.state]}</b></span>` : '')
+  const partWork = x => (!x.work && (x.part?.state === 'building' || x.part?.state === 'making') ? workBar({ what: x.kind, pct: null }) : '')
   // a piece still being made: a thin bar along its foot (it slides when the job cannot say how far)
   const WORK = { site: 'the site', app: 'the app', game: 'the game', film: 'the film' }
   function workBar(w) {
@@ -268,8 +277,9 @@ export function makeProject({ sw, C, root }) {
     const img = x.kind === 'page' && !x.snap ? skeleton(x)
       : x.src ? `<img src="${esc(picNow(full, low))}" data-full="${esc(full)}"${low !== full ? ` data-low="${esc(low)}"` : ''} alt="" draggable="false" loading="lazy" decoding="async">${x.kind === 'page' ? skeleton(x, true) : ''}`
       : typeCover(x) || `<span class="blank">${ic({ page: 'site', app: 'code', game: 'game', film: 'film', story: 'film', upload: 'file', code: 'code', ref: x.ref?.kind === 'link' ? 'ext' : 'file' }[x.kind] || 'file', 26)}</span>${x.kind === 'ref' && !x.src ? `<span class="ab-cap">${esc(x.name)}</span>` : ''}`
-    const extra = x.kind === 'film' ? `<span class="play"></span>${x.seconds ? `<span class="dur">${fmtTime(x.seconds)}</span>` : ''}`
-      : x.kind === 'game' ? `${x.work ? workBar(x.work) : '<span class="play"></span>'}<span class="ab-cap">${esc(x.name)}</span>`
+    const extra = x.kind === 'film' ? (x.video ? `<span class="play"></span>${x.seconds ? `<span class="dur">${fmtTime(x.seconds)}</span>` : ''}` : `${partWork(x)}${partTag(x)}`)
+      : x.kind === 'app' ? `${partWork(x)}${partTag(x)}`
+      : x.kind === 'game' ? `${x.work ? workBar(x.work) : partWork(x) || '<span class="play"></span>'}<span class="ab-cap">${esc(x.name)}</span>`
         : x.sending != null ? `<span class="upl"><i style="width:${Math.round(x.sending * 100)}%"></i></span>` : ''
     const tall = x.kind === 'page' && ((x.snap && P.aspect.get(x.page)) || (!x.snap && planRatio(x)))
     if (x.kind === 'draft') return draftBoard(x, sel, img)
@@ -483,7 +493,7 @@ export function makeProject({ sw, C, root }) {
       : x.src ? `<img src="${esc(x.src.startsWith('data:') ? x.src : base() + x.src)}" alt="">` : typeCover(x) ? `<div class="pv-tc">${typeCover(x)}</div>` : `<span class="blank">${ic('file', 28)}</span>`
     const btns = [
       ['page', 'game', 'app', 'code', 'film', 'art'].includes(x.kind) && `<button class="btn ghost" data-act="open">${ic('ext', 15)}Open</button>`,
-      (x.kind === 'art' || (x.kind === 'upload' && x.sending == null) || x.kind === 'film') && `<button class="btn ghost" data-act="export">${ic('download', 15)}Export</button>`,
+      (x.kind === 'art' || (x.kind === 'upload' && x.sending == null) || (x.kind === 'film' && x.video)) && `<button class="btn ghost" data-act="export">${ic('download', 15)}Export</button>`,
       x.kind === 'page' && `<button class="btn ghost" data-act="zip">${ic('download', 15)}Export</button>`,
       (x.kind === 'art' || (x.kind === 'upload' && x.sending == null)) && !hosted() && `<button class="btn ghost" data-act="replace">${ic('upload', 15)}Replace</button>`,
       x.kind === 'draft' && !x.pending && `<button class="btn" data-act="draft-accept">${ic('check', 15)}Accept</button>`,

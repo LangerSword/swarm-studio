@@ -1,7 +1,7 @@
 // @ts-check
 // The one state of a website build, from its events (runs/<id>/events.jsonl) and whether the server still
 // runs it: docs/ux/states/build.md, states W3 to W14. Every screen should read this instead of working the
-// state out again: the Projects card does (server/projects.mjs stateOf), and so do the Design deck (the server
+// state out again (an app's, a game's and a film's own states are beside it, in engine/kindstate.mjs): the Projects card does (server/projects.mjs stateOf), and so do the Design deck (the server
 // sends it as `build:state` and GET /api/runs/<id>/state; web/replaytalk.js has its words) and the Overview's
 // artboards (server/board.mjs `build`). It only reads: it writes no event, and an old build's file gives the
 // same answer as a new one's.
@@ -53,12 +53,13 @@ const STOPPED = /^(stopped|aborted)$/i
 
 /**
  * Is this run a plain website build? An app or game build, a game made on its own and a project brought in
- * keep their own states (engine/appjob.mjs). A film made on a site leaves the site's build what it was.
+ * keep their own states (engine/kindstate.mjs). A film made on a site leaves the site's build what it was, and
+ * an app's design is a website build until its app is built, whether or not its start says it is an app.
  * @param {RunEvent[]} events
  */
 export function isSiteBuild(events) {
   const start = events.find(e => e.type === 'run:start')
-  if (!start || start.intake || (start.kind && start.kind !== 'site')) return false
+  if (!start || start.intake || (start.kind && start.kind !== 'site' && start.kind !== 'app')) return false
   return !events.some(e => typeof e.type === 'string' && (e.type.startsWith('app:') || e.type.startsWith('game:')))
 }
 

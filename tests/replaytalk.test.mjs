@@ -25,6 +25,10 @@ test('a live build keeps its words', () => {
   assert.equal(progressLine({}), 'Planning the pages…')
   assert.deepEqual(['working', 'done', 'failed', 'stopped', 'paused', 'idle'].map(state => appPill({ state })), ['building', 'built', 'failed', 'stopped', 'your turn', 'no app yet'])
   assert.equal(appPill({ state: 'done', url: 'http://127.0.0.1:1/' }), 'running')
+  // with the server's one state of the app or game (engine/kindstate.mjs), the pill is made from it
+  assert.deepEqual(['designed', 'building', 'waiting', 'built', 'failed', 'stopped'].map(state => appPill({ state: 'idle', part: { state } })), ['no app yet', 'building', 'your turn', 'built', 'failed', 'stopped'])
+  assert.equal(appPill({ state: 'working', kind: 'game', part: { state: 'designed' } }), 'no game yet')
+  assert.equal(appPill({ replay: true, at: 0.5, part: { state: 'failed' } }), `${REPLAY_WORD} 50%`)
   assert.equal(appPill({ state: 'idle', hasApp: true }), 'built')
   // a game not built yet is not an app (game-mode walk, 2026-11-15)
   assert.equal(appPill({ state: 'idle', kind: 'game' }), 'no game yet')

@@ -79,6 +79,24 @@ Finish with a working build: the typecheck and build must pass.`
 
 // a run made as a game (Make › Game; its brief's kind, or the game builder's spec), before any app job ran for it
 export const isGameRun = (events = []) => events.some(e => (e.type === 'run:start' && e.kind === 'game') || e.type === 'game:spec')
+
+// Why start() refuses a build before it touches anything, from the run's own events and what is asked; null when
+// it takes it. The one state of an app or a game (engine/kindstate.mjs) names a way forward only where this is null.
+// hasApp: a build finished (so this is a change). A project brought in (docs/specs/45-intake.md) is never built
+// over: a first build would write the Studio's starter into its folder. One of plain files has no build for the
+// engine to check (dyad/src/aba/headless_cli.ts runGates: no package.json is "not an ABA app", a failed turn), so
+// the crew cannot change it yet. A change to one runs the project's own build and then its dev server: code from
+// outside, so only after the person's yes to running it (intake:run).
+export function startRefusal(events = [], { hasApp = false, fresh = false, ask = '', prompt = '', kind = 'site' } = {}) {
+  const brought = intakeOf(events), said = String(ask || '').trim()
+  if (brought && !brought.done) return 'This project did not come in. Bring it in again from Projects.'
+  if (brought?.fixed) return 'This project was brought in as plain files. The crew cannot change those yet: it plays here, and its code is in Code.'
+  if (brought && (fresh || !said)) return 'This project was brought in: say what to change.'
+  if (brought?.shape === 'vite' && !brought.ran) return 'This project came from outside and has not run here yet. Say "install and run it" first, then what to change.'
+  if (hasApp && !fresh) return said ? null : 'say what to change'
+  if (kind === 'game') return prompt ? null : 'a game needs its spec'
+  return events.some(e => e.type === 'layer:done' && e.html) ? null : 'nothing built yet'
+}
 const BUSY = /out of quota|rate.?limit|cooling down|capacity|busy|429|overloaded|no available provider|exhausted/i
 const APP_FALLBACKS = ['cb/deepseek-v4.1-flash', 'deepseek-v4.1-flash', 'gemini-3.8-flash', 'claude-haiku-5.5']
 
@@ -349,18 +367,16 @@ export function appJobs({ runsDir, record, broadcast, readEvents, provider, mode
     // starter into its folder. One of plain files has no build for the engine to check (dyad/src/aba/headless_cli.ts
     // runGates: no package.json is "not an ABA app", a failed turn), so the crew cannot change it yet.
     const brought = intakeOf(events)
-    if (brought && !brought.done) throw new Error('This project did not come in. Bring it in again from Projects.')
-    if (brought?.fixed) throw new Error('This project was brought in as plain files. The crew cannot change those yet: it plays here, and its code is in Code.')
-    if (brought && (input.fresh || !String(input.ask || '').trim())) throw new Error('This project was brought in: say what to change.')
-    // a change runs the project's own build and then its dev server: code from outside, so only after the person's
-    // yes to running it (intake:run, the Install and run press or "install and run it" in the chat)
-    if (brought?.shape === 'vite' && !brought.ran) throw new Error('This project came from outside and has not run here yet. Say "install and run it" first, then what to change.')
     const kind = input.kind || j?.kind || events.find(e => e.type === 'app:start')?.kind || (events.some(e => e.type === 'run:start' && e.kind === 'game') ? 'game' : 'site')
     // a first build that failed left only the starter: build again from the start
     const fresh = !built(id, events) || input.fresh
+    const ask = String(input.ask || '').trim().slice(0, 16000)
+    // what is refused before anything is touched (startRefusal, above): a project brought in that may not be
+    // built over or has not run yet, a game with no spec, an app with no built section, a change with no words
+    const refused = startRefusal(events, { hasApp: !fresh, fresh: !!input.fresh, ask, prompt: input.prompt, kind })
+    if (refused) throw new Error(refused)
     // the Studio's Try again sends fresh: true, so only restart: true starts a big game over
     const resumeAt = kind === 'game' && fresh && input.restart !== true ? bigResumeAt(events, dir) : 0
-    const ask = String(input.ask || '').trim().slice(0, 16000)
     let prompt
     if (fresh) {
       // a new app starts a new engine chat: the old one's history (and its
@@ -368,7 +384,6 @@ export function appJobs({ runsDir, record, broadcast, readEvents, provider, mode
       const meta = join(runsDir, id, '.engine')
       if (existsSync(meta)) for (const d of readdirSync(meta)) if (d.startsWith('data-')) rmSync(join(meta, d), { recursive: true, force: true })
       if (kind === 'game') {
-        if (!input.prompt) throw new Error('a game needs its spec')
         // a big game stopped partway keeps its finished stages: Try again goes on from the next one
         if (!resumeAt) {
           // the game made before is moved aside, not deleted: one copy is kept (app-before/) so a wrong start over loses nothing
@@ -386,7 +401,6 @@ export function appJobs({ runsDir, record, broadcast, readEvents, provider, mode
         prompt = sitePrompt(snap, ask, input.plan && typeof input.plan === 'object' ? input.plan : null, input.rewards === false ? [] : games)
       }
     } else {
-      if (!ask) throw new Error('say what to change')
       // brought in: the Studio's own rules for its apps (keep the converted design, add a Nitro server) do not apply
       prompt = brought ? `This project was made outside this tool and brought in as it is. Read its files before changing anything, and keep its structure, tools and style.\n\nDo this: ${ask}\n\nFinish with a working build: \`npm run build\` must pass.` : `${kind === 'game' ? 'This is a browser game made from a spec in GAME_SPEC.md. Keep what works.' : KEEP}\n\nDo this: ${ask}\n\n${kind === 'game' ? '' : `${BACKEND}\n\n`}Finish with a working build: the typecheck and build must pass.`
     }
