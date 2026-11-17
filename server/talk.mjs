@@ -492,7 +492,12 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
     // people asking for the same thing, and the reply must not end on the same sentence five times over. Those go
     // through stepLineFor, which drops the line when the turn before already ended on it.
     const pressed = !!pick || action === 'do:next'
-    const stepLine = out?.godot ? '' : pressed && !saidPart ? step.text : stepLineFor(chat, step, kept || saidPart)
+    // What this turn says of its own, all of it: the planner's words, the reason nothing happened, and the part's state.
+    // stepLineFor asks whether the turn BEFORE already ended on this line, and the reply's own part decides whether this
+    // one has something else to say. Both the part and the step sentence are needed: a part readout alone is not the
+    // planner's own words, and counting it as such is what let the same two sentences repeat five replies in a row.
+    const own = [kept, saidPart].filter(Boolean).join(' ')
+    const stepLine = out?.godot ? '' : pressed && !saidPart ? step.text : stepLineFor(chat, step, own)
     const nothing = !stepLine && !kept && !saidPart ? 'Nothing has changed since the last turn: the same step is open.' : ''
     const text = [kept, saidPart, nothing || stepLine].filter(Boolean).join(' ')
     Object.assign(turn, { text, options: step.options, step: true, plan: plan.id, ...(step.wait ? { wait: true } : {}), ...(step.install ? { install: step.install } : {}), ...(step.sheet ? { sheet: step.sheet } : {}), ...(step.price || out?.ask ? { price: plan.price } : {}) })

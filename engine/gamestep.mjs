@@ -257,7 +257,12 @@ export const stepLineFor = (chat, step, said = '') => {
   const line = String(step?.text || '').trim()
   if (!line) return ''
   if (step?.wait || step?.install) return line
-  if ((step?.options || []).length || /\?\s*$/.test(line)) return line
+  // A question is a decision still open, and asking it again is the point: "go" at the Godot question restates it with
+  // its buttons. A question is recognised by its words, not by having buttons: every step carries buttons, so an
+  // options guard here would make the dedupe dead code (it did, until tests/talkwords.test.mjs caught it).
+  if (/\?\s*$/.test(line)) return line
+  // a step whose whole job is to be chosen between (no sentence, only options) is asked again too
+  if (!line.replace(/[.\s]+$/, '') && (step?.options || []).length) return line
   // nothing of its own to say: the line is the whole reply, and repeating it is the honest thing
   if (!String(said || '').trim()) return line
   const last = [...(chat?.turns || [])].reverse().find(t => t?.who === 'planner')
