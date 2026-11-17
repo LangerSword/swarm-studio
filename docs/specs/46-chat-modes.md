@@ -53,6 +53,17 @@ A send made in code (the Build button under a brief, a project's dock) is never 
 | **Build** | What the chat did before the modes. Its routing is not touched. | The same. | The same. |
 | **Fix** | The doctor (`POST /api/doctor`, engine/doctor.mjs). | The same. | The same, without a build's log. |
 
+## Ask: an answer, not the build's counters
+
+The owner, 2026-11-17, in ANSWER ONLY mode: asked "i cant test the game live", the reply was "Right now: using 61 pictures painted before; painting 0." That is the picture queue's own step line, where an answer should be. Ask's prompt had said "answer in one to four short sentences" and never said that the build's counters are not one.
+
+The question is answered in the person's terms. Two things hold it, because a prompt line alone is a hope, which is why engine/honest.mjs checks the answer too:
+
+- **The prompt** (`ANSWER_RULE`, engine/ask.mjs) says plainly that the build's counters and the plan's bookkeeping ("using 61 pictures painted before; painting 0", "5 of 9 sections are built", "3 of 7 steps", a step's name, a progress line) say what the Studio is doing and never what the person asked; that a fact from the project may be used only inside an answer to their question; and that when the honest answer is that it cannot tell from here, it says "I can't tell from here", says why, and names the one thing that would settle it.
+- **The check** (`isBookkeeping`, engine/ask.mjs) reads the reply line by line. A line that is the build's counters or the Studio's own step line is not an answer. A reply made only of those is asked again once, with the person's question and the reason ("that reply is the build's own progress, not an answer…"); the pattern is `honestly`'s in engine/honest.mjs. If the model still has only counters, the person is told plainly that there is no answer from here and what would settle it (`NO_ANSWER`), never handed the counters. A sentence that tells the person something is an answer, whatever numbers it carries, and so is a real answer with one line of counters beside it.
+
+Nothing else about Ask changes. The turn's attached picture or file still rides the question (the chips upload it to the chat and the planner is told how it was read, `withRefs`); no link is opened, no chat is saved, no talk is left open, and nothing is offered to build.
+
 ## Fix
 
 Fix looks at the Studio's own working parts, not the project. It gathers facts and says what they mean; it changes nothing.
