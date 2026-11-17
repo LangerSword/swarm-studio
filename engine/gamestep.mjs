@@ -5,9 +5,11 @@
 // Plan board's own routes, server/plans.mjs act).
 //
 //   planFacts(plan, env)        what is true now: the gate, the price, each sketch sheet with its picks, what is
-//                               painted and what is painting
+//                               painted and what is painting, and each kind of picture (sheets, close-ups, sprites,
+//                               models, mocks, backdrops) with its name, its own done and painting, and what is left
 //   nextStep(chat, plan, env)   one line and the options for the one thing the person can do next
 //   checkClaims(text, facts)    the planner's own words without the sentences that claim what did not happen
+//   stepLineFor(chat, step)     the step's line, or '' when it is the very line already said: never said twice in a row
 //   readPicks(text, sheet)      "hero 1 is 4, hero 2 is 7" -> the cells (0-based) with the hero's name as the note
 //   goWords(text)               "lock", "do it", "go": the person said to do the next step
 //   installLine(state)          the line while Godot 4 installs; godotOptions(again, route) the one button after it failed
@@ -42,6 +44,28 @@ export function pieces(plan) {
   return { what: 'close-ups', sub: 'closeups', total: cells.length, done: cells.filter(c => done(c.e)).length, painting: [...new Set(cells.filter(c => c.e?.state === 'painting').map(c => c.name))] }
 }
 
+// Every kind of picture a plan paints, named so that a sentence about it can be checked (owner, 2026-11-17: the
+// chat said "Repainting the mocks" and nothing was repainted). `names` are the words the planner uses for it, in
+// the chat's own voice; `painting` counts only what is painting in the plan file right now, `done` what landed, and
+// `queued` what the plan still has to paint: a sentence that claims one of those now or as done is checked against
+// that name's own painting and done count, never against another kind's.
+const pictures = (plan, p) => {
+  const mocks = plan.mocks || [], backs = plan.backdrops || [], made = plan.build?.sprites || []
+  const art = (plan.art?.shots || []).length
+  // the plan's own count of backdrops (engine/plan.mjs modelOf is the same sum)
+  const stages = Math.max(1, Math.min(5, parseInt(plan.cards?.find(c => c.id === 'world')?.body?.stages, 10) || 3))
+  const perStage = Number(plan.settings?.backdropsPerStage ?? 3)
+  return [
+    { what: 'sheet', names: ['sketch sheet', 'sketch sheets', 'concept sheet', 'concept sheets', 'sheet', 'sheets'], done: (plan.sheets || []).filter(done).length, painting: (plan.sheets || []).filter(s => s.state === 'painting').length, queued: sheetKinds(plan).filter(k => (plan.sheets || []).find(s => s.kind === k)?.state !== 'done').length },
+    // what the plan paints of its own kind: the 2D cut-outs, the close-ups of a cast, the 3D characters
+    { what: p.what, names: [p.sub, p.what, p.what === 'cut-outs' ? 'cut outs' : '', ...(p.sub === 'build' ? ['build', 'builds'] : []), ...(p.sub === 'closeups' ? ['cut-in', 'cut-ins', 'cut in', 'cut ins', 'portrait', 'portraits'] : [])].filter(Boolean), done: p.done, painting: p.painting.length, queued: Math.max(0, p.total - p.done) },
+    { what: 'sprite', names: ['sprite', 'sprites'], done: made.filter(done).length, painting: made.filter(s => s.state === 'painting').length, queued: Math.max(0, sprites(plan).length - made.filter(done).length) },
+    { what: 'model', names: ['model', 'models', '3d model', '3d models', 'turnaround', 'turnarounds'], done: made.filter(done).length, painting: made.filter(s => s.state === 'painting').length, queued: Math.max(0, sprites(plan).length - made.filter(done).length) },
+    { what: 'mock', names: ['mock', 'mocks', 'mock screen', 'mock screens', 'mock screenshot', 'mock screenshots', 'mockup', 'mockups', 'screen', 'screens', 'screenshot', 'screenshots'], done: mocks.filter(done).length, painting: mocks.filter(m => m.state === 'painting').length, queued: Math.max(0, (art || 5) - mocks.filter(done).length) },
+    { what: 'backdrop', names: ['backdrop', 'backdrops', 'background', 'backgrounds', 'panorama', 'panoramas', 'sky', 'skybox'], done: backs.filter(done).length, painting: backs.filter(b => b.state === 'painting').length, queued: plan.shape?.backdrops === false ? 0 : Math.max(0, stages * perStage - backs.filter(done).length) }
+  ]
+}
+
 export function planFacts(plan, env = {}) {
   const price = planPrice(plan)
   const cast = roster(plan).map(r => r.name)
@@ -66,6 +90,7 @@ export function planFacts(plan, env = {}) {
     cast, sheets, pieces: p, painting,
     mocks: { total: (plan.art?.shots?.length ?? 5), done: (plan.mocks || []).filter(done).length },
     backdrops: { on: plan.shape?.backdrops !== false, done: (plan.backdrops || []).filter(done).length },
+    pictures: pictures(plan, p),
     styleLocked: !!plan.style?.locked,
     engine: target, godot: env.godot
   }
@@ -150,18 +175,83 @@ export function nextStep(chat, plan, env = {}) {
 const NOW = /\b(painting|drawing|underway|under way|in progress|on (it|its way)|(start|keep|begin)\w*\s+(on\s+)?(paint|draw)\w*|(paint|draw)\w*\s+(it|them|the\s+\w+)?\s*now)\b/i
 const PAST = /\b(painted|drew|drawn|made|finished|already (did|done|have|got|made|started))\b/i
 const ART = /\b(art|sprite|hero|fighter|character|picture|sheet|sketch|it|them)\b/i
+// "the plan is not locked yet" is what the planner is told to say when it is not: only a lock claim without a "not"
+// before it counts (the words between must not reach another clause, so "not now; locked" is still a claim)
 const LOCK = /\block(ed)?\b/i
+const NOT_LOCKED = /\b(?:not|never|isn['’]?t|aren['’]?t|no longer)\b[^.;:!?]{0,20}\block(ed)?\b/i
 const PICK = /\b(picked|chosen|chose|roster (is )?(set|locked|confirmed))\b/i
+
+// A first-person claim of an action (rank-juggler, 2026-11-16: "Repainting the mocks so they read as fast side-view
+// arena combat", and no mock was ever painted in that chat). Whoever says it is the person's crew: the first person,
+// "we", or a sentence that opens on the action itself ("Repainting the mocks", "Painting the backdrops now"), since a
+// sentence with no subject still says the painting is his. "the painter is repainting the mocks" names the crew as
+// the doer and is left to the NOW rule.
+const ME = /\b(?:i|we|i['’](?:m|ve|d|ll)|we['’](?:re|ve|d|ll)|let me|let us|let['’]s)\b/i
+const SELF_VERB = s => /^\s*(?:(?:ok(?:ay)?|sure|right|great|now|then|so|next|first|and)[,.!:]?\s+)?(?:i['’]?(?:m|ve|d|ll)?\s+|we['’]?(?:re|ve|d|ll)?\s+|just\s+|already\s+)*(?:re|un)?(?:painting|drawing|regenerating|refreshing|rendering|reworking|fixing|changing|redoing|paint|repaint|redraw|regenerate|refresh|render|rework|fix|change|redo)\w*/i.test(String(s))
+// a word about repainting something that is not the crew's ("how do I install it myself?") is not a claim
+const BLOCKED = /\b(?:cannot|can not|couldn['’]?t|can['’]?t|won['’]?t|will not|not able|unable|don['’]?t|does not|doesn['’]?t|never|no(?!t)\b)\b|\b(?:unless|if|when|once|after|before)\b(?!')|\b(?:you|your|yourself)\b/i
+// every way the words say an action on the pictures: "repainting", "repaint", "repainted", "re-painted", "fixes",
+// "changed", "regenerated". The whole word is taken (\w*), and its ending says the tense: -ing is the present, the
+// one a promise or a report of work underway is in.
+const ACT = /\b(re|un)?(paint|draw|regenerate|refresh|render|rework|fix|change|redo)\w*/gi
+const acts = s => [...String(s).matchAll(ACT)].map(m => {
+  // a full stop ends the sentence, not the verb
+  const word = m[0].replace(/[.!?,;:]+$/, '').toLowerCase()
+  return {
+    present: /ing$/.test(word),
+    // the tenses that say it happened: "repainted", "fixed", "changed"; a bare "repaint" only says what the person
+    // may do, and is not a claim of the crew's
+    done: /(?:ed|n|s|es)$/.test(word),
+    whole: m[0]
+  }
+})
+// the picture kinds the sentence names, each checked against its own painting and done count
+const kindOf = (f, name) => (f.pictures || []).find(p => p.names.some(n => new RegExp(`(?:^|[^a-z])${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:[^a-z]|$)`, 'i').test(name))) || null
+const namedKinds = s => [...String(s).matchAll(/\b[a-z][a-z'’-]*\b/gi)].map(m => m[0].toLowerCase())
+// the pictures as a whole, when the sentence names a kind the plan does not paint on its own ("I'll fix the art",
+// "I changed the character"): those are borne out only when everything the plan paints has landed
+const ALL = /\b(?:art|artwork|sprite|sprites|close-?ups|characters?|models?|mock\w*|backdrops?|backgrounds?|panoramas?|pictures?|pieces|sheets?)\b/i
+// what has landed, and what the plan still has to paint, across every kind of picture
+const landedCount = f => f.pieces.done + (f.mocks?.done || 0) + (f.backdrops?.done || 0)
+const stillToPaint = f => (f.pictures || []).reduce((n, p) => n + Math.max(0, p.queued || 0), 0)
+
 // which sentences say something happened that the facts deny; returns { text, cut: [sentences] }
 export function checkClaims(text, f) {
   const anyPicks = f.sheets.some(x => x.picks.length)
   const anyDone = f.sheets.some(x => x.state === 'done') || f.pieces.done > 0 || f.mocks.done > 0 || f.backdrops.done > 0
+  const parts = { done: landedCount(f), left: stillToPaint(f) }
   return cutClaims(text, [
     { claims: s => NOW.test(s), ok: () => f.painting.length > 0 },
     { claims: s => PAST.test(s) && ART.test(s), ok: () => anyDone },
-    { claims: s => LOCK.test(s), ok: () => !!f.locked },
-    { claims: s => PICK.test(s), ok: () => anyPicks }
+    { claims: s => LOCK.test(s) && !NOT_LOCKED.test(s), ok: () => !!f.locked },
+    { claims: s => PICK.test(s), ok: () => anyPicks },
+    // "Repainting the mocks" while the mocks are not painting, and "I repainted the mocks" when no mock has landed
+    {
+      claims: s => {
+        if (BLOCKED.test(s) || !(ME.test(s) || SELF_VERB(s)) || !(kindOf(f, s) || ALL.test(s))) return false
+        return acts(s).some(a => a.present || a.done)
+      },
+      ok: s => acts(s).every(a => {
+        const named = new Set(namedKinds(s).map(w => kindOf(f, w)).filter(Boolean))
+        const kinds = named.size ? [...named] : [null]
+        if (a.present) return kinds.every(k => k ? k.painting > 0 : f.painting.length > 0)
+        // a whole-pieces claim is borne out only when every piece the plan paints has landed
+        return kinds.every(k => (k ? k.done > 0 : parts.done > 0 && parts.left === 0))
+      })
+    }
   ])
+}
+
+// ---------- the step's line, said once (rank-juggler, 2026-11-16: turns 46 to 54 all ended with the same sentence)
+// "Painting the backdrops now. It shows on the board as it lands." The very line the last planner turn ended with is
+// not said again: it is still the step, and the board it points at has not moved. Anything else is said.
+export const stepLineFor = (chat, step) => {
+  const line = String(step?.text || '').trim()
+  if (!line) return ''
+  const last = [...(chat?.turns || [])].reverse().find(t => t?.who === 'planner')
+  if (!last || last.step !== true) return line
+  const said = String(last.text || '').trim()
+  return said === line || said.endsWith(` ${line}`) ? '' : line
 }
 
 // ---------- the person's words
