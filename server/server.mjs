@@ -3663,12 +3663,20 @@ ${researchBrief(seen)}`
         // Ask mode (docs/specs/46-chat-modes.md): the planner answers and nothing else happens. No chat is made or
         // saved, no link is read or walked, no brief is written: only the answer goes back.
         if (input.ask === true) {
-          const [{ answerOnly }, { factLines }, facts] = await Promise.all([import('../engine/ask.mjs'), import('../engine/doctor.mjs'), studioFacts(inRun, { light: true }).catch(() => null)])
+          const [{ answerOnly }, { factLines }, { withRefs }, facts] = await Promise.all([import('../engine/ask.mjs'), import('../engine/doctor.mjs'), import('../engine/chatmedia.mjs'), studioFacts(inRun, { light: true }).catch(() => null)])
           const plan = typeof input.chat === 'string' && CHAT_ID.test(input.chat) ? String(chats.get(input.chat)?.spec?.brief || '').slice(0, 1500) : ''
+          // the picture or file attached to this turn goes with the question (spec 29): it was uploaded to the chat by
+          // the chips, and the planner is told how each one was read. The link is not opened and the chat is not saved.
+          const ids = Array.isArray(input.refs) ? input.refs.filter(x => typeof x === 'string').slice(0, 8) : []
+          const from = typeof input.chat === 'string' && CHAT_ID.test(input.chat) ? String(chats.get(input.chat)?.id || input.chat) : ''
+          const now = !ids.length ? [] : ((chats.get(from)?.refs || []).filter(r => ids.includes(r.id)).length ? (chats.get(from)?.refs || []).filter(r => ids.includes(r.id))
+            // a chip keyed with the chat's name (the upload answers with the chat it made) is found by its short id
+            : (chats.get(from)?.refs || []).filter(r => ids.some(k => k === String(r.id).slice(0, 5))))
+          const told = now.length ? said.map((t, i) => (i === said.length - 1 && t.who !== 'hermia' ? { ...t, text: withRefs(t.text, now) } : t)) : said
           // a question about how far things are is answered by the build's one state; any other answer is checked against it
           const truth = await chatTruth({ pid: inPid, run: inRun, kind: input.room === 'app' ? 'app' : kind })
           const project = [projectState(inPid, truth), plan ? `The plan agreed so far in the chat:\n${plan}` : ''].filter(Boolean).join('\n\n')
-          const answerIt = () => answerOnly({ said, kind, chat: talk, project, studio: facts ? factLines(facts).join('\n').slice(0, 2400) : '' })
+          const answerIt = () => answerOnly({ said: told, kind, chat: talk, project, studio: facts ? factLines(facts).join('\n').slice(0, 2400) : '' })
           const answer = truth ? await truthTurn({ text: String(said.at(-1)?.text || ''), facts: truth, ask: true, plan: answerIt }) : await answerIt()
           return json(200, { reply: answer.reply })
         }
