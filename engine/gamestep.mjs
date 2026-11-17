@@ -243,15 +243,30 @@ export function checkClaims(text, f) {
 }
 
 // ---------- the step's line, said once (rank-juggler, 2026-11-16: turns 46 to 54 all ended with the same sentence)
-// "Painting the backdrops now. It shows on the board as it lands." The very line the last planner turn ended with is
-// not said again: it is still the step, and the board it points at has not moved. Anything else is said.
-export const stepLineFor = (chat, step) => {
+// "Painting the backdrops now. It shows on the board as it lands." It was stapled onto nine replies in a row, and
+// once onto a turn that said the mocks had NOT been repainted: the person read a promise the board never made.
+//
+// What is dropped is only the echo: the same line, on the same step, when the reply above it already said something
+// of its own. A turn whose words carry nothing but that line keeps it, because silence would be worse than a repeat:
+//   - the person asked what is happening ("go", "what now?") and there is nothing else to say;
+//   - a download is running (`installing`): "Installing Godot 4 now" is the only news there is;
+//   - the step asks something (options, or a question mark): it is a decision still open, and asking again is the
+//     whole point ("go" at the Godot question asks it again with its buttons, tests/rankjuggler.test.mjs).
+// said: what the turn says besides the step's line (the planner's own answer, or the reason nothing happened).
+export const stepLineFor = (chat, step, said = '') => {
   const line = String(step?.text || '').trim()
   if (!line) return ''
+  if (step?.wait || step?.install) return line
+  if ((step?.options || []).length || /\?\s*$/.test(line)) return line
+  // nothing of its own to say: the line is the whole reply, and repeating it is the honest thing
+  if (!String(said || '').trim()) return line
   const last = [...(chat?.turns || [])].reverse().find(t => t?.who === 'planner')
   if (!last || last.step !== true) return line
-  const said = String(last.text || '').trim()
-  return said === line || said.endsWith(` ${line}`) ? '' : line
+  // the reply above carried its own words too, so this line is an echo of the one it had
+  const prior = String(last.text || '').trim()
+  if (!(prior === line || prior.endsWith(` ${line}`))) return line
+  const own = prior.slice(0, Math.max(0, prior.length - line.length)).trim()
+  return own ? '' : line
 }
 
 // ---------- the person's words

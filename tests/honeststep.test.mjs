@@ -89,57 +89,61 @@ test('a question, a refusal and the person\'s own next step are not claims', () 
   ]) assert.deepEqual(checkClaims(said, f).cut, [], said)
 })
 
-test('failure 1: the step line said last turn is not said again; a new one is', () => {
+test('failure 1: the step line is not echoed after the reply already said it; a new one is', () => {
   const plan = night(), chat = JSON.parse(readFileSync(join(FIX, 'chats', CHAT, 'chat.json'), 'utf8'))
   const step = nextStep(chat, plan, {})
-  // the same line twice: the second turn adds nothing, because the board has not moved
-  chat.turns.push({ id: 't17', who: 'planner', text: STEP, step: true })
-  assert.equal(stepLineFor(chat, { text: STEP }), '')
-  // the same line said after the planner's own words: still the same line
-  chat.turns.at(-1).text = `The mocks have not been repainted yet. ${STEP}`
-  assert.equal(stepLineFor(chat, { text: STEP }), '')
+  const own = 'The mocks have not been repainted yet.'
+  // the same line after the reply already carried it: an echo, dropped
+  chat.turns.push({ id: 't17', who: 'planner', text: `${own} ${STEP}`, step: true })
+  assert.equal(stepLineFor(chat, { text: STEP }, own), '')
+  // nothing of the reply's own: the line is the whole message, and repeating it is honest (silence would be worse)
+  assert.equal(stepLineFor(chat, { text: STEP }, ''), STEP)
   // the step moves on (the lock happens): the new line is said
-  assert.equal(stepLineFor(chat, { text: 'The plan is not locked yet.' }), 'The plan is not locked yet.')
+  assert.equal(stepLineFor(chat, { text: 'The plan is not locked yet.' }, own), 'The plan is not locked yet.')
   // the person's turn in between changes nothing: the last planner turn already ended on that line
   chat.turns.push({ id: 't18', who: 'person', text: 'theyre not being repainted' })
-  assert.equal(stepLineFor(chat, { text: STEP }), '')
+  assert.equal(stepLineFor(chat, { text: STEP }, own), '')
   // a planner turn that ended on something else does not block the step's line
   chat.turns.push({ id: 't19', who: 'planner', text: 'Tell me which one to keep.', step: true })
-  assert.equal(stepLineFor(chat, { text: STEP }), STEP)
+  assert.equal(stepLineFor(chat, { text: STEP }, own), STEP)
   // nothing to say, nothing said
-  assert.equal(stepLineFor(chat, { text: '' }), '')
-  assert.equal(stepLineFor({ turns: [] }, { text: STEP }), STEP)
+  assert.equal(stepLineFor(chat, { text: '' }, own), '')
+  assert.equal(stepLineFor({ turns: [] }, { text: STEP }, own), STEP)
+  // a download running, a question open, or a paint in progress: never hidden behind the dedupe
+  assert.equal(stepLineFor(chat, { text: STEP, install: { pct: 12 } }, own), STEP)
+  assert.equal(stepLineFor(chat, { text: STEP, wait: true }, own), STEP)
+  assert.equal(stepLineFor(chat, { text: STEP, options: [{ id: 'do:browser', label: 'Browser is fine' }] }, own), STEP)
+  assert.equal(stepLineFor(chat, { text: 'Install Godot 4, or is the browser fine?' }, own), 'Install Godot 4, or is the browser fine?')
 })
 
-test('nine replies in a row, as that night read: the same step line once, then not again', () => {
-  // the chat file that night ends every planner turn with the same sentence. The turns are rebuilt here as the chat
-  // builds them (the planner's own words, then the step's line), and the line a turn would add is the one stepLineFor
-  // allows. That night the line was stapled on nine times: the person read it on turns 46 to 54 alike.
+test('nine replies in a row, as that night read: the same step line is not echoed after the reply said it', () => {
+  // The chat file that night ends every planner turn with the same sentence, appended even to the turn that said the
+  // mocks had NOT been repainted. Rebuilt here as the chat builds a turn: the planner's own words, then the step's
+  // line through stepLineFor. What must never happen again is a reply that ALREADY said its piece being closed with
+  // the same sentence a second time, or with a promise the board never made.
   const chat = { turns: [] }
-  const said = []
+  const added = []
+  const words = ['The mocks are next.', 'The look has to be settled first.', 'The rank meter is the thing to settle.', 'The mocks read as arena combat.', 'Two heroes are enough for the slice.', 'The controls are what the slice needs.', 'The rank meter reads at the corner.', 'The slice needs one arena.', 'The mocks are the next picture.']
   for (let n = 0; n < 9; n++) {
-    const line = stepLineFor(chat, { text: STEP })
-    said.push(line)
-    // the turn is the planner's own words (true of that plan: nothing is painting, nothing was repainted) and then
-    // the step's line, as engine/talkplan.mjs builds it
-    const words = ['The mocks are next.', 'The look has to be settled first.', 'The rank meter is the thing to settle.', 'The mocks read as arena combat.', 'Two heroes are enough for the slice.', 'The controls are what the slice needs.', 'The rank meter reads at the corner.', 'The slice needs one arena.', 'The mocks are the next picture.'][n]
-    // when the line is skipped, the step is still the end of the reply (its buttons are there); only the words are left
-    // out, so the reply never says the same sentence twice and never ends on something that is not the step
-    const text = line ? `${words} ${line}` : words
-    const shown = line ? text : `${words} ${STEP}`
-    chat.turns.push({ id: `t${46 + n * 2}`, who: 'planner', text: shown, step: true })
+    const line = stepLineFor(chat, { text: STEP }, words[n])
+    added.push(line)
+    const text = line ? `${words[n]} ${line}` : words[n]
+    // the step is still the end of the reply, with its buttons; the sentence is only in it once
+    chat.turns.push({ id: `t${46 + n * 2}`, who: 'planner', text: line ? text : `${words[n]}`, step: true, options: [{ id: 'do:backdrops', label: 'Lock look, paint backdrops' }] })
     chat.turns.push({ id: `t${47 + n * 2}`, who: 'person', text: n % 2 ? 'i need better mocks please' : 'theyre not being repainted' })
-    // nothing moved between them: no mock, sheet or backdrop was started, so the step is the same line
   }
-  assert.equal(said[0], STEP, 'the first reply says it')
-  assert.deepEqual(said.slice(1), Array(8).fill(''), 'the other eight replies do not say it again')
-  assert.equal(chat.turns.filter(t => t.who === 'planner').length, 9)
-  // the sentence the person read on nine turns of that night is in the reply once, though the step is still the end
-  // of every reply
-  assert.equal(chat.turns.filter(t => t.who === 'planner' && t.text.split(STEP).length - 1 === 1).length, 9, 'once per reply')
-  assert.ok(chat.turns.filter(t => t.who === 'planner').every(t => t.text.endsWith(STEP)))
+  // A reply that already carried the line is never given it twice. The turns where the person typed in between start
+  // from a reply that had said something else, so the line is owed to them again: that is the honest alternation,
+  // echo -> nothing to echo -> echo, never twice in a row.
+  for (let i = 1; i < added.length; i++) if (added[i] === STEP) assert.notEqual(added[i - 1], STEP, `reply ${i} echoes the line before it`)
+  assert.equal(added.filter(l => l === '').length, 4, 'four of the nine are echoes and dropped')
+  const planner = chat.turns.filter(t => t.who === 'planner')
+  assert.equal(planner.length, 9)
+  // no reply carries it twice, and the sentence never lands on a reply that already had it
+  assert.ok(planner.every(t => t.text.split(STEP).length - 1 <= 1), 'the sentence is never doubled in a reply')
+  assert.equal(planner.filter(t => t.text.includes(STEP)).length, 5, 'it is said on the five replies that had nothing else')
   // the false line from turn 50 is never in any of them
   assert.ok(!chat.turns.some(t => /Repainting the mocks/i.test(t.text)))
   // a turn whose step moved on says the new one
-  assert.equal(stepLineFor(chat, { text: 'The plan is not locked yet.' }), 'The plan is not locked yet.')
+  assert.equal(stepLineFor(chat, { text: 'The plan is not locked yet.' }, 'Fine.'), 'The plan is not locked yet.')
 })

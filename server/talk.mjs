@@ -24,7 +24,7 @@
 // on it like a painting, and when it ends the chat gets one more turn that says what happened (settle).
 import { chatStore, CHAT_ID } from '../engine/chats.mjs'
 import { say, lock, unlock, planInput, draftOf, startsOf, wordsDecide, openQuestions } from '../engine/talkplan.mjs'
-import { nextStep, planFacts, goWords, readPicks, pieces, lockLabel, godotOptions, installLine } from '../engine/gamestep.mjs'
+import { nextStep, planFacts, goWords, readPicks, pieces, lockLabel, godotOptions, installLine, stepLineFor } from '../engine/gamestep.mjs'
 import { planView } from '../engine/plan.mjs'
 import { starterSpec } from '../engine/starters.mjs'
 import { pendingAsk, readAnswer } from '../engine/askfirst.mjs'
@@ -260,7 +260,9 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
     if (chat.godot === 'installing' && action.startsWith('do:godot') && !step.wait) step = { text: installLine(env().install?.state === 'installing' ? env().install : {}), options: [], wait: true, install: { pct: null } }
     if (out?.godot) step.options = godotOptions(out.godot === 'failed', out.route)
     if (out?.ask) step.options = [{ id: 'lock', label: lockLabel(plan.price), why: '', made: [] }, { id: 'talk', label: 'Keep talking', why: '', made: [] }]
-    const text = [why || out?.said || '', out?.godot ? '' : step.text].filter(Boolean).join(' ')
+    // the step's line, unless the turn before ended on that very line: it was stapled onto nine replies in a row in
+    // the Rank Juggler chat (turns 46-54), including the one that said the mocks had not been repainted
+    const text = [why || out?.said || '', out?.godot ? '' : stepLineFor(chat, step, why || out?.said || '')].filter(Boolean).join(' ')
     Object.assign(turn, { text, options: step.options, step: true, plan: plan.id, ...(step.wait ? { wait: true } : {}), ...(step.install ? { install: step.install } : {}), ...(step.sheet ? { sheet: step.sheet } : {}), ...(step.price || out?.ask ? { price: plan.price } : {}) })
     chat.turns.push(turn)
     // the chat's lock is the gate's: one state
