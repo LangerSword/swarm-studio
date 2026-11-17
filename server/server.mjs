@@ -45,7 +45,7 @@ import { makeProjects, stateOf, gameProgress } from './projects.mjs'
 import { buildState } from '../engine/buildstate.mjs'
 import { chatFacts, checkSaid, factsText, firstLine, nextStep, truthTurn } from '../engine/chatstep.mjs'
 import { kindState, KIND_EVENTS } from '../engine/kindstate.mjs'
-import { CHAT_ID } from '../engine/chats.mjs'
+import { CHAT_ID, readsSaid } from '../engine/chats.mjs'
 import { askTurn, askedOf, askOptions, ASK_TEXT } from '../engine/askfirst.mjs'
 import { wordsRead } from '../engine/talkplan.mjs'
 import { deployName, isScreenName, pieceKind, PIECES } from '../engine/naming.mjs'
@@ -1891,8 +1891,13 @@ const plans = planRoutes({
   planner: () => models.planner.apiKey ? { provider: provider('planner'), model: modelFor('planner') } : null,
   godot: () => godotHere,
   // a game's art references join its project when its talk does: a look to match to References, one used as is to Assets
-  toProject: (pid, { name, buf, asIs }) => (asIs ? projectAssets.addFile(pid, { name }, buf) : refs.addFile(pid, { name, source: 'plan' }, buf))
+  toProject: (pid, { name, buf, asIs }) => (asIs ? projectAssets.addFile(pid, { name }, buf) : refs.addFile(pid, { name, source: 'plan' }, buf)),
+  // The chat takes the build's name (engine/chats.mjs titleFromBuild): a game plan is named by the person, or by the
+  // idea and the planner, and the chat that shaped it is listed under that name and not "New game" (EVIDENCE failure 5).
+  // A chat the person renamed, or one with no name of its own, is not touched. `planner` is null until the talks below.
+  titled: (plan, nameMode) => { const c = planner?.ofPlan?.(plan?.id); if (c) planner.nameFromBuild(c.id, plan?.title, nameMode).catch(() => {}) }
 })
+let planner = null
 // end engine: meshy
 // The planner conversation (docs/specs/27-plan-conversation.md): decide together in the left chat, then lock.
 // A locked game chat makes its plan through the Plan board's routes above.
@@ -1910,6 +1915,7 @@ const talks = talkRoutes({
 // their project when they build. On start: empty old chats go, and game plans made before chats existed
 // each get a chat that points at them (the plan files stay where they are).
 const chats = talks.chats
+planner = chats
 // the Studio's App kit (docs/specs/37-studio-first.md): the app's users, screens, data and connections
 const appKit = appKitRoutes({
   dataDir,
@@ -3614,7 +3620,14 @@ ${researchBrief(seen)}`
   const chatRoute = url.pathname.match(/^\/api\/chats\/(c-[0-9a-f]{10})$/)
   if (chatRoute) {
     const id = chatRoute[1]
-    if (req.method === 'GET') { const c = chats.get(id); return c ? json(200, c) : json(404, { error: 'no such chat' }) }
+    // a decision the planner read is said as read in the turn it decided (engine/chats.mjs readsSaid): the chat
+    // says it read something instead of recording it silently, and the person corrects it by typing
+    if (req.method === 'GET') {
+      const c = chats.get(id)
+      if (!c) return json(404, { error: 'no such chat' })
+      if (Array.isArray(c.turns)) c.turns = c.turns.map(t => (t.who === 'planner' ? { ...t, text: readsSaid(t.text, c, { turn: t.id }) } : t))
+      return json(200, c)
+    }
     const fail = err => json(err.status || 400, { error: String(err.message || err) })
     if (req.method === 'DELETE') return void chats.remove(id).then(r => json(200, r), fail)
     if (req.method === 'POST') return readJson(1e4, input => {
