@@ -255,6 +255,22 @@ test('anything the button does can be typed: the words and the press reach the s
   } finally { typed.close(); pressed.close() }
 })
 
+test('the chat counts backdrops from the World card the board edits, not from a second reading of the settings', async () => {
+  // issue #666: the price read the World card then the settings; the chat's own state read only the settings. A plan
+  // whose World card had been edited to 5 stages therefore had one price and a different count in the chat. The
+  // fixture has both at 3, which is exactly why the disagreement hid: this plan says 5 on the card and 3 in settings,
+  // and its 9 painted backdrops are then 9 of 15, not 9 of 9.
+  const plan = painted(fixPlan())
+  plan.cards = plan.cards.map(c => (c.id === 'world' ? { ...c, body: { ...c.body, stages: '5' } } : c))
+  assert.equal(Number(plan.settings.stages), 3, 'the settings still say 3: only the card the person edits moved')
+  const f = await talk({ plan })
+  try {
+    // the same wish the offer test uses: it is the turn that states the part's real count
+    const j = await f.post({ said: 'i want better backdrops' })
+    assert.match(j.turn.text, /9 of 15 painted, 6 not painted yet/, `the card says 5 stages x 3: ${j.turn.text}`)
+  } finally { f.close() }
+})
+
 test('a part the plan has not painted yet is offered by its own name, ahead of the plan\'s later step', async () => {
   // the person says "better backdrops" while the mocks still wait on the board: the button they meant is the
   // backdrops', and the plan's own next step (the mocks) is not what their sentence asked for

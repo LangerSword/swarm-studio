@@ -15,7 +15,7 @@
 //   installLine(state)          the line while Godot 4 installs; godotOptions(again, route) the one button after it failed
 //
 // Pure functions: no store, no model, no paint.
-import { planPrice, roster, is3d, sprites } from './plan.mjs'
+import { planPrice, roster, is3d, sprites, stageCount } from './plan.mjs'
 import { cutClaims } from './claims.mjs'
 
 const named = k => String(k).replace(/^\w/, c => c.toUpperCase())
@@ -52,8 +52,8 @@ export function pieces(plan) {
 const pictures = (plan, p) => {
   const mocks = plan.mocks || [], backs = plan.backdrops || [], made = plan.build?.sprites || []
   const art = (plan.art?.shots || []).length
-  // the plan's own count of backdrops (engine/plan.mjs modelOf is the same sum)
-  const stages = Math.max(1, Math.min(5, parseInt(plan.cards?.find(c => c.id === 'world')?.body?.stages, 10) || 3))
+  // the plan's own count of backdrops, from the one place that decides it (engine/plan.mjs stageCount, the price's own)
+  const stages = stageCount(plan)
   const perStage = Number(plan.settings?.backdropsPerStage ?? 3)
   return [
     { what: 'sheet', names: ['sketch sheet', 'sketch sheets', 'concept sheet', 'concept sheets', 'sheet', 'sheets'], done: (plan.sheets || []).filter(done).length, painting: (plan.sheets || []).filter(s => s.state === 'painting').length, queued: sheetKinds(plan).filter(k => (plan.sheets || []).find(s => s.kind === k)?.state !== 'done').length },

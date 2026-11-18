@@ -25,7 +25,7 @@
 import { chatStore, CHAT_ID } from '../engine/chats.mjs'
 import { say, lock, unlock, planInput, draftOf, startsOf, wordsDecide, openQuestions } from '../engine/talkplan.mjs'
 import { nextStep, planFacts, goWords, readPicks, pieces, lockLabel, godotOptions, installLine, sheetKinds, stepLineFor } from '../engine/gamestep.mjs'
-import { planView } from '../engine/plan.mjs'
+import { planView, stageCount } from '../engine/plan.mjs'
 import { starterSpec } from '../engine/starters.mjs'
 import { pendingAsk, readAnswer } from '../engine/askfirst.mjs'
 import { reasonFromTalk, reasonLine, isRaw } from '../engine/stopreason.mjs'
@@ -276,7 +276,7 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
   function stateOf(plan, part) {
     const done = e => e?.state === 'done'
     const mocks = plan.mocks || [], backs = plan.backdrops || []
-    const stages = Math.max(1, parseInt(plan.settings?.stages, 10) || 3)
+    const stages = stageCount(plan)
     const per = Math.max(1, parseInt(plan.settings?.backdropsPerStage, 10) || 3)
     if (part === 'mock') {
       const total = (plan.art?.shots?.length ?? 5)
