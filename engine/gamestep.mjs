@@ -168,7 +168,18 @@ export function nextStep(chat, plan, env = {}) {
     return { text: 'Next: lock the look from your picks and paint the backdrops.', options: [o('do:backdrops', 'Lock look, paint backdrops')] }
   }
   const godot = f.engine === 'godot' && f.godot === false ? ' Godot 4 is still not installed, so the game builds for the browser until it is.' : ''
-  return { text: `Every picture in the plan is painted.${godot} Next: build the game from the plan.`, options: [o('start:design', 'Read the plan')], done: true }
+  // THE HANDOVER TO THE BUILD (issue #666). With every picture painted this branch used to offer only "Read the plan":
+  // the chat said "Next: build the game from the plan" and gave no way to build it, and it went on saying exactly that
+  // after a build had failed, because the plan's own state has no idea the app engine ever ran. env.app is the app
+  // engine's real state for this run (server/server.mjs chatTruth), so the one next step can be the build itself.
+  const app = env.app || null
+  if (app?.state === 'working') return { text: `The game is building.${godot}`, options: [], wait: true }
+  if (app?.state === 'failed') {
+    const why = String(app.message || '').replace(/\s+/g, ' ').trim().slice(0, 200)
+    return { text: `The game did not build${why ? `: ${why}` : ''}. Nothing in the plan is lost: the pictures are still painted.`, options: [o('do:app', 'Try again'), o('start:design', 'Read the plan')] }
+  }
+  if (app?.hasApp) return { text: `The game is built.${godot}`, options: [o('start:design', 'Read the plan')], done: true }
+  return { text: `Every picture in the plan is painted.${godot} Next: build the game from the plan.`, options: [o('do:app', 'Build the game'), o('start:design', 'Read the plan')], done: true }
 }
 
 // ---------- the planner's own words, checked against the plan (the runner is every chat's: engine/claims.mjs)

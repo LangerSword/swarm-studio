@@ -128,7 +128,10 @@ export function readWords(text) {
 }
 
 // viaHermes() -> the planner's model is reached through Hermes (a broken connection is then Hermes away)
-export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plans = null, godotCheck = null, godotInstall = null, helpers = () => null, facts = null, viaHermes = () => false }) {
+export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plans = null, godotCheck = null, godotInstall = null, helpers = () => null, facts = null, viaHermes = () => false, appOf = () => null }) {
+  // What the app engine says about this chat's build (issue #666). nextStep needs it to offer the build itself
+  // instead of only "Read the plan", and to say why a build failed. Read fresh each turn, never cached here.
+  const stepEnv = chat => ({ ...env(), app: appOf(chat.run || chat.plan || null) })
   // a game talk that joins a project takes its plan's art references there (engine/planrefs.mjs)
   const chats = chatStore({ dataDir, onMove: (chat, pid) => { if (chat?.plan) plans?.carry?.(chat.plan, pid) } })
   const json = (res, code, data) => res.writeHead(code, { 'content-type': 'application/json' }).end(JSON.stringify(data))
@@ -189,7 +192,7 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
     const plan = planOf(chat)
     if (!said) return null
     if (!plan) return orderOf(said) && chat.spec ? 'lock' : null
-    const step = nextStep(chat, plan, env())
+    const step = nextStep(chat, plan, stepEnv(chat))
     const ids = step.options.map(o => o.id)
     const words = readWords(said)
     const part = partOf(chat, plan, said)
@@ -363,6 +366,9 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
     if (action === 'do:next') return { plan, said: '' }
     // the answer to what they said, changing nothing: the plan as it stands is the whole of it (shownStep says it)
     if (action === 'do:answer') return { plan, said: '' }
+    // Build the game (issue #666): the App room's own button, which the page runs (web/canvas/talk.js stepRun).
+    // Nothing is built here, and the chat does not pretend it was: `act` is what tells the page to run it.
+    if (action === 'do:app') return { plan, said: '', act: 'do:app' }
     if (action === 'do:godot' || action === 'do:godot:check') {
       // look first, both ways: a Godot the person installed themselves is used as it is
       const found = godotCheck ? !!godotCheck() : !!env().godot
@@ -398,7 +404,7 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
       return { plan, said: `Picked ${Number(cell) + 1}${who.length ? ` for ${who.join(':')}` : ''}.` }
     }
     if (action === 'do:typed') {
-      const step = nextStep(chat, plan, env())
+      const step = nextStep(chat, plan, stepEnv(chat))
       const got = readPicks(said, step.sheet, planFacts(plan).cast)
       for (const p of got) plan = await pickOn(plan, step.sheet.id, p.cell, p.who)
       return { plan, said: `Picked ${got.map(p => `${p.cell + 1}${p.who ? ` for ${p.who}` : ''}`).join(', ')}.` }
@@ -433,7 +439,7 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
       const found = !!r?.ok && (godotCheck ? !!godotCheck() : true)
       if (found) chat.godot = 'install'
       else delete chat.godot
-      const step = nextStep(chat, plan, env())
+      const step = nextStep(chat, plan, stepEnv(chat))
       const text = found ? `${installedLine(r)} ${step.text}` : failedLine(r)
       chat.turns.push({ id: `t${chat.turns.length + 1}`, who: 'planner', at: Date.now(), text, options: found ? step.options : godotOptions(true, r?.route), step: true, plan: plan.id, settled: 'godot', ...(found && step.wait ? { wait: true } : {}), ...(found && step.sheet ? { sheet: step.sheet } : {}), refs: [], marks: [], layers: [], made: [], reads: [] })
     })).catch(() => {}).finally(() => settling.delete(id))
@@ -458,7 +464,7 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
       chat.turns.push(turn)
       return { chat, turn }
     }
-    let step = nextStep(chat, plan, env())
+    let step = nextStep(chat, plan, stepEnv(chat))
     // the install this turn started ended in the instant since: the turn still waits, and the next look finds the
     // turn that says how it ended (settle)
     if (chat.godot === 'installing' && action.startsWith('do:godot') && !step.wait) step = { text: installLine(env().install?.state === 'installing' ? env().install : {}), options: [], wait: true, install: { pct: null } }
@@ -504,7 +510,7 @@ export function talkRoutes({ dataDir, model = () => null, env = () => ({}), plan
     chat.turns.push(turn)
     // the chat's lock is the gate's: one state
     chat.state = plan.gate?.locked ? 'locked' : 'open'
-    return { chat, turn, plan }
+    return { chat, turn, plan, ...(out?.act ? { act: out.act } : {}) }
   })
 
   const routes = function handle(req, res, url) {

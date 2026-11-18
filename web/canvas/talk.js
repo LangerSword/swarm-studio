@@ -302,6 +302,8 @@ async function gameSay({ said = '', pick = '', label = '', again = false, saved 
       for (const m of media) links.add(m)
       throw err
     }
+    // Build the game: the App room's own button, run by the page and not by the server (issue #666)
+    if (j.act === 'do:app') { talk.chat = j.chat.id; return stepRun('do:app', { run: j.chat.run || talk.from || shownRun() }) }
     if (!talk.on) return
     talk.chat = j.chat.id
     talk.said.push({ who: 'hermia', text: j.turn.text + chatCardsLine(j.turn.cards) })

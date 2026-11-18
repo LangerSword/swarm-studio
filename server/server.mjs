@@ -785,6 +785,9 @@ async function stopWork({ run, project } = {}) {
 // What a run is working on right now, if anything: the site build, an app or game build, a film.
 // { what: site | app | game | film, stage, pct (0..1, or null when the job cannot say) }
 let appsNow = null // the app jobs, once loaded, so this can stay synchronous
+// The app engine's state for a run, read synchronously: the jobs are loaded by the first apps() call, and this
+// only reads what they already hold (null before that, which the caller reads as "no build known yet").
+const appStateNow = id => { try { return id && appsNow ? appsNow.state(id) : null } catch { return null } }
 // a Studio process that started a build: still running? (a killed one leaves its app:start behind)
 const appAlive = pid => { try { process.kill(pid, 0); return true } catch (e) { return e.code === 'EPERM' } }
 // how far a running website build is, 0..1, from its state: this build's own sections built of its own planned
@@ -1905,6 +1908,8 @@ const talks = talkRoutes({
   dataDir, plans, helpers: () => helpers, env: () => ({ godot: godotHere, install: godotJob.state() }), godotCheck, godotInstall: godotJob,
   // a website's or an app's saved talk is told what is true of its build (chatTruth, engine/chatstep.mjs)
   facts: chat => chatTruth({ pid: chat.project || null, run: chat.run || null, kind: chat.kind, chat }),
+  // a game's one next step is the build itself, and a failed build says why (issue #666)
+  appOf: appStateNow,
   model: () => models.planner.apiKey && modelFor('planner') ? async messages => (await streamChat(provider('planner'), {
     trace: { kind: 'talk' }, model: modelFor('planner'), maxTokens: 700, temperature: 0.3, signal: AbortSignal.timeout(60000),
     extra: { reasoning_effort: 'none', reasoning: { enabled: false } }, messages
@@ -2292,9 +2297,21 @@ function projectState(pid, facts = null) {
 // when the chat is the App room's or the build has an app, and where it is live. Reads only. Null for a game, a
 // film or a project brought in: those keep their own states, and their chats are not checked by a website's rules.
 async function chatTruth({ pid = null, run = null, kind = 'site', chat = null } = {}) {
-  if (kind !== 'site' && kind !== 'app') return null
+  const game = kind === 'game'
+  if (!game && kind !== 'site' && kind !== 'app') return null
   const own = run ? readEvents(run) : null
   const start = own?.find(e => e.type === 'run:start')
+  // A GAME's chat is told its build (issue #666): the app engine's own state for the game's run, and nothing about
+  // pages or a website build, which a game has none of. Before this the chat was told nothing at all, which is why
+  // "i cant test the game live" was answered with a count of painted pictures: the planner could not know whether
+  // the game had built, passed its gates or failed after its repair turns.
+  if (game) {
+    let app = null
+    if (run) { try { app = (await apps()).state(run) } catch {} }
+    app ||= { state: 'idle', hasApp: false, steps: [] }
+    const publishedGame = own?.findLast(e => (e.type === 'publish:done' && e.url && e.target !== 'local') || (e.type === 'app:deployed' && e.url && !e.pending))?.url || null
+    return chatFacts({ kind: 'game', run, build: null, pages: [], app, published: publishedGame, locked: chat?.state === 'locked' })
+  }
   if (own && (start?.intake || ['game', 'video', 'film'].includes(start?.kind) || own.some(e => typeof e.type === 'string' && (e.type.startsWith('game:') || e.type.startsWith('video:'))))) return null
   const p = pid && projects.get(pid)
   const ids = [...(run ? [run] : []), ...((p?.versions || []).map(v => v.id))]
