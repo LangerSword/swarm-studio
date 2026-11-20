@@ -11,7 +11,7 @@ import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'r
 import { autoplayAsk } from '@studio/autoplay'
 import { playFail, stageAsk, stageNone, stageNow, stagePick, type StageView } from '@studio/stage'
 import { goOnAsk, noAppYet, sliceSay, sliceWords } from '@studio/wander'
-import { Chat, type ChatLine } from '../chat'
+import { Chat, type ChatCommand, type ChatLine } from '../chat'
 import { useNav } from '../nav/NavProvider'
 import { useToast } from '../primitives/Toast'
 import { useTrail } from '../shell/Trail'
@@ -23,14 +23,24 @@ import { ChangeCard, MediaCard, SliceCard } from './game/GameCards'
 import { GAME_WINDOWS, GameRoomView, type Said } from './game/GameRoomView'
 import { saidYes, saysBroken, sliceKey, stageBuild, type GameModel, type GameSlice, type GameState } from './game/model'
 import { GameSourceContext } from './game/source'
+import { GameStart } from './game/start/GameStart'
+import { sayOnOpen, takeSay } from './game/start/opened'
 import { useAutoplay } from './game/useAutoplay'
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '')
 const oops = (err: unknown) => String((err as Error)?.message || err)
+// the room's commands (web/canvas/loop.js SLASH, the two that start a game or its cast)
+const COMMANDS: ChatCommand[] = [
+  { name: 'game', arg: '[idea]', what: 'make an original browser game: a few questions, then it builds' },
+  { name: 'cast', what: 'make characters from pictures, with Meshy' }
+]
 
 export function GameRoom() {
-  const { view } = useNav()
+  const { view, go } = useNav()
   const run = view.run || view.version
+  // the questions a new game starts with (start/GameStart.tsx), or the Cast step on its own for this build (/cast)
+  const [start, setStart] = useState<null | { idea?: string, cast?: boolean }>(null)
+  const opened = useRef<Record<string, string>>({})
   const source = useContext(GameSourceContext)
   const [model, setModel] = useState<GameModel | null>(null)
   const at = useRef<GameModel | null>(null)
@@ -87,6 +97,9 @@ export function GameRoom() {
     let live = true, again = 0
     setModel(null); setPin(null); setMode('preview'); setOpening(false); setOpenErr(''); setSaid(null); setLines([])
     sliceDrawn.current = new Set()
+    // a build started from the questions: what it is, said once it opens here
+    opened.current[run] ||= takeSay(run)
+    if (opened.current[run]) hermia(opened.current[run])
     const refresh = (wait = 300) => {
       clearTimeout(again)
       again = window.setTimeout(() => {
@@ -125,7 +138,7 @@ export function GameRoom() {
       refresh(e.type === 'app:step' ? 300 : 0)
     })
     return () => { live = false; clearTimeout(again); stop?.() }
-  }, [run, source, readFile, sliceCard, line, toast])
+  }, [run, source, readFile, sliceCard, line, hermia, toast])
 
   // the art plan and the Map: read again every 4 s while the build works or they are on the stage
   const poll = !!model && (working || shown === 'art' || shown === 'map')
@@ -295,8 +308,14 @@ export function GameRoom() {
     <>
       <GameRoomView model={model} now={now} said={said} mode={mode} opening={opening} openError={openErr} autoplay={autoplay} reload={reload}
         onPick={v => stageSet(stagePick(pin, v))} onMode={setMode} onReload={() => setReload(n => n + 1)} onStop={onStop}
-        onBuild={() => void build()} onInCode={() => void build({ art: false })} onReopen={onReopen} onFile={readFile} onPort={source.port ? onPort : undefined} />
-      <Chat from={run} project={view.project} lines={feed.lines} log={feed.log} onSubmit={onChat}
+        onBuild={() => void build()} onInCode={() => void build({ art: false })} onReopen={onReopen} onStart={() => setStart({})} onFile={readFile} onPort={source.port ? onPort : undefined} />
+      {/* a site build that is open can have the game as its promo game (web/canvas/rooms.js openGame) */}
+      <GameStart isOpen={!!start} onClose={() => setStart(null)} idea={start?.idea}
+        site={run && deck.kind !== 'game' && Object.keys(deck.layers).length ? { run, name: deck.title || 'this site' } : null}
+        castOnly={start?.cast && run ? { run, title: model.title } : null}
+        onBuilt={(built, say) => { setStart(null); sayOnOpen(built, say); go({ type: 'started', run: built, room: 'app' }) }} />
+      <Chat from={run} project={view.project} lines={feed.lines} log={feed.log} onSubmit={onChat} commands={COMMANDS}
+        onCommand={c => (c.name === 'game' ? setStart({ idea: c.arg }) : c.name === 'cast' ? setStart({ cast: true }) : hermia(`${c.text} is not a command here. Try /game or /cast.`))}
         box={working
           ? { placeholder: 'Ask the crew, or say what to change…', empty: 'Ask the crew what they are on, or say what to change next.', action: 'Send' }
           : { placeholder: 'Change the game: “make the jump higher”, “add a boss”…', empty: 'Say what to change, or “show the art”, “show the game”, “play it for me”.', action: 'Send' }} />

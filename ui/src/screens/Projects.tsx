@@ -338,7 +338,11 @@ export function Projects() {
   async function openChat(id: string) {
     const chat = await api<{ id?: string, kind?: ChatKind, plan?: string, turns?: { id?: string, who: string, text: string }[] }>(`/api/chats/${encodeURIComponent(id)}`).catch(() => null)
     if (!chat?.id) return void loadChats()
-    if (chat.kind === 'game') return void go({ type: 'plan', plan: chat.plan || null })
+    // a game chat opens on its Plan board, where its talk goes on (web/home.js openChat, web/studio.js talkGame)
+    if (chat.kind === 'game') {
+      talkOn({ id: `chat:${chat.id}:${Date.now()}`, kind: 'game', chat: chat.id, said: saidOf(chat), blank: true })
+      return void go({ type: 'plan', plan: chat.plan || null })
+    }
     talkOn({ id: `chat:${chat.id}:${Date.now()}`, kind: chat.kind, chat: chat.id, said: saidOf(chat), blank: true })
     go({ type: 'draft' })
   }

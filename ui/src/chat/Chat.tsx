@@ -84,6 +84,15 @@ export function Chat(props: ChatProps) {
     else if (!wanted && talk.on) talk.end()
   }, [wanted?.id])
 
+  // an option the screen presses for the person (the Plan board's Lock)
+  const pressed = useRef<string | null>(null)
+  useEffect(() => {
+    const p = props.press
+    if (!p || p.id === pressed.current) return
+    pressed.current = p.id
+    talk.press(p.pick, p.label)
+  }, [props.press?.id])
+
   // the screen's lines are heard too, so Hermia's cursor never says one
   const heard = useRef(new Set<string>())
   useEffect(() => { for (const l of [...lines, ...log]) if (!heard.current.has(l.id)) { heard.current.add(l.id); if (l.who !== 'sys') hear(l.text) } }, [lines, log])

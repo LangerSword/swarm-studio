@@ -79,9 +79,9 @@ export function MakeBox({ inputRef }: { inputRef: React.RefObject<HTMLInputEleme
     // a website goes straight to the question before its build (decision 0020): Just make it is the press, so no
     // brief first (web/home.js confirmBuild); the other kinds show the brief with Build
     if (way.k === 'now') return make.k === 'site' ? void build(words) : setPop({ k: 'brief', text: words, back: null })
-    // a game's Studio is its Plan board, where its talk asks (spec 27). The talk is the classic Studio's for now
-    // (PlanBoard.tsx): it opens there with these words (web/gametalk.js, decision 0024)
-    if (make.k === 'game') return location.assign(`/classic/?game=${encodeURIComponent(words)}`)
+    // a game's Studio is its Plan board, where its talk asks (spec 27): the board opens with no plan yet, and its
+    // chat sends these words as the talk's first (web/studio.js talkGame)
+    if (make.k === 'game') { setText(''); talkOn({ id: `game:${Date.now()}`, kind: 'game', text: words, blank: true }); return go({ type: 'plan', plan: null }) }
     // Studio: a Studio project, opened on the step the kind starts with
     try {
       const j = await post<{ project: { id: string } }>('/api/studio', { kind: make.k, idea: words, mode: way.k, depth: store.get<string>('home.depth', 'light') === 'thorough' ? 'thorough' : 'light', steps: way.steps || KIT_STEPS[make.k] })

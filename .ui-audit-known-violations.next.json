@@ -33,11 +33,11 @@
   },
   {
     "key": "plan@1440 loading",
-    "detail": "nothing showed it was loading, and the screen asked for no data"
+    "detail": "nothing showed it was loading while /api/models were held"
   },
   {
     "key": "plan@390 loading",
-    "detail": "nothing showed it was loading, and the screen asked for no data"
+    "detail": "nothing showed it was loading while /api/models were held"
   },
   {
     "key": "projects@1440 axe label-content-name-mismatch",

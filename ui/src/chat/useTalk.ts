@@ -184,7 +184,7 @@ export function useTalk({ api = chatApi, from = null, project = null, events, ad
     const wait = add({ who: 'hermia', text: '…', working: true })
     setBusy(true, g)
     try {
-      type Ans = { chat: { id: string }, turn: Turnish, draft?: unknown, plan?: { id: string } }
+      type Ans = { chat: { id: string }, turn: Turnish, draft?: unknown, plan?: { id: string }, failed?: { message?: string, action?: string } }
       const j = s.chat ? await postJson<Ans>(api, `/api/talk/${enc(s.chat)}`, { said, pick }) : await postJson<Ans>(api, '/api/talk', { kind: 'game', said })
       if (!alive(g)) return
       s.chat = j.chat.id
@@ -196,9 +196,18 @@ export function useTalk({ api = chatApi, from = null, project = null, events, ad
       if (j.plan?.id) { const fresh = s.plan !== j.plan.id; s.plan = j.plan.id; if (fresh) ev.current.onPlan?.(j.plan.id); else ev.current.onPlanAt?.(j.plan.id, {}) }
       else if (j.draft) ev.current.onPlanDraft?.(j.draft)
       if (j.turn.wait) watch(g, j.turn.text, j.turn.install ? line : null)
+      // the planner's model did not answer this turn (server/talk.mjs `failed`): the step above is the plan's own;
+      // the reason is said beside it
+      if (j.failed) add({ who: 'err', text: [j.failed.message, j.failed.action].filter(Boolean).join(' ') || 'Hermia did not answer. Say it again.' })
     } catch (err) {
       if (alive(g)) add({ who: 'hermia', text: (err as Error).message || 'Hermia did not answer. Say it again.' })
     } finally { setBusy(false, g); drop(wait) }
+  }
+  // the plan's Lock, from the board's button while the chat talks: the same lock as the chat's (talk.js gameLock)
+  function press(pick: string, label: string) {
+    const s = T.current
+    if (s.busy || !s.chat || s.kind !== 'game') return
+    void gameSay({ pick, label })
   }
 
   async function gameResume(last: string | null) {
@@ -350,6 +359,6 @@ export function useTalk({ api = chatApi, from = null, project = null, events, ad
   const s = T.current
   return {
     on: s.on, busy: s.busy, kind: s.kind, chat: s.chat, started: s.started, turns,
-    start, end, say, note: add, build, pick, briefText, briefGo, brandSheet, keepTalking, openChat, newChat, files, pickCard
+    start, end, say, note: add, build, pick, briefText, briefGo, brandSheet, keepTalking, openChat, newChat, files, pickCard, press
   }
 }

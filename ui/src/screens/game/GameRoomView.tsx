@@ -17,7 +17,6 @@ import { Icon } from '../../primitives/Icon'
 import { ToggleGroup } from '../../primitives/ToggleGroup'
 import { MermaidDiagram } from '../../shared/MermaidDiagram'
 import { Wall, type WallWindow } from '../../shared/Wall'
-import { classicHref } from '../../shell/classic'
 import { crew as crewOf } from '../deck/crew'
 import { failLine, frameUrl, stopSummary, type GameModel, type GameStep } from './model'
 import type { Autoplay } from './useAutoplay'
@@ -75,7 +74,7 @@ function ArtSheet({ model }: { model: GameModel }) {
 }
 
 // The room's card, when there is nothing to play and no art to show: starting, building, stopped, failed
-function Card({ model, opening, openError, onBuild, onInCode, onReopen }: { model: GameModel, opening: boolean, openError: string, onBuild: () => void, onInCode: () => void, onReopen: () => void }) {
+function Card({ model, opening, openError, onBuild, onInCode, onReopen, onStart }: { model: GameModel, opening: boolean, openError: string, onBuild: () => void, onInCode: () => void, onReopen: () => void, onStart?: () => void }) {
   const a = model.app, st = a.state, working = st === 'working', part = model.part
   // why the game's server did not start, when the room's own try failed
   const openFailed = !!openError, notStarted = openError || a.message
@@ -112,8 +111,8 @@ function Card({ model, opening, openError, onBuild, onInCode, onReopen }: { mode
   </>)
   else if (st === 'failed') body = fail(<>The game didn't <em>build</em></>, <>{msg(failLine(a.message))}{a.message && details(a.message)}{again('Try again', onBuild)}</>)
   else if ((a.hasApp || openFailed) && notStarted) body = fail(<>The game didn't <em>start</em></>, <>{msg(String(notStarted).split('\n')[0].slice(0, 220))}{again('Try again', onReopen)}</>)
-  // a game that was never built starts with its questions, which are still asked in the classic Studio
-  else body = <div className="grid justify-items-center gap-4 text-center"><H2>A game starts with a few questions</H2><LinkButton role="primary" href={classicHref()}>Start a game</LinkButton></div>
+  // a game that was never built starts with its questions (start/GameStart.tsx)
+  else body = <div className="grid justify-items-center gap-4 text-center"><H2>A game starts with a few questions</H2><Button role="primary" aria-haspopup="dialog" onPress={onStart}>Start a game</Button></div>
   return <div className="absolute inset-0 grid place-content-center justify-items-center overflow-auto bg-bg p-6">{body}</div>
 }
 
@@ -157,7 +156,7 @@ function CodePane({ model, writing, onFile }: { model: GameModel, writing: strin
   )
 }
 
-export function GameRoomView({ model, now, said = null, mode = 'preview', opening = false, openError = '', autoplay, reload = 0, onPick, onMode, onReload, onStop, onBuild, onInCode, onReopen, onFile, onPort }: {
+export function GameRoomView({ model, now, said = null, mode = 'preview', opening = false, openError = '', autoplay, reload = 0, onPick, onMode, onReload, onStop, onBuild, onInCode, onReopen, onStart, onFile, onPort }: {
   model: GameModel
   // the stage now (web/canvas/stage.js stageNow): the options offered, the one shown and the pin
   now: StageNow
@@ -178,6 +177,8 @@ export function GameRoomView({ model, now, said = null, mode = 'preview', openin
   onBuild: () => void
   onInCode: () => void
   onReopen: () => void
+  // the questions a new game starts with
+  onStart?: () => void
   onFile: (path: string | null) => void
   onPort?: () => void
 }) {
@@ -258,7 +259,7 @@ export function GameRoomView({ model, now, said = null, mode = 'preview', openin
             )}
           </div>
         )}
-        {preview && now.empty && (now.sheet ? <ArtSheet model={model} /> : <Card model={model} opening={opening} openError={openError} onBuild={onBuild} onInCode={onInCode} onReopen={onReopen} />)}
+        {preview && now.empty && (now.sheet ? <ArtSheet model={model} /> : <Card model={model} opening={opening} openError={openError} onBuild={onBuild} onInCode={onInCode} onReopen={onReopen} onStart={onStart} />)}
         {preview && now.shown === 'crew' && <div className="absolute inset-0 flex flex-col bg-bg"><Wall label="Game build" windows={windows} start={1} /></div>}
         {preview && now.shown === 'map' && <div className="absolute inset-0 overflow-auto bg-bg"><MapPane model={model} /></div>}
         {/* off the wall the play test is a small card over the stage, which × hides; never over the live game, which is
