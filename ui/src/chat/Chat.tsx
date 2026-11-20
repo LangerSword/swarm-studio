@@ -84,6 +84,9 @@ export function Chat(props: ChatProps) {
     else if (!wanted && talk.on) talk.end()
   }, [wanted?.id])
 
+  // words the screen puts in the box (`fill`): a new id puts them there, with the caret after them
+  useEffect(() => { if (props.fill) { setText(props.fill.text); setTab('chat'); box.current?.focus({ preventScroll: true }) } }, [props.fill?.id])
+
   // the screen's lines are heard too, so Hermia's cursor never says one
   const heard = useRef(new Set<string>())
   useEffect(() => { for (const l of [...lines, ...log]) if (!heard.current.has(l.id)) { heard.current.add(l.id); if (l.who !== 'sys') hear(l.text) } }, [lines, log])

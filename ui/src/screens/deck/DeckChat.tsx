@@ -16,7 +16,7 @@ import { routeMessage } from '@studio/route'
 import { ownerSay } from '@studio/github'
 import { isResearchStop, stopText, againBody, type Stop } from '@studio/researchstop'
 import { ResearchStop } from '../../studio/ResearchStop'
-import { Chat, talkTaken, talkWaiting, type BuildRoute, type ChatCommand, type ChatGo, type ChatApi, type ChatKind, type ChatLine, type ChatTalk } from '../../chat'
+import { Chat, talkTaken, talkWaiting, type BuildRoute, type ChatCommand, type ChatGo, type ChatApi, type ChatKind, type ChatLine, type ChatProps, type ChatTalk } from '../../chat'
 import { makeOf, runOf } from '../projects/make'
 import { chatApi } from '../../chat/api'
 import { useNav } from '../../nav/NavProvider'
@@ -32,9 +32,17 @@ const COMMANDS: ChatCommand[] = [
   { name: 'replay', what: 'Watch the build again' }
 ]
 
-// `api`: the server, with the token (src/chat/api.ts); a story answers from a fixture instead
-export function DeckChat({ model, picked, onCommand, api = chatApi }: {
-  model: DeckModel, picked: string | null, onCommand: (name: 'play' | 'publish' | 'export' | 'replay') => void, api?: ChatApi
+// what the chat's lines are written with by a screen that takes the words itself (`first`)
+export type Say = { you: (text: string) => void, bot: (text: string) => void }
+
+// `api`: the server, with the token (src/chat/api.ts); a story answers from a fixture instead.
+// The Overview draws this chat too (overview/OverviewChat.tsx), with what differs there: `room`, the room a build
+// started here opens in; `commands`, the ones it has; `page`, a page is selected, so words about it change it;
+// `first`, what is selected there takes the words before the build does (true: taken); `fill`, words put in the box;
+// `layerRect`, where a layer is on that screen.
+export function DeckChat({ model, picked, onCommand, api = chatApi, room = 'deck', commands = COMMANDS, page = false, first, fill, layerRect }: {
+  model: DeckModel, picked: string | null, onCommand: (name: 'play' | 'publish' | 'export' | 'replay') => void, api?: ChatApi,
+  room?: 'deck' | 'overview', commands?: ChatCommand[], page?: boolean, first?: (text: string, say: Say) => boolean | Promise<boolean>, fill?: ChatProps['fill'], layerRect?: ChatProps['layerRect']
 }) {
   const post = useCallback((path: string, body: unknown) => api(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }), [api])
   const { view, go } = useNav()
@@ -64,7 +72,7 @@ export function DeckChat({ model, picked, onCommand, api = chatApi }: {
       ...((route === 'extend' || route === 'add' || route === 'redo') && run ? { from: run } : {}), ...(route === 'redo' ? { redo: true } : {}), ...(chat ? { chat } : {}), ...(more || {})
     })).catch(() => null)
     const j = await r?.json().catch(() => ({})) as { run?: string, error?: string, ask?: string, chat?: string | null, text?: string, message?: string, hermes?: boolean } | undefined
-    if (r?.ok && j?.run) { setTalk(null); go({ type: 'started', run: j.run, project: view.project, room: 'deck' }); return }
+    if (r?.ok && j?.run) { setTalk(null); go({ type: 'started', run: j.run, project: view.project, room }); return }
     // a new website asks first (docs/decisions/0020-ask-before-build.md): the question waits in its chat, here, with
     // its answers in Suggestions; "don't build yet" opens the talk instead. Not busy, and not an error
     if (r?.status === 409 && j?.error === 'ask') {
@@ -76,7 +84,7 @@ export function DeckChat({ model, picked, onCommand, api = chatApi }: {
     if (r?.status === 409) return note('err', 'The crew are still on the last change.')
     if (r?.status === 503 && j?.hermes) return note('err', j.message || j.error || 'Hermes is not answering.')
     note('err', `Couldn't start the build${r ? ` (${j?.error || r.status})` : ''}. Is the studio server running?`)
-  }, [run, view.project, go, post])
+  }, [run, view.project, go, post, room])
 
   // the answer: all builds the brief now from its chat (answered); the rest open the Studio walk with steps skipped
   const answered = useCallback(async ({ path, skip, brief, chat }: ChatGo) => {
@@ -108,7 +116,8 @@ export function DeckChat({ model, picked, onCommand, api = chatApi }: {
     if (!chips.length && await ownerSay(text, { api, said: t => note('you', t), answer: t => note('hermia', t) })) return
     const layers = chips.filter(c => c.kind === 'layer').map(c => c.key)
     if (layers.length && run) return comment(text, { targets: layers })
-    const route = routeMessage({ text, run, site: model.kind !== 'game' && model.pages.length > 0, selected: !!picked })
+    if (await first?.(text, { you: t => note('you', t), bot: t => note('hermia', t) })) return
+    const route = routeMessage({ text, run, site: model.kind !== 'game' && model.pages.length > 0, selected: !!picked || page })
     if (route === 'fix' && run) return comment(text, { target: picked })
     if (route === 'extend') {
       // "don't build yet, let's talk": the planner answers here and nothing is built until the person says so
@@ -116,10 +125,10 @@ export function DeckChat({ model, picked, onCommand, api = chatApi }: {
       if (intent !== 'build') return setTalk({ id: `deck:${Date.now()}`, kind: 'site', text })
     }
     return build({ brief: text, agents, route: route === 'new' ? 'new' : 'extend' })
-  }, [run, model, picked, build, post, api])
+  }, [run, model, picked, build, post, api, first, page])
 
   return (
-    <Chat api={api} talk={talk} from={run} project={view.project} lines={lines} log={log} commands={COMMANDS}
+    <Chat api={api} talk={talk} from={run} project={view.project} lines={lines} log={log} commands={commands} fill={fill} layerRect={layerRect}
       onSubmit={e => void submit(e)}
       // a loose chat reopened from Chats is outside every project: the deck with nothing on it (talk.js talkStart
       // `blank`). New chat stays where it is: a build just started is not yet known here by its project
@@ -128,8 +137,8 @@ export function DeckChat({ model, picked, onCommand, api = chatApi }: {
       onGo={e => void answered(e)}
       onCommand={({ name }) => {
         if (!run) note('err', 'Nothing is built yet.')
-        else if (name === 'play' || name === 'publish' || name === 'export' || name === 'replay') onCommand(name)
-        else note('err', `/${name} is not a command here. Try /play, /publish, /export or /replay.`)
+        else if (commands.some(c => c.name === name)) onCommand(name as 'play' | 'publish' | 'export' | 'replay')
+        else note('err', `/${name} is not a command here. Try ${commands.map(c => `/${c.name}`).join(', ').replace(/, ([^,]*)$/, ' or $1')}.`)
       }} />
   )
 }

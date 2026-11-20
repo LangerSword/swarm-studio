@@ -20,6 +20,7 @@ import { refAt } from '../../shared/refs'
 import { useRefDrop } from '../../shared/RefDrop'
 import { useToast } from '../../primitives/Toast'
 import { GameRoom } from '../GameRoom'
+import { takeAsk } from './asking'
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '')
 
@@ -122,6 +123,9 @@ export function AppWall() {
     source.change(run, text, doneSections(deck)).then(app => { setModel(m => (m ? { ...m, app: { ...m.app, ...app } } : m)); line('sys', `💬 to the app: ${text}`) })
       .catch(err => line('err', `App: ${String(err.message || err)}`))
   }, [run, model, source, deck, onAsk, line])
+
+  // words typed on an app project's Overview are this room's (app/asking.ts): taken once the app is read
+  useEffect(() => { const t = model ? takeAsk(model.run) : ''; if (t) onChat({ text: t }) }, [model?.run])
 
   // an answer to the chat's question (not the '…' while it comes): one line, by whoever answered
   const answered = useRef<Said>(null)

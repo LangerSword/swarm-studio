@@ -352,6 +352,14 @@ flowchart LR
 The way home is always there and is not a branch: the breadcrumb (`Projects › project ▾`, then Back from a room), the
 logo (back to Home) and Esc.
 
+In the new Studio (`ui/src/screens/Overview.tsx`) the chat is the same one the Design deck draws
+(`overview/OverviewChat.tsx`), where decision 0015 puts it: a column down the left in a window 1280 px or wider, with
+Hide chat and Show chat, and a dock along the bottom in a narrower one. It is always on screen, so the dock there is
+Move, Frame, New page and Upload, with no Chat tool and no box of its own; New page starts the words in the chat's
+box. The words go where the chart's last line says, and a built section dragged from the Layers tab is a chip in the
+box, so the words go to just that section. In an app project they change the app, in its App room, unless a page is
+selected. Scribble, Eraser and Follow are not in the new Studio's Overview yet, so no marks go with a message there.
+
 An app build's Engine room, in the next UI, is the app build wall (spec 44): four windows, Map, Live app, Code and
 Shipped; a click enlarges one, Esc puts it back, and Ask the crew sends a question to the window of the crew member it
 names. In the current Studio the build wall's first window is the Map too, for an app and for a game (spec 44): the
