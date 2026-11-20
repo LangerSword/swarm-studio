@@ -7,6 +7,7 @@ import { talkOn, type ChatApi, type ChatTalk } from '../chat'
 import { makeNav } from '../nav/nav'
 import { NavProvider } from '../nav/NavProvider'
 import { DesignDeck } from './DesignDeck'
+import { SheetsProvider } from './setup/Sheets'
 
 const answer = (body: unknown, status = 200): Promise<Response> => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } }))
 const never = () => new Promise<Response>(() => {})
@@ -36,7 +37,7 @@ const meta = {
     talkOn(parameters.talk as ChatTalk | null)
     const nav = makeNav()
     nav.go({ type: 'draft' })
-    return <NavProvider nav={nav}><Story /></NavProvider>
+    return <NavProvider nav={nav}><SheetsProvider first={false}><Story /></SheetsProvider></NavProvider>
   }]
 } satisfies Meta<typeof DesignDeck>
 export default meta

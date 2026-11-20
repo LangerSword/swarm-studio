@@ -103,3 +103,27 @@ test('small words', () => {
   assert.equal(savedTo('/Users/sam/Swarm Studio/x/video/a.mp4'), '~/Swarm Studio/x/video/a.mp4')
   assert.equal(savedTo('C:\\films\\a.mp4'), 'C:\\films\\a.mp4')
 })
+
+test('/video: a first word that names a style is the style, the rest is the idea', async () => {
+  const { videoAsk } = await import('../src/screens/video/model.ts')
+  assert.deepEqual(videoAsk(''), {})
+  assert.deepEqual(videoAsk('  a fast trailer, scary but cute '), { idea: 'a fast trailer, scary but cute' })
+  assert.deepEqual(videoAsk('Trailer scary but cute'), { style: 'trailer', idea: 'scary but cute' })
+  assert.deepEqual(videoAsk('calm'), { style: 'calm' })
+  // what it posts: the command's own style and idea win over the form's
+  const body = makeBody({ voice: '', music: true, clips: true, style: 'promo', idea: 'from the form', refs: [] }, videoAsk('kinetic end on the crowd'))
+  assert.equal(body.template, 'kinetic')
+  assert.equal(body.prompt, 'end on the crowd')
+  assert.equal(makeBody({ voice: '', music: true, clips: true, style: 'promo', idea: 'from the form', refs: [] }, videoAsk('')).template, 'promo')
+})
+
+test('the panel over the Design deck: there while a film is made or ready, and for a failure seen here', async () => {
+  const { panelShows } = await import('../src/screens/video/model.ts')
+  assert.equal(panelShows(opened('none'), false), false)
+  assert.equal(panelShows(opened('none'), true), false)
+  assert.equal(panelShows(opened('storyboard'), false), true)
+  assert.equal(panelShows(opened('rendering'), false), true)
+  assert.equal(panelShows(opened('done'), false), true)
+  assert.equal(panelShows(opened('failed'), false), false)
+  assert.equal(panelShows(opened('failed'), true), true)
+})

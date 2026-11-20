@@ -3,6 +3,9 @@
 // once the composition is written, a skeleton before), why it is not there with the one thing to do, or the empty
 // form. The form is the same under a finished film ("Make a new cut"). It keeps nothing of the build: the screen
 // (../FilmStudio.tsx) hands it the film and what was chosen, and hears every press.
+// With `panel` it is the same film as the panel floating over the Design deck (FilmPanel.tsx; the classic .video-pop):
+// its head has Open the Film studio and Minimize, and minimized it is only the title and the progress, so the canvas
+// and the crew stay in view.
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { FileTrigger } from 'react-aria-components'
 import { boardVideo, dropVideo, playVideo } from '@studio/video'
@@ -24,6 +27,8 @@ import './film.css'
 const key = (v: string) => v || 'auto'
 const unkey = (k: unknown) => (k === 'auto' || k == null ? '' : String(k))
 const SHAPES: Record<Shape, string> = { wide: 'Wide', tall: 'Tall', square: 'Square' }
+const TITLE = 'font-display text-[26px] leading-none font-extrabold tracking-[.02em] uppercase'
+const TITLE_EM = 'font-serif text-[.92em] font-medium tracking-normal text-pink normal-case italic'
 const PILL = 'inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-xs'
 
 export interface FilmStudioViewProps {
@@ -48,10 +53,13 @@ export interface FilmStudioViewProps {
   live?: string
   // this window asked for the film: its new cut plays once, out loud
   mine?: boolean
+  // drawn as the panel over the Design deck: minimized or not, its Minimize, and Open the Film studio
+  panel?: { min: boolean, onMin: () => void, onOpen: () => void }
 }
 
-export function FilmStudioView({ film, loading = false, opts, onOpts, media, mediaError, onMake, onPick, onAddRef, onReveal, onMediaKey, onMediaAgain, onSetup, live, mine = false }: FilmStudioViewProps) {
+export function FilmStudioView({ film, loading = false, opts, onOpts, media, mediaError, onMake, onPick, onAddRef, onReveal, onMediaKey, onMediaAgain, onSetup, live, mine = false, panel }: FilmStudioViewProps) {
   const shows = loading ? 'loading' : filmShows(film)
+  const min = !!panel?.min
   const [notesOpen, setNotesOpen] = useState(false)
   const [shape, setShape] = useState<Shape>('wide')
   const [big, setBig] = useState<{ src: string, at: number } | null>(null)
@@ -64,12 +72,12 @@ export function FilmStudioView({ film, loading = false, opts, onOpts, media, med
   const played = useRef('')
   useEffect(() => {
     const v = player.current
-    if (shows !== 'film' || !v || !now.src || played.current === now.src) return
+    if (shows !== 'film' || min || !v || !now.src || played.current === now.src) return
     if (!mine && !document.hasFocus()) return
     played.current = now.src
     playVideo(v).catch(() => { v.muted = true; playVideo(v).catch(() => {}) })
-  }, [shows, now.src, mine])
-  useEffect(() => { if (shows !== 'film') setBig(null) }, [shows])
+  }, [shows, min, now.src, mine])
+  useEffect(() => { if (shows !== 'film' || min) setBig(null) }, [shows, min])
 
   const form = (
     <>
@@ -103,9 +111,22 @@ export function FilmStudioView({ film, loading = false, opts, onOpts, media, med
   const foot = (word: string, press: () => void = onMake) => <div className="mt-2.5 flex justify-end"><Button role="primary" onPress={press}>{word}</Button></div>
 
   return (
-    <section data-film={shows} aria-label="Film studio" className="film-room min-h-0 flex-1 overflow-auto px-7 py-5 text-[13px] text-text">
-      <h1 className="mb-3 font-display text-[26px] leading-none font-extrabold tracking-[.02em] uppercase">The promo <em className="font-serif text-[.92em] font-medium tracking-normal text-pink normal-case italic">video</em></h1>
-      {(film.board || film.notes) && (
+    <section data-film={shows} data-min={min || undefined} aria-label={panel ? 'Film' : 'Film studio'}
+      className={panel
+        ? `film-pop absolute right-3.5 bottom-3.5 z-[35] max-h-[calc(100%-28px)] max-w-[calc(100%-28px)] overflow-auto rounded-[12px] border border-panel-edge bg-glass p-3 text-[13px] text-text shadow-[0_24px_70px_rgb(var(--shade-rgb)/.6)] backdrop-blur-[18px] ${min ? 'w-[300px]' : 'w-[520px]'}`
+        : 'film-room min-h-0 flex-1 overflow-auto px-7 py-5 text-[13px] text-text'}>
+      {panel
+        ? (
+          <div className={`flex items-center justify-between gap-2 ${min ? 'mb-1' : 'mb-2.5'}`}>
+            <h2 className={TITLE}>The promo <em className={TITLE_EM}>video</em></h2>
+            <span className="flex items-center gap-1">
+              <IconButton icon="ext" size={16} label="Open the Film studio" onPress={panel.onOpen} />
+              <IconButton icon={min ? 'up' : 'minus'} size={16} label={min ? 'Expand' : 'Minimize'} aria-expanded={!min} onPress={panel.onMin} />
+            </span>
+          </div>
+        )
+        : <h1 className={`mb-3 ${TITLE}`}>The promo <em className={TITLE_EM}>video</em></h1>}
+      {!min && (film.board || film.notes) && (
         <div className="mb-2 flex flex-wrap items-baseline gap-2">
           {film.board && <><b className="text-sm">{film.board.title}</b><small className="text-muted">{film.board.pace}{film.board.bpm ? ` · ${film.board.bpm} BPM` : ''}</small></>}
           {film.notes && (
@@ -116,13 +137,13 @@ export function FilmStudioView({ film, loading = false, opts, onOpts, media, med
           {film.notes && notesOpen && <Notes n={film.notes} />}
         </div>
       )}
-      {film.story.length > 0 && (
+      {!min && film.story.length > 0 && (
         <ol aria-label="Storyboard" className="mb-2 flex gap-2 overflow-x-auto pb-2">
           {film.story.map((sc, i) => <SceneCard key={i} sc={sc} />)}
         </ol>
       )}
 
-      {shows === 'film' && (
+      {shows === 'film' && !min && (
         <>
           {film.cuts.length > 1 && (
             <div role="group" aria-label="Cuts" className="mb-2.5 flex flex-wrap gap-1.5">
@@ -151,7 +172,7 @@ export function FilmStudioView({ film, loading = false, opts, onOpts, media, med
           </div>
           {form}
           {foot('Make a new cut')}
-          {big && <BigScreen src={big.src} at={big.at} onClose={() => setBig(null)} />}
+          {big && <BigScreen src={big.src} at={big.at} back={panel ? 'Design deck' : 'Film studio'} onClose={() => setBig(null)} />}
         </>
       )}
 
@@ -159,12 +180,12 @@ export function FilmStudioView({ film, loading = false, opts, onOpts, media, med
         <>
           {/* before the live cut plays, a skeleton in the film's shape, marked busy: Hermia works on it (web/pet.js, #392) */}
           {liveOn(film) && live
-            ? <LiveCut src={live} />
-            : <div role="status" aria-busy="true" aria-label="The film, on its way" className="wait-in mb-2.5 aspect-video w-full rounded-[6px] bg-[color-mix(in_srgb,var(--text)_7%,transparent)] motion-safe:animate-pulse" />}
+            ? !min && <LiveCut src={live} />
+            : !min && <div role="status" aria-busy="true" aria-label="The film, on its way" className="wait-in mb-2.5 aspect-video w-full rounded-[6px] bg-[color-mix(in_srgb,var(--text)_7%,transparent)] motion-safe:animate-pulse" />}
           <div role="progressbar" aria-label="The film" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.floor(film.pct)} className="h-1.5 overflow-hidden rounded-[3px] bg-panel-2">
             <i className="block h-full bg-accent transition-[width] duration-[400ms]" style={{ width: `${Math.max(3, film.pct)}%` }} />
           </div>
-          <p className="mt-2 text-xs text-muted">{stageSays(film)}</p>
+          <p className={`mt-2 text-xs text-muted ${min ? 'truncate' : ''}`}>{stageSays(film)}</p>
         </>
       )}
 
@@ -172,13 +193,13 @@ export function FilmStudioView({ film, loading = false, opts, onOpts, media, med
         <>
           {/* the reason in plain words, what to do about it, and the one action: Set up when Hermes is not there */}
           <p role="alert" className="mt-2 text-xs text-hot-text">{why.message}</p>
-          {why.action && <p className="mt-2 text-xs text-muted">{why.action.split(/`([^`]+)`/).map((part, i) => (i % 2 ? <code key={i} className="font-monospace text-text">{part}</code> : part))}</p>}
-          {why.code === 'hermes' && onSetup ? foot('Set up', onSetup) : foot('Try again')}
+          {!min && why.action && <p className="mt-2 text-xs text-muted">{why.action.split(/`([^`]+)`/).map((part, i) => (i % 2 ? <code key={i} className="font-monospace text-text">{part}</code> : part))}</p>}
+          {!min && (why.code === 'hermes' && onSetup ? foot('Set up', onSetup) : foot('Try again'))}
         </>
       )}
 
-      {shows === 'none' && <>{form}{foot('Make the film')}</>}
-      {shows === 'loading' && <div role="status" aria-busy="true" aria-label="Loading the film" className="wait-in aspect-video w-full rounded-[6px] bg-[color-mix(in_srgb,var(--text)_7%,transparent)] motion-safe:animate-pulse" />}
+      {shows === 'none' && !min && <>{form}{foot('Make the film')}</>}
+      {shows === 'loading' && !min && <div role="status" aria-busy="true" aria-label="Loading the film" className="wait-in aspect-video w-full rounded-[6px] bg-[color-mix(in_srgb,var(--text)_7%,transparent)] motion-safe:animate-pulse" />}
     </section>
   )
 }
@@ -235,7 +256,7 @@ function LiveCut({ src }: { src: string }) {
 }
 
 // The video filling the whole pane (and the screen, where the app allows it), from where the small one was
-function BigScreen({ src, at, onClose }: { src: string, at: number, onClose: () => void }) {
+function BigScreen({ src, at, back, onClose }: { src: string, at: number, back: string, onClose: () => void }) {
   const wrap = useRef<HTMLDivElement>(null), video = useRef<HTMLVideoElement>(null), close = useRef<HTMLButtonElement>(null)
   useEffect(() => {
     const v = video.current, el = wrap.current
@@ -257,7 +278,7 @@ function BigScreen({ src, at, onClose }: { src: string, at: number, onClose: () 
   return (
     <div ref={wrap} role="dialog" aria-modal="true" aria-label="The promo video, big" className="fixed inset-0 z-[200] flex items-center justify-center bg-void">
       <video ref={video} controls playsInline className="size-full object-contain" />
-      <IconButton ref={close} icon="x" label="Back to the Film studio (Esc)" onPress={onClose} className="absolute top-3.5 right-4 rounded-full bg-[rgb(var(--glass-rgb)/.14)] text-text" />
+      <IconButton ref={close} icon="x" label={`Back to the ${back} (Esc)`} onPress={onClose} className="absolute top-3.5 right-4 rounded-full bg-[rgb(var(--glass-rgb)/.14)] text-text" />
     </div>
   )
 }

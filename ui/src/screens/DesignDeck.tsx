@@ -2,7 +2,8 @@
 // in Figma's layout (PATTERNS.md). The open version comes from the machine (`view.run`, room `deck`); its events
 // are folded into the model the canvas and the panels draw: the pages, the crew's cursors, Pages and Layers, the
 // toolbar (the person's Move, Text and Comment), the variables, a picked section's Design tab (Open Design's Edit),
-// comments, the chat, Play and Watch a visitor, Replay, Publish and Post to Feed, and Export (#404). A file dropped
+// comments, the chat, Play and Watch a visitor, Replay, Publish and Post to Feed, and Export (#404), and the build's
+// film in a panel over the corner (video/FilmPanel.tsx; `/video` in the chat makes it). A file dropped
 // on the stage goes to the project's References (shared/RefDrop.tsx, issue #543; web/canvas/base.js's refDrop).
 // scripts/deck-walk.mjs uses each of them end to end.
 // The machine's `draft` is this deck too: a new project talked through before anything is built (web/home.js newChat,
@@ -29,6 +30,7 @@ import { ExportDialog } from './deck/ExportDialog'
 import { Player } from './deck/Player'
 import { PublishDialog } from './deck/PublishDialog'
 import { useDeckRun } from './deck/source'
+import { useFilmPanel } from './video/FilmPanel'
 import { useToast } from '../primitives/Toast'
 import { refAt } from '../shared/refs'
 import { useRefDrop } from '../shared/RefDrop'
@@ -55,6 +57,8 @@ export function DesignDeck({ board: forced, api }: { board?: BoardMode, api?: Ch
   const [sheet, setSheet] = useState(false)
   const closeSheet = useCallback(() => setSheet(false), [])
   const [dialog, setDialog] = useState<'publish' | 'export' | null>(null)
+  // the build's film, floating over the corner while it is made or ready (never over a replay: that is the build again)
+  const filmPanel = useFilmPanel(view.replay ? null : model.run)
   // Publish's button: its menu opens under it
   const publishBtn = useRef<HTMLButtonElement>(null)
   // the picked section (and the part of it the Design tab shows); hand edits, with Undo and Redo
@@ -182,12 +186,13 @@ export function DesignDeck({ board: forced, api }: { board?: BoardMode, api?: Ch
         onPublish={() => setDialog('publish')} onExport={() => setDialog('export')} history={edits} publishRef={publishBtn}
         design={pickedLayer && <DesignTab layer={pickedLayer} issue={model.issues[pickedLayer.key]?.problem} part={part} onPart={setPart} onClose={() => select(null)}
           onEdit={(patch, why) => { edits.edit(pickedLayer.key, patch, why).then(id => { if (id !== undefined) setPart(id) }) }} />} />
+      {filmPanel.panel}
       {view.player !== 'closed' && model.pages.length > 0 && <Player model={model} />}
       {model.run && <PublishDialog model={model} anchor={publishBtn} isOpen={dialog === 'publish'} onOpenChange={o => setDialog(o ? 'publish' : null)} />}
       {model.run && <ExportDialog model={model} isOpen={dialog === 'export'} onOpenChange={o => setDialog(o ? 'export' : null)} />}
     </div>
     {(model.run || draft) && <DeckChat api={api} model={model} picked={sel?.key ?? null}
-      onCommand={c => { if (c === 'play') play(); else if (c === 'replay') replay.toggle(); else setDialog(c) }} />}
+      onCommand={c => { if (c === 'play') play(); else if (c === 'replay') replay.toggle(); else setDialog(c) }} onVideo={filmPanel.make} />}
     </>
   )
 }

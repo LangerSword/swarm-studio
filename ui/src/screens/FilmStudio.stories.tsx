@@ -7,21 +7,10 @@ import { NavProvider } from '../nav/NavProvider'
 import { ToastProvider } from '../primitives/Toast'
 import { SheetsProvider } from './setup/Sheets'
 import { FilmStudio } from './FilmStudio'
-import { filmEvents, filmPart, filmStatus, media, RUN, savedCuts, type FilmCut } from './video/film.fixture'
+import { filmSource, RUN } from './video/film.fixture'
 import { FilmSourceContext, type FilmSource } from './video/source'
 
-const from = (cut: FilmCut, more: Partial<FilmSource> = {}): FilmSource => ({
-  events: async () => filmEvents(cut),
-  status: async () => filmStatus(cut),
-  part: async () => filmPart(cut),
-  cuts: async () => (cut === 'done' ? savedCuts : []),
-  make: async () => ({ state: 'working', pct: 0, stage: 'storyboard' }),
-  ref: async (_run, file) => ({ name: file.name }),
-  reveal: async () => {},
-  media: async () => media,
-  mediaKey: async () => media,
-  ...more
-})
+const from = filmSource
 
 const meta = {
   component: FilmStudio,

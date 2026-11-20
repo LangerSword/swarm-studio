@@ -22,6 +22,7 @@ import { chatApi } from '../../chat/api'
 import { useNav } from '../../nav/NavProvider'
 import { crew } from './crew'
 import { doneSections, type DeckModel, type DeckLine } from './model'
+import { videoAsk, type FilmAsk } from '../video/model'
 
 
 // the commands the deck takes in the chat (web/canvas/loop.js SLASH, the ones this deck has moved)
@@ -29,12 +30,14 @@ const COMMANDS: ChatCommand[] = [
   { name: 'play', what: 'Open the prototype' },
   { name: 'publish', what: 'Publish a live link' },
   { name: 'export', what: 'Export the files' },
-  { name: 'replay', what: 'Watch the build again' }
+  { name: 'replay', what: 'Watch the build again' },
+  { name: 'video', arg: '[prompt]', what: 'Cut a film from a prompt, e.g. a fast trailer, scary but cute' }
 ]
 
 // `api`: the server, with the token (src/chat/api.ts); a story answers from a fixture instead
-export function DeckChat({ model, picked, onCommand, api = chatApi }: {
-  model: DeckModel, picked: string | null, onCommand: (name: 'play' | 'publish' | 'export' | 'replay') => void, api?: ChatApi
+// `onVideo`: `/video [style] [idea]` makes the build's film (web/canvas/loop.js runSlash); the deck's film panel shows it
+export function DeckChat({ model, picked, onCommand, onVideo, api = chatApi }: {
+  model: DeckModel, picked: string | null, onCommand: (name: 'play' | 'publish' | 'export' | 'replay') => void, onVideo: (ask: FilmAsk) => void, api?: ChatApi
 }) {
   const post = useCallback((path: string, body: unknown) => api(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }), [api])
   const { view, go } = useNav()
@@ -126,10 +129,11 @@ export function DeckChat({ model, picked, onCommand, api = chatApi }: {
       onTalk={t => { setTalk(t); if (t.blank && t.chat && !draft) go({ type: 'draft' }) }}
       onBuild={({ brief, chat, route, kind }) => void build({ brief, route, chat, kind })}
       onGo={e => void answered(e)}
-      onCommand={({ name }) => {
+      onCommand={({ name, arg }) => {
         if (!run) note('err', 'Nothing is built yet.')
         else if (name === 'play' || name === 'publish' || name === 'export' || name === 'replay') onCommand(name)
-        else note('err', `/${name} is not a command here. Try /play, /publish, /export or /replay.`)
+        else if (name === 'video') onVideo(videoAsk(arg))
+        else note('err', `/${name} is not a command here. Try /play, /publish, /export, /replay or /video.`)
       }} />
   )
 }

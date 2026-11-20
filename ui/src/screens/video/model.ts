@@ -159,10 +159,25 @@ export const VIDEO_STYLES: readonly (readonly [string, string])[] = [['', 'The p
 // The voiceover: Kokoro, on this machine, in one of its voices; or none
 export const VOICE_OPTS: readonly (readonly [string, string])[] = [['', 'Kokoro · fits the theme'], ['af_heart', 'Kokoro · Heart'], ['af_bella', 'Kokoro · Bella'], ['am_michael', 'Kokoro · Michael'], ['bf_emma', 'Kokoro · Emma (UK)'], ['bm_george', 'Kokoro · George (UK)'], ['off', 'No voice']]
 export interface FilmOpts { voice: string, music: boolean, clips: boolean, style: string, idea: string, refs: { name: string }[] }
-// what POST /api/runs/<id>/video takes (web/canvas/film.js makeVideo); `ask` is the chat's or a command's own idea and style
-export const makeBody = (o: FilmOpts, ask: { idea?: string, style?: string } = {}) => ({
+// the chat's or a command's own idea and style, which win over what was chosen in the form
+export interface FilmAsk { idea?: string, style?: string }
+// what POST /api/runs/<id>/video takes (web/canvas/film.js makeVideo)
+export const makeBody = (o: FilmOpts, ask: FilmAsk = {}) => ({
   voice: o.voice || undefined, music: o.music, template: ask.style || o.style || undefined, prompt: ask.idea || o.idea || undefined, refs: o.refs, clips: o.clips, film: 'auto'
 })
+// What `/video` asks for (web/canvas/loop.js runSlash): a first word that names a style is the style, the rest is
+// the idea; `/video` alone makes the film from what was chosen
+export function videoAsk(arg: string): FilmAsk {
+  const [first = '', ...more] = arg.trim().split(/\s+/)
+  const style = first && VIDEO_STYLES.some(([k]) => k === first.toLowerCase()) ? first.toLowerCase() : ''
+  const idea = (style ? more.join(' ') : arg).trim()
+  return { ...(style ? { style } : {}), ...(idea ? { idea } : {}) }
+}
+
+// The film panel over the Design deck (FilmPanel.tsx): there while a film is being made or is ready, and for one
+// that failed in this page's sight (`fresh`: asked for here, or heard starting). A failure from another day is the
+// Film studio's to say, not a card left on the deck
+export const panelShows = (f: Film, fresh: boolean): boolean => { const s = filmShows(f); return s === 'making' || s === 'film' || (s === 'failed' && fresh) }
 
 // ---------- the film's outside services (GET /api/media): music (ElevenLabs), clips (Veo…), pictures
 export interface MediaService { label: string, by: string, on: boolean, via?: string, pasted?: boolean, key?: string, keyLabel?: string, keyUrl?: string, hint?: string, grant?: boolean, allow?: string }

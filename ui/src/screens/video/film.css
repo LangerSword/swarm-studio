@@ -10,7 +10,7 @@
 @keyframes vin { from { opacity: 0; transform: translateY(8px); } }
 @media (prefers-reduced-motion: reduce) { .film-scene { animation: none; } }
 
-/* the room comes in as the classic panel does (web/canvas.css .video-pop: pop .2s, a fade and a 6 px rise) */
-.film-room { animation: pop .2s var(--ease); }
+/* the room, and the panel over the Design deck, come in as the classic panel does (web/canvas.css .video-pop: pop .2s, a fade and a 6 px rise) */
+.film-room, .film-pop { animation: pop .2s var(--ease); }
 @keyframes pop { from { opacity: 0; transform: translateY(6px); } }
-@media (prefers-reduced-motion: reduce) { .film-room { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .film-room, .film-pop { animation: none; } }

@@ -2,6 +2,7 @@
 // start to the critic's line, in the shapes the server sends (server/server.mjs makeVideo).
 import type { RunEvent } from '../app/model'
 import type { Cut, FilmPart, FilmStatus, Media } from './model'
+import type { FilmSource } from './source'
 
 export const RUN = 'r-river'
 const T0 = Date.UTC(2026, 10, 19, 10, 0)
@@ -66,3 +67,17 @@ export const media: Media = {
   clips: { label: 'Clips', by: 'Veo, through Hermes', on: true, via: 'hermes' },
   pictures: { label: 'Pictures', by: 'camera moves on stills', on: false, hint: 'Sign in to a picture model in Hermes to paint new frames.' }
 }
+
+// a stand-in for the server at one point of the film, for a story
+export const filmSource = (cut: FilmCut, more: Partial<FilmSource> = {}): FilmSource => ({
+  events: async () => filmEvents(cut),
+  status: async () => filmStatus(cut),
+  part: async () => filmPart(cut),
+  cuts: async () => (cut === 'done' ? savedCuts : []),
+  make: async () => ({ state: 'working', pct: 0, stage: 'storyboard' }),
+  ref: async (_run, file) => ({ name: file.name }),
+  reveal: async () => {},
+  media: async () => media,
+  mediaKey: async () => media,
+  ...more
+})

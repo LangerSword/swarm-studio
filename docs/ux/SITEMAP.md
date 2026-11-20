@@ -575,6 +575,12 @@ wide, tall and square shapes; New cut is the form under it (the prompt, a style 
 or an idea typed in the chat; the storyboard's beats sit above both. Shots, and the Launch pad, are still the agreed
 direction above and are in neither Studio.
 
+On the Design deck of the new Studio the same film floats in a panel over the bottom right corner while it is being
+made or is ready (ui/src/screens/video/FilmPanel.tsx; the classic `.video-pop`): Minimize leaves the title and the
+progress, Expand brings it back, and its head opens the Film studio. `/video [prompt]` in the deck's chat makes the
+film (or a new cut) from there. The panel is not a layer and has no address: it is the Film studio's film, seen from
+the deck.
+
 ## 11. Hermia, the commander
 
 Hermia leads the crew. She is our own character: the owner's reference was an ink-style anime portrait, and we
