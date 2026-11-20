@@ -2,7 +2,8 @@
 // A screen that has moved to React is in SCREENS; until then /next/ shows its name and a way to open it in the
 // current Studio at the same address. Moving one screen is ui/README.md's recipe.
 import type { ComponentType } from 'react'
-import type { Room } from '../nav/nav'
+import type { Room, View } from '../nav/nav'
+import { sheetHost } from './brand/source'
 import { BrandSheet } from './BrandSheet'
 import { Overview } from './Overview'
 import { Projects } from './Projects'
@@ -46,7 +47,8 @@ export const CRUMB_NAMES: Record<Room, string> = {
 export const SCREENS: Partial<Record<Room, ComponentType>> = {
   // an app build's four windows (spec 44); a game build's App view is the Game room (AppWall hands it over)
   app: AppWall,
-  // a project's brand sheet, opened from its Studio; one opened from a chat has no address and stays behind
+  // a project's brand sheet, opened from its Studio; one opened from a chat's brief is drawn by that chat's screen
+  // (screenOf, below)
   brand: BrandSheet,
   deck: DesignDeck,
   draft: DesignDeck,
@@ -58,3 +60,7 @@ export const SCREENS: Partial<Record<Room, ComponentType>> = {
   // a build's film: its storyboard, its making and its cuts (web/canvas/film.js)
   video: FilmStudio
 }
+
+// the screen that draws where the person is: the room's, but a brand sheet opened from a chat's brief stays on the
+// screen that chat is on, which draws the sheet beside it (brand/source.ts sheetHost, brand/ChatSheet.tsx)
+export const screenOf = (v: View): ComponentType | undefined => SCREENS[sheetHost(v)]

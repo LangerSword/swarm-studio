@@ -462,6 +462,12 @@ flowchart LR
   PT --> AN[Animation]
 ```
 
+A talk in the deck's chat ends in a brief (Build, Brand sheet, Keep talking). **Brand sheet** opens that chat's brand
+sheet (spec 31) in the canvas's place, with the chat still beside it: Home › Projects › Chat › Brand sheet, and Lock in
+the top bar. Lock, the crumb's Chat and Esc go back to the deck, where the brief's button then reads Brand sheet ·
+Locked and Build builds from the locked sheet. It has no address of its own: a reload shows the deck. (A project's own
+sheet is the Studio's Brand card, section 5c.)
+
 ### Engine room
 
 ```mermaid

@@ -8,6 +8,8 @@
 // The machine's `draft` is this deck too: a new project talked through before anything is built (web/home.js newChat,
 // web/canvas/talk.js). There is no build, so the canvas has nothing on it and the chat is the talk (deck/DeckChat.tsx);
 // its Build starts the build, which opens here.
+// The brief's Brand sheet (spec 31) opens here too, in the canvas's place and beside the chat that asked for it
+// (brand/ChatSheet.tsx): the machine is in `brand`, and the deck under it is the room it was opened from.
 import { classicHref } from '../shell/classic'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { takeOpening } from '../nav/opening'
@@ -18,6 +20,7 @@ import { useNav } from '../nav/NavProvider'
 import { DeckStage, type Picked, type StageHandle } from './deck/DeckStage'
 import { CommentPin } from './deck/Comment'
 import { DeckChat } from './deck/DeckChat'
+import { useChatSheet } from './brand/ChatSheet'
 import type { ChatApi } from '../chat'
 import { DesignTab } from './deck/DesignTab'
 import { useEdits } from './deck/edit'
@@ -37,7 +40,9 @@ import { useRefDrop } from '../shared/RefDrop'
 // `api` is the chat's server in a story (src/chat/types.ts ChatApi)
 export function DesignDeck({ board: forced, api }: { board?: BoardMode, api?: ChatApi }) {
   const { view, go } = useNav()
-  const draft = view.room === 'draft'
+  // under a brand sheet opened from the chat, the deck is still the room it was opened from
+  const brand = useChatSheet(api)
+  const draft = (brand.on ? view.from : view.room) === 'draft'
   // ☰ → Replay (the machine's `replay`): the saved build plays again, and ends on the finished build
   const { model, loading, error, unfinished = false } = useDeckRun(view.run ?? view.version, view.replay, useCallback(() => go({ type: 'replay', on: false }), [go]))
   const stage = useRef<StageHandle>(null)
@@ -96,7 +101,7 @@ export function DesignDeck({ board: forced, api }: { board?: BoardMode, api?: Ch
   // and redo, never inside a field
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || view.player !== 'closed') return
+      if (e.defaultPrevented || view.player !== 'closed' || brand.on) return
       const field = e.target instanceof Element && !!e.target.closest('input, textarea, select, [contenteditable], [role="dialog"], [data-refask]')
       if (e.key === 'Escape' && tool !== 'move' && !field) { e.preventDefault(); setTool('move'); return }
       if (e.key === 'Escape' && sel && !field) { e.preventDefault(); if (part) setPart(null); else select(null) }
@@ -107,7 +112,7 @@ export function DesignDeck({ board: forced, api }: { board?: BoardMode, api?: Ch
     }
     addEventListener('keydown', key, true)
     return () => removeEventListener('keydown', key, true)
-  }, [sel, part, select, edits, view.player, tool, pressTool])
+  }, [sel, part, select, edits, view.player, tool, pressTool, brand.on])
   const pickedLayer = sel ? model.layers[sel.key] : undefined
   useEffect(() => { setPicked(null); setFollow(true) }, [model.run, view.replay])
   // opened on a page (the Overview's Open): that page is picked and the camera goes to it, once it is in the build
@@ -140,7 +145,9 @@ export function DesignDeck({ board: forced, api }: { board?: BoardMode, api?: Ch
     <>
     {/* the chat is down the left in a wide window, along the bottom in a narrower one (decision 0015, chat/Dock.tsx);
         the deck takes what is beside or above it */}
-    <div className="relative flex min-w-0 overflow-hidden" style={{ height: 'calc(100dvh - 3.5rem - var(--chat-h, 0px))', marginLeft: 'var(--chat-w, 0px)' }}>
+    {/* the chat's brand sheet takes the deck's place, and the deck under it takes no key or pointer until it closes */}
+    {brand.on && <div className="min-w-0 overflow-hidden" style={{ height: 'calc(100dvh - 3.5rem - var(--chat-h, 0px))', marginLeft: 'var(--chat-w, 0px)' }}>{brand.board}</div>}
+    <div hidden={brand.on} inert={brand.on} className="relative flex min-w-0 overflow-hidden" style={{ height: 'calc(100dvh - 3.5rem - var(--chat-h, 0px))', marginLeft: 'var(--chat-w, 0px)' }}>
       <LeftPanel id="deck-layers-panel" model={model} page={page} sheet={sheet} onClose={closeSheet} selected={sel?.key ?? null}
         onPage={id => { setPicked(id); setFollow(false); setSheet(false); stage.current?.focusPage(id) }}
         onLayer={k => { const l = model.layers[k]; const on = l && l.page !== '*' ? l.page : page ?? model.pages[0]?.id; if (!on) return; select({ key: k, page: on }); setPicked(on); setSheet(false); stage.current?.focusPage(on) }} />
@@ -186,7 +193,7 @@ export function DesignDeck({ board: forced, api }: { board?: BoardMode, api?: Ch
       {model.run && <PublishDialog model={model} anchor={publishBtn} isOpen={dialog === 'publish'} onOpenChange={o => setDialog(o ? 'publish' : null)} />}
       {model.run && <ExportDialog model={model} isOpen={dialog === 'export'} onOpenChange={o => setDialog(o ? 'export' : null)} />}
     </div>
-    {(model.run || draft) && <DeckChat api={api} model={model} picked={sel?.key ?? null}
+    {(model.run || draft) && <DeckChat api={api} model={model} picked={sel?.key ?? null} onBrandSheet={brand.open}
       onCommand={c => { if (c === 'play') play(); else if (c === 'replay') replay.toggle(); else setDialog(c) }} />}
     </>
   )

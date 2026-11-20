@@ -10,13 +10,14 @@
 // new project, as its kind builds (a website live, an app or a video by its steps), and the build opens here.
 //   "publish to <organization>"       where builds go on GitHub, answered here (web/github.js ownerSay), when the
 //                                     name is the person's account or one of their organizations
-// A talk (the Chat's own) ends in a brief; its Build starts the build here. A new build takes the deck over.
+// A talk (the Chat's own) ends in a brief; its Build starts the build here. A new build takes the deck over. The
+// brief's Brand sheet is opened by the deck, in its canvas's place (brand/ChatSheet.tsx): the chat stays beside it.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { routeMessage } from '@studio/route'
 import { ownerSay } from '@studio/github'
 import { isResearchStop, stopText, againBody, type Stop } from '@studio/researchstop'
 import { ResearchStop } from '../../studio/ResearchStop'
-import { Chat, talkTaken, talkWaiting, type BuildRoute, type ChatCommand, type ChatGo, type ChatApi, type ChatKind, type ChatLine, type ChatTalk } from '../../chat'
+import { Chat, talkTaken, talkWaiting, type BuildRoute, type ChatCommand, type ChatGo, type ChatApi, type ChatKind, type ChatLine, type ChatProps, type ChatTalk } from '../../chat'
 import { makeOf, runOf } from '../projects/make'
 import { chatApi } from '../../chat/api'
 import { useNav } from '../../nav/NavProvider'
@@ -33,8 +34,9 @@ const COMMANDS: ChatCommand[] = [
 ]
 
 // `api`: the server, with the token (src/chat/api.ts); a story answers from a fixture instead
-export function DeckChat({ model, picked, onCommand, api = chatApi }: {
+export function DeckChat({ model, picked, onCommand, onBrandSheet, api = chatApi }: {
   model: DeckModel, picked: string | null, onCommand: (name: 'play' | 'publish' | 'export' | 'replay') => void, api?: ChatApi
+  onBrandSheet?: ChatProps['onBrandSheet']
 }) {
   const post = useCallback((path: string, body: unknown) => api(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }), [api])
   const { view, go } = useNav()
@@ -125,6 +127,7 @@ export function DeckChat({ model, picked, onCommand, api = chatApi }: {
       // `blank`). New chat stays where it is: a build just started is not yet known here by its project
       onTalk={t => { setTalk(t); if (t.blank && t.chat && !draft) go({ type: 'draft' }) }}
       onBuild={({ brief, chat, route, kind }) => void build({ brief, route, chat, kind })}
+      onBrandSheet={onBrandSheet}
       onGo={e => void answered(e)}
       onCommand={({ name }) => {
         if (!run) note('err', 'Nothing is built yet.')
