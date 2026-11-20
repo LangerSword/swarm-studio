@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { Tab, TabList, TabPanel, Tabs, TextArea } from 'react-aria-components'
 import { Button } from '../primitives/Button'
 import { ChipSelect } from '../primitives/ChipSelect'
+import { useModelsSheet } from '../screens/setup/Sheets'
 import { chatApi, getJson, postJson } from './api'
 import { Chats } from './Chats'
 import { DockHandle, useDock } from './Dock'
@@ -28,7 +29,7 @@ const recent = (): string[] => { try { return JSON.parse(localStorage.getItem(RE
 const short = (m: string) => m.split('/').pop() || m
 
 // the build model picker (web/canvas/settings.js fillBuildModel): Hermes's own model first, the picked and recent
-// ones, then Other…, which opens the models panel. A pick is saved for the builders at once.
+// ones, then Other…, which opens Models. A pick is saved for the builders at once.
 function useBuildModel(api: NonNullable<ChatProps['api']>, onError: (text: string) => void) {
   const [info, setInfo] = useState<{ hermes?: string, picked?: string, list: string[], count: number }>({ list: [], count: 0 })
   const load = async () => {
@@ -40,6 +41,8 @@ function useBuildModel(api: NonNullable<ChatProps['api']>, onError: (text: strin
     setInfo({ hermes: w.hermes, picked: w.picked, list, count: (j.text || []).length })
   }
   useEffect(() => { void load() }, [api])
+  // Models saved a pick (screens/setup/ModelsSheet.tsx): read them again
+  useEffect(() => { const again = () => { void load() }; addEventListener('swarm:models', again); return () => removeEventListener('swarm:models', again) }, [api])
   const options = [{ id: HERMES, label: info.hermes ? short(info.hermes) : 'Hermes default' }, ...info.list.map(m => ({ id: m, label: short(m) })), { id: OTHER, label: `Other… (${info.count} models)` }]
   const value = info.picked && info.list.includes(info.picked) ? info.picked : HERMES
   async function pick(id: string) {
@@ -55,6 +58,8 @@ function useBuildModel(api: NonNullable<ChatProps['api']>, onError: (text: strin
 export function Chat(props: ChatProps) {
   const { talk: wanted = null, from = null, project = null, lines = [], log = [], commands = [], agentsMax, layerRect, onSubmit, onCommand, onMoreModels } = props
   const api = props.api ?? chatApi
+  const models = useModelsSheet()
+  const moreModels = onMoreModels ?? models
   const [chips, setChips] = useState<ChatChip[]>([])
   const [text, setText] = useState('')
   const [tab, setTab] = useState<'chat' | 'log'>('chat')
@@ -215,7 +220,7 @@ export function Chat(props: ChatProps) {
                 <span className="flex-1" />
                 <ChipSelect name="Agents" options={agentList.map(n => ({ id: String(n), label: `${n} agents` }))} value={agents} onChange={setAgents} className="flex-none" />
                 <ChipSelect name="Build model" options={model.options} value={model.value} className="min-w-0 max-w-56 shrink"
-                  onChange={id => { if (id === OTHER) onMoreModels?.(); else void model.pick(id) }} />
+                  onChange={id => { if (id === OTHER) moreModels?.(); else void model.pick(id) }} />
               </>}
               <Button type="submit" role="primary" className="flex-none">{talk.on ? 'Send' : props.box?.action ?? 'Build'}</Button>
             </div>

@@ -288,6 +288,12 @@ In the next UI the two talk branches (Chats, and "Don't build yet") open on its 
 on it and the chat talking, the machine's `draft`. Build there opens the new build on the same deck. It has no address
 of its own, so a reload shows Projects.
 
+In the next UI the user menu's **Models** opens a sheet over Projects (and over any room, from the chat's build model
+**Other…**): Planner, Builders, Reviewer, Images and Lite mode, each saved as it changes. Under Hermes, **Change** on
+Planner or Builders closes it and opens Setup on its Models row (the `SU1` branch above), where a model is picked, a
+provider is added by its command and a model that does not answer says why. It is not a layer of its own: no
+address, and closing it shows what was under it.
+
 ## 7. Me
 
 ```mermaid
