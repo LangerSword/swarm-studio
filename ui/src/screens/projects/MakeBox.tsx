@@ -76,7 +76,9 @@ export function MakeBox({ inputRef }: { inputRef: React.RefObject<HTMLInputEleme
     setOff(down ? { text: `${h!.health!.message} ${String(h!.health!.action || '').replace(/`/g, '')}`, again: () => void begin(way, words) } : null)
     if (down) return
     store.set(`home.mode.${make.k}`, way.k)
-    if (way.k === 'now') return setPop({ k: 'brief', text: words, back: null })
+    // a website goes straight to the question before its build (decision 0020): Just make it is the press, so no
+    // brief first (web/home.js confirmBuild); the other kinds show the brief with Build
+    if (way.k === 'now') return make.k === 'site' ? void build(words) : setPop({ k: 'brief', text: words, back: null })
     // a game's Studio is its Plan board, where its talk asks (spec 27). The talk is the classic Studio's for now
     // (PlanBoard.tsx): it opens there with these words (web/gametalk.js, decision 0024)
     if (make.k === 'game') return location.assign(`/classic/?game=${encodeURIComponent(words)}`)
