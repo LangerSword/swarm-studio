@@ -39,10 +39,10 @@ export type Say = { you: (text: string) => void, bot: (text: string) => void }
 // The Overview draws this chat too (overview/OverviewChat.tsx), with what differs there: `room`, the room a build
 // started here opens in; `commands`, the ones it has; `page`, a page is selected, so words about it change it;
 // `first`, what is selected there takes the words before the build does (true: taken); `fill`, words put in the box;
-// `layerRect`, where a layer is on that screen.
-export function DeckChat({ model, picked, onCommand, api = chatApi, room = 'deck', commands = COMMANDS, page = false, first, fill, layerRect }: {
+// `layerRect`, where a layer is on that screen; `attached`, what goes with the next message (its unsent marks).
+export function DeckChat({ model, picked, onCommand, api = chatApi, room = 'deck', commands = COMMANDS, page = false, first, fill, layerRect, attached }: {
   model: DeckModel, picked: string | null, onCommand: (name: 'play' | 'publish' | 'export' | 'replay') => void, api?: ChatApi,
-  room?: 'deck' | 'overview', commands?: ChatCommand[], page?: boolean, first?: (text: string, say: Say) => boolean | Promise<boolean>, fill?: ChatProps['fill'], layerRect?: ChatProps['layerRect']
+  room?: 'deck' | 'overview', commands?: ChatCommand[], page?: boolean, first?: (text: string, say: Say) => boolean | Promise<boolean>, fill?: ChatProps['fill'], layerRect?: ChatProps['layerRect'], attached?: ChatProps['attached']
 }) {
   const post = useCallback((path: string, body: unknown) => api(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }), [api])
   const { view, go } = useNav()
@@ -113,6 +113,8 @@ export function DeckChat({ model, picked, onCommand, api = chatApi, room = 'deck
   }
 
   const submit = useCallback(async ({ text, agents, chips }: { text: string, agents: number, chips: { key: string, kind: string }[] }) => {
+    // what the screen attached goes first, words or none (the Overview's marks)
+    if (attached) { if (await first?.(text, { you: t => note('you', t), bot: t => note('hermia', t) })) return; if (!text) return }
     if (!chips.length && await ownerSay(text, { api, said: t => note('you', t), answer: t => note('hermia', t) })) return
     const layers = chips.filter(c => c.kind === 'layer').map(c => c.key)
     if (layers.length && run) return comment(text, { targets: layers })
@@ -125,10 +127,10 @@ export function DeckChat({ model, picked, onCommand, api = chatApi, room = 'deck
       if (intent !== 'build') return setTalk({ id: `deck:${Date.now()}`, kind: 'site', text })
     }
     return build({ brief: text, agents, route: route === 'new' ? 'new' : 'extend' })
-  }, [run, model, picked, build, post, api, first, page])
+  }, [run, model, picked, build, post, api, first, page, attached])
 
   return (
-    <Chat api={api} talk={talk} from={run} project={view.project} lines={lines} log={log} commands={commands} fill={fill} layerRect={layerRect}
+    <Chat api={api} talk={talk} from={run} project={view.project} lines={lines} log={log} commands={commands} fill={fill} layerRect={layerRect} attached={attached}
       onSubmit={e => void submit(e)}
       // a loose chat reopened from Chats is outside every project: the deck with nothing on it (talk.js talkStart
       // `blank`). New chat stays where it is: a build just started is not yet known here by its project

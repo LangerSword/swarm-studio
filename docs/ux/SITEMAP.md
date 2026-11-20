@@ -358,7 +358,7 @@ Hide chat and Show chat, and a dock along the bottom in a narrower one. It is al
 Move, Frame, New page and Upload, with no Chat tool and no box of its own; New page starts the words in the chat's
 box. The words go where the chart's last line says, and a built section dragged from the Layers tab is a chip in the
 box, so the words go to just that section. In an app project they change the app, in its App room, unless a page is
-selected. Scribble, Eraser and Follow are not in the new Studio's Overview yet, so no marks go with a message there.
+selected. The new Studio's Overview has Scribble and Eraser too (the dock; S and E): marks are drawn on a page with a note each, the chat's box says how many, they go with the next message (words or none), and the crew's drafts sit beside their page, with Accept and Dismiss in the inspector. Follow is not there yet.
 
 An app build's Engine room, in the next UI, is the app build wall (spec 44): four windows, Map, Live app, Code and
 Shipped; a click enlarges one, Esc puts it back, and Ask the crew sends a question to the window of the crew member it

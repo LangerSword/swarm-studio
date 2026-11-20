@@ -1,6 +1,7 @@
 // The Overview's chat (owner, 2026-11-15: on the Overview the chat is the one place to type; decision 0015 says where
 // it sits): the chat the Design deck draws (deck/DeckChat.tsx), so a talk, a brief's Build, layers dragged in and the
 // project's next version go the same way, with what web/project.js say() adds on the Overview:
+//   marks are drawn          the words go with the marks (Scribble: useScribble.ts send), words or none
 //   a picture is selected    the words paint it again (POST /api/runs/:run/image)
 //   an app project           the words change the app, in its App room (app/asking.ts), unless a page is selected
 //   a page is selected       words about it change that page: the crew pick the section (POST …/comment)
@@ -33,8 +34,10 @@ function layerRect(board: Board | null, selected: Item | null, key: string) {
   return band ? { left: r.left, top: r.top + r.height * band.top, width: r.width, height: r.height * band.h } : r
 }
 
-export function OverviewChat({ run, board, selected, fill, onReload, onExport, api }: {
-  run: string | null, board: Board | null, selected: Item | null, fill?: ChatProps['fill'], onReload: () => void, onExport: () => void, api?: ChatApi
+// `marks`: the unsent Scribble marks: how many, Clear, and Send (false: the last ones are still going, nothing is taken)
+export function OverviewChat({ run, board, selected, fill, onReload, onExport, api, marks }: {
+  run: string | null, board: Board | null, selected: Item | null, fill?: ChatProps['fill'], onReload: () => void, onExport: () => void, api?: ChatApi,
+  marks?: { n: number, label: string, clear: () => void, send: (text: string, say: Say) => Promise<boolean> }
 }) {
   const { go } = useNav()
   const { model } = useDeckRun(run)
@@ -51,6 +54,7 @@ export function OverviewChat({ run, board, selected, fill, onReload, onExport, a
 
   const first = useCallback((text: string, say: Say) => {
     if (!run) return false
+    if (marks?.n) { void marks.send(text, say).then(ok => { if (ok) setTimeout(onReload, 1500) }); return true }
     if (selected?.kind === 'art' && selected.art) {
       const a = selected.art
       say.you(text)
@@ -61,8 +65,9 @@ export function OverviewChat({ run, board, selected, fill, onReload, onExport, a
     }
     if (toApp(board, selected?.kind)) { askOn(run, text); go({ type: 'room', room: 'app' }); return true }
     return false
-  }, [run, board, selected, go, onReload])
+  }, [run, board, selected, go, onReload, marks])
 
   return <DeckChat api={api} model={model} picked={null} room="overview" commands={COMMANDS} page={selected?.kind === 'page'} first={first} fill={fill}
+    attached={marks?.n ? { label: marks.label, onClear: marks.clear } : null}
     layerRect={key => layerRect(board, selected, key)} onCommand={name => { if (name === 'export') onExport() }} />
 }

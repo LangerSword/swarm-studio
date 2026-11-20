@@ -60,11 +60,19 @@ function stub(mode: Mode) {
 // the build's events, which the chat reads its lines from: none, or a finished build's (deck/deck.fixture.ts)
 const quiet: DeckSource = { events: async () => [] }
 const built: DeckSource = { events: async () => deckEvents('done') }
+// Scribble (spec 29): a ring the run has (sent, so dashed), what it was read to say, the draft the crew made of that
+// section and another still being written
+const marked: DeckSource = { events: async () => [...deckEvents('done'),
+  { type: 'marks', run: 'r-tea-2', text: 'make this bigger', marks: [{ id: 'k1', kind: 'box', page: 'home', pts: [], box: { x: 0.12, y: 0.06, w: 0.5, h: 0.1 } }] },
+  { type: 'marks:read', run: 'r-tea-2', reads: [{ mark: 'k1', read: 'k1: a box round the headline, "make this bigger"' }] },
+  { type: 'draft', run: 'r-tea-2', id: 'd1', page: 'home', layer: 'hero', role: 'hero', marks: ['k1'], html: '<section class="px-16 py-24"><h1 class="text-7xl font-semibold">Alpha Tea</h1><p class="mt-4 text-xl opacity-80">Tea for night shifts.</p></section>' },
+  { type: 'draft:start', run: 'r-tea-2', page: 'plans', layer: 'hero', role: 'hero' }
+] }
 
-function Screen({ mode, lines = false }: { mode: Mode, lines?: boolean }) {
+function Screen({ mode, lines = false, scribbled = false }: { mode: Mode, lines?: boolean, scribbled?: boolean }) {
   // the stub goes in before the screen's first fetch
   const [nav] = useState(() => { stub(mode); return makeNav({ search: '?project=p-tea&version=r-tea-2' }) })
-  return <NavProvider nav={nav}><SheetsProvider first={false}><DeckSourceContext value={lines ? built : quiet}><div className="bg-bg text-text"><TopBar /><Overview /></div></DeckSourceContext></SheetsProvider></NavProvider>
+  return <NavProvider nav={nav}><SheetsProvider first={false}><DeckSourceContext value={scribbled ? marked : lines ? built : quiet}><div className="bg-bg text-text"><TopBar /><Overview /></div></DeckSourceContext></SheetsProvider></NavProvider>
 }
 
 const meta = {
@@ -87,6 +95,30 @@ export const Missing: Story = { args: { mode: 'missing' } }
 export const ChatWithTheBuild: Story = { args: { lines: true } }
 // a narrower window: the chat is a dock along the bottom, and the Overview's own dock sits above it
 export const ChatOnAPhone: Story = { args: { lines: true }, globals: { viewport: { value: 'mobile1' } } }
+// Scribble: a mark the crew have (dashed), their draft of that section beside its page, and one still being written
+export const Scribbled: Story = { args: { scribbled: true } }
+// the draft picked: the section as written again, what the mark was read to say, Accept and Dismiss
+export const ADraftPicked: Story = {
+  args: { scribbled: true },
+  play: async ({ canvasElement }) => {
+    const draft = await new Promise<HTMLElement>(ok => { const look = () => { const el = canvasElement.ownerDocument.querySelector<HTMLElement>('.ov-ab.draft:not(.writing)'); if (el) ok(el); else setTimeout(look, 50) }; look() })
+    draft.click()
+  }
+}
+// Scribble in hand and a mark drawn: the page wears it, and the message box says "1 mark"
+export const AMarkDrawn: Story = {
+  play: async ({ canvasElement }) => {
+    const doc = canvasElement.ownerDocument
+    const wait = <T extends Element>(sel: string) => new Promise<T>(ok => { const look = () => { const el = doc.querySelector<T>(sel); if (el) ok(el); else setTimeout(look, 50) }; look() })
+    ;(await wait<HTMLButtonElement>('.ov-dock [aria-label="Scribble"]')).click()
+    const pad = await wait<HTMLElement>('.ov-ab.page .ov-mk-pad.scribble')
+    const r = pad.getBoundingClientRect(), at = (fx: number, fy: number) => ({ bubbles: true, cancelable: true, button: 0, pointerId: 7, clientX: r.left + r.width * fx, clientY: r.top + r.height * fy })
+    pad.setPointerCapture = () => {}
+    pad.dispatchEvent(new PointerEvent('pointerdown', at(0.2, 0.2)))
+    for (const [x, y] of [[0.4, 0.22], [0.6, 0.3], [0.7, 0.4]]) pad.dispatchEvent(new PointerEvent('pointermove', at(x, y)))
+    pad.dispatchEvent(new PointerEvent('pointerup', at(0.7, 0.4)))
+  }
+}
 // a section dragged from Layers into the chat: a chip in the message box, and the words go to just that section
 export const SectionInTheChat: Story = {
   play: async ({ canvasElement }) => {

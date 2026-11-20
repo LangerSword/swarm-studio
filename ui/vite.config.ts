@@ -51,6 +51,7 @@ export const alias: AliasOptions = [
   // a page's picture, taken inside its frame and sized in a worker (web/capture.js, spec 36): the Overview photographs
   // a changed page the same way in both apps (src/screens/overview/Snapper.tsx)
   { find: '@studio/capture', replacement: fileURLToPath(new URL('../web/capture.js', import.meta.url)) },
+  { find: '@studio/markanchor', replacement: fileURLToPath(new URL('../web/markanchor.js', import.meta.url)) },
   // the Game room's pure rules, the same files the classic room runs (src/screens/game/): what fills the stage and
   // its typed phrases (web/canvas/stage.js), Autoplay's (web/canvas/autoplay.js), a waiting slice's words and the
   // room's answers (web/canvas/wander.js), and the state pill's words (web/replaytalk.js)

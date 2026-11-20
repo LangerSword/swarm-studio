@@ -53,7 +53,7 @@ function useBuildModel(api: NonNullable<ChatProps['api']>, onError: (text: strin
 }
 
 export function Chat(props: ChatProps) {
-  const { talk: wanted = null, from = null, project = null, lines = [], log = [], commands = [], agentsMax, layerRect, onSubmit, onCommand, onMoreModels } = props
+  const { talk: wanted = null, from = null, project = null, lines = [], log = [], commands = [], agentsMax, layerRect, attached = null, onSubmit, onCommand, onMoreModels } = props
   const api = props.api ?? chatApi
   const [chips, setChips] = useState<ChatChip[]>([])
   const [text, setText] = useState('')
@@ -108,7 +108,8 @@ export function Chat(props: ChatProps) {
   // else a build, with the pickers and the chips
   function send(value = text) {
     const t = value.trim()
-    if (!t) return
+    // what the screen attached (the Overview's marks) goes with no words too, but never into a talk
+    if (!t && !(attached && !talk.on)) return
     if (/^\/[a-z?]/i.test(t)) {
       setText('')
       talk.note({ who: 'you', text: `› ${t}` })
@@ -171,8 +172,14 @@ export function Chat(props: ChatProps) {
         <TabPanel id="chat" className="flex min-h-0 flex-1 flex-col outline-none">
           <Feed lines={feed} acts={acts} label="Messages" empty={talk.on ? undefined : props.box?.empty ?? EMPTY} onHover={setHover} />
           <form className={`composer relative flex gap-1.5 px-2 pb-2 ${low ? 'flex-wrap items-end' : 'flex-col'}`} onSubmit={e => { e.preventDefault(); send() }}>
-            {chips.length > 0 && (
+            {(chips.length > 0 || attached) && (
               <div className="flex basis-full flex-wrap gap-1.5" onMouseLeave={() => setHot(null)}>
+                {attached && (
+                  <span data-attached className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-line-2 bg-surface-2 py-0.5 pr-0.5 pl-2 font-monospace text-xs">
+                    <span className="truncate">{attached.label}</span>
+                    <Button role="ghost" aria-label={`Clear ${attached.label}`} className="min-h-8 min-w-8 rounded-full px-0" onPress={attached.onClear}>×</Button>
+                  </span>
+                )}
                 {chips.map(c => (
                   <span key={c.key} data-chip={c.key} data-wire={c.kind === 'layer' ? '' : undefined} onMouseEnter={() => setHot(c.key)}
                     className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-line-2 bg-surface-2 py-0.5 pr-0.5 pl-2 font-monospace text-xs">
